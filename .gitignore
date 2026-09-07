@@ -1,0 +1,12 @@
+node_modules/
+dist/
+build/
+.env
+.env.local
+*.log
+coverage/
+.DS_Store
+Thumbs.db
+frontend/dev-dist/
+backend/generated/
+*.tsbuildinfo

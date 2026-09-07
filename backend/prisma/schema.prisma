@@ -1,0 +1,204 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────
+// AUTH / RBAC
+// ─────────────────────────────────────────────────────────────
+
+model Role {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique // SECURITY | HR | ADMIN
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  users           User[]
+  rolePermissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique // RECORD_ENTRY, RECORD_EXIT, VIEW_DASHBOARD, ...
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  id           Int @id @default(autoincrement())
+  roleId       Int @map("role_id")
+  permissionId Int @map("permission_id")
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  name         String
+  email        String   @unique
+  phone        String?
+  username     String   @unique
+  passwordHash String   @map("password_hash")
+  roleId       Int      @map("role_id")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  role               Role             @relation(fields: [roleId], references: [id])
+  recordedMovements  MovementRecord[] @relation("RecordedBy")
+  correctedMovements MovementRecord[] @relation("CorrectedBy")
+  auditLogs          AuditLog[]
+  emailsSent         EmailLog[]
+
+  @@index([roleId])
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────────────────────
+// EMPLOYEES
+// ─────────────────────────────────────────────────────────────
+
+model Employee {
+  id           Int      @id @default(autoincrement())
+  employeeCode String   @unique @map("employee_code")
+  employeeName String   @map("employee_name")
+  email        String
+  phone        String?
+  department   String?
+  designation  String?
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  movements MovementRecord[]
+  emailLogs EmailLog[]
+
+  @@index([employeeName])
+  @@index([employeeCode])
+  @@index([email])
+  @@map("employees")
+}
+
+// ─────────────────────────────────────────────────────────────
+// MOVEMENTS (event log — one row per ENTRY/EXIT, unlimited per day)
+// ─────────────────────────────────────────────────────────────
+
+enum MovementType {
+  ENTRY
+  EXIT
+}
+
+model MovementRecord {
+  id               Int          @id @default(autoincrement())
+  employeeId       Int          @map("employee_id")
+  movementType     MovementType @map("movement_type")
+  movementAt       DateTime     @map("movement_at") // server-authoritative timestamp
+  recordedByUserId Int          @map("recorded_by_user_id")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+
+  // Append-only correction chain (§42): a correction never mutates the
+  // original row. Instead the original is marked superseded and a new
+  // record is inserted, linked back via correctionOfId.
+  isSuperseded      Boolean @default(false) @map("is_superseded")
+  correctionOfId    Int?    @map("correction_of_id")
+  correctedByUserId Int?    @map("corrected_by_user_id")
+  correctionReason  String? @map("correction_reason")
+
+  employee     Employee         @relation(fields: [employeeId], references: [id])
+  recordedBy   User             @relation("RecordedBy", fields: [recordedByUserId], references: [id])
+  correctedBy  User?            @relation("CorrectedBy", fields: [correctedByUserId], references: [id])
+  correctionOf MovementRecord?  @relation("MovementCorrections", fields: [correctionOfId], references: [id])
+  corrections  MovementRecord[] @relation("MovementCorrections")
+
+  @@index([employeeId, movementAt])
+  @@index([movementAt])
+  @@index([movementType])
+  @@index([recordedByUserId])
+  @@index([isSuperseded])
+  @@map("movement_records")
+}
+
+// ─────────────────────────────────────────────────────────────
+// EMAIL (strictly on-demand — never automatic)
+// ─────────────────────────────────────────────────────────────
+
+enum EmailStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+model EmailLog {
+  id               Int         @id @default(autoincrement())
+  employeeId       Int         @map("employee_id")
+  movementDate     DateTime    @map("movement_date") @db.Date
+  recipient        String
+  cc               String?
+  status           EmailStatus @default(PENDING)
+  // Persisted report file actually sent (S3/R2), so a dispute can be
+  // resolved by re-serving exactly what was emailed — see decision log.
+  reportFileUrl    String?     @map("report_file_url")
+  reportFileFormat String?     @map("report_file_format") // PNG | PDF
+  sentAt           DateTime?   @map("sent_at")
+  errorMessage     String?     @map("error_message")
+  createdByUserId  Int         @map("created_by_user_id")
+  createdAt        DateTime    @default(now()) @map("created_at")
+
+  employee      Employee @relation(fields: [employeeId], references: [id])
+  createdByUser User     @relation(fields: [createdByUserId], references: [id])
+
+  @@index([employeeId, movementDate])
+  @@map("email_logs")
+}
+
+// ─────────────────────────────────────────────────────────────
+// AUDIT LOG
+// ─────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  userId     Int?     @map("user_id")
+  action     String // e.g. "USER_LOGIN", "ENTRY_RECORDED", "EMPLOYEE_UPDATED"
+  entityType String?  @map("entity_type")
+  entityId   Int?     @map("entity_id")
+  oldValue   Json?    @map("old_value")
+  newValue   Json?    @map("new_value")
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ─────────────────────────────────────────────────────────────
+// SETTINGS (key/value, avoids hard-coding company config)
+// ─────────────────────────────────────────────────────────────
+
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("settings")
+}

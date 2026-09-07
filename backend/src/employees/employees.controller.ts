@@ -1,0 +1,71 @@
+import { Body, Controller, Get, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { SessionAuthGuard } from '../common/guards/session-auth.guard';
+import { PermissionsGuard } from '../common/guards/permissions.guard';
+import { RequirePermissions } from '../common/decorators/permissions.decorator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { EmployeesService } from './employees.service';
+import { CreateEmployeeDto, UpdateEmployeeDto } from './dto/employee.dto';
+
+@Controller('employees')
+@UseGuards(SessionAuthGuard, PermissionsGuard)
+export class EmployeesController {
+  constructor(private employeesService: EmployeesService) {}
+
+  @Get('search')
+  @RequirePermissions('RECORD_ENTRY')
+  search(@Query('q') q: string) {
+    return this.employeesService.search(q);
+  }
+
+  // Includes inactive employees — for admin correction flows only (§39/§42).
+  @Get('search-all')
+  @RequirePermissions('CORRECT_RECORDS')
+  searchAll(@Query('q') q: string) {
+    return this.employeesService.searchIncludingInactive(q);
+  }
+
+  @Get()
+  @RequirePermissions('MANAGE_EMPLOYEES')
+  findAll(@Query('skip') skip?: string, @Query('take') take?: string) {
+    return this.employeesService.findAll({
+      skip: skip ? Number(skip) : undefined,
+      take: take ? Number(take) : undefined,
+    });
+  }
+
+  // VIEW_EMPLOYEE_HISTORY, not MANAGE_EMPLOYEES — this single-employee
+  // lookup backs the Employee Details page (name/code header), which
+  // Security can reach via the Dashboard's "View Employee Day" link even
+  // though Security lacks MANAGE_EMPLOYEES. Gating this behind
+  // MANAGE_EMPLOYEES silently broke that page (and therefore EMAIL
+  // DETAILS) for Security — found in the 2026-09-04 audit.
+  @Get(':id')
+  @RequirePermissions('VIEW_EMPLOYEE_HISTORY')
+  findOne(@Param('id') id: string) {
+    return this.employeesService.findById(Number(id));
+  }
+
+  @Post()
+  @RequirePermissions('MANAGE_EMPLOYEES')
+  create(@Body() dto: CreateEmployeeDto, @CurrentUser() user: any) {
+    return this.employeesService.create(dto, user.id);
+  }
+
+  @Put(':id')
+  @RequirePermissions('MANAGE_EMPLOYEES')
+  update(@Param('id') id: string, @Body() dto: UpdateEmployeeDto, @CurrentUser() user: any) {
+    return this.employeesService.update(Number(id), dto, user.id);
+  }
+
+  @Patch(':id/deactivate')
+  @RequirePermissions('MANAGE_EMPLOYEES')
+  deactivate(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.employeesService.setActive(Number(id), false, user.id);
+  }
+
+  @Patch(':id/reactivate')
+  @RequirePermissions('MANAGE_EMPLOYEES')
+  reactivate(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.employeesService.setActive(Number(id), true, user.id);
+  }
+}
