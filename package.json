@@ -1,0 +1,21 @@
+{
+  "name": "adage-security-system",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Root workspace — one `npm install` + one `npm run dev` runs the whole app (backend + frontend together) on any machine. See docs/developer-guide.md.",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "concurrently -n backend,frontend -c blue,green \"npm:dev:backend\" \"npm:dev:frontend\"",
+    "dev:backend": "npm run start:dev -w backend",
+    "dev:frontend": "npm run dev -w frontend",
+    "build": "npm run build -w backend && npm run build -w frontend",
+    "seed": "npm run seed -w backend",
+    "prisma:migrate": "npm run prisma:migrate -w backend"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  }
+}
