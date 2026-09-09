@@ -43,18 +43,22 @@ See `backend/.env.example` for the full list. At minimum, production needs its o
 
 ## Build & run
 
-```bash
-# Backend
-cd backend
-npm ci
-npm run prisma:deploy   # applies migrations, does not diff schema
-npm run build
-npm run start:prod
+This is an **npm workspaces** monorepo — there's one lockfile at the repo root (`backend/` and `frontend/` no longer have their own), so `npm ci` must run from the root, not from inside either subfolder.
 
-# Frontend
-cd frontend
+```bash
+# From the repo root — installs backend + frontend together, one lockfile
 npm ci
-npm run build           # outputs frontend/dist — deploy as a static site
+npm run build               # builds backend/dist and frontend/dist together
+
+# Apply migrations against the production database (root script covers dev
+# migrations; deploy uses the backend workspace directly since it's a
+# one-shot, no-diffing apply)
+npm run prisma:deploy -w backend
+
+# Backend: run the compiled server
+npm run start:prod -w backend
+
+# Frontend: frontend/dist is the static output — deploy it to the static host
 ```
 
 ## Post-deploy smoke test

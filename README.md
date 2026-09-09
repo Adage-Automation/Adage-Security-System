@@ -56,14 +56,14 @@ Backend modules: `auth`, `users`, `roles`, `permissions`, `employees`, `movement
 
 1. Create a [Supabase](https://supabase.com) project in the **Mumbai (ap-south-1)** region (see [docs/deployment.md](./docs/deployment.md#setting-up-supabase) for step-by-step details, including reusing the same project for report storage).
 2. Copy `backend/.env.example` to `backend/.env` and fill in `DATABASE_URL` (from Supabase's connection string) and the other variables.
-3. From `backend/`:
+3. From the repo root:
    ```
    npm install
    npm run prisma:migrate
    npm run seed
    ```
 
-The seed script creates one ADMIN, one HR, and one SECURITY user (all with password `ChangeMe123!` — development-only, change before any shared/production use), plus the roles/permissions/default settings the app needs to function. It does **not** create sample employees or movements — use `npm run import:employees -- <path-to-csv>` to load real employee data (see `docs/branding-and-data-needed.md`).
+The seed script creates one ADMIN, one HR, and one SECURITY user (all with password `ChangeMe123!` — development-only, change before any shared/production use), plus the roles/permissions/default settings the app needs to function. It does **not** create sample employees or movements — use `npm run import:employees -- <path-to-csv>` (from `backend/`) to load real employee data (see `docs/branding-and-data-needed.md`).
 
 ## Environment Variables
 
@@ -71,23 +71,14 @@ See `backend/.env.example` for the full list: `DATABASE_URL`, `SESSION_SECRET`, 
 
 ## Local Development
 
-Backend:
-```
-cd backend
-npm install
-npm run prisma:migrate
-npm run seed
-npm run start:dev
-```
-Runs on `http://localhost:4000`, API prefixed at `/api`.
+This is an **npm workspaces** monorepo — one install, one command, from the repo root:
 
-Frontend:
 ```
-cd frontend
-npm install
-npm run dev
+npm install    # installs root + backend + frontend, and generates the Prisma client
+npm run dev    # runs backend (:4000) and frontend (:5173) together in one terminal
 ```
-Runs on `http://localhost:5173` with `/api` proxied to the backend.
+
+Open `http://localhost:5173` — `/api` requests are proxied to the backend automatically. `Ctrl+C` once stops both. See [docs/developer-guide.md](./docs/developer-guide.md) for the full first-time setup (database, `.env`, migrations) and troubleshooting.
 
 ## Testing
 
@@ -99,8 +90,12 @@ See spec section on testing for the full checklist (auth, employee CRUD, movemen
 
 ## Build
 
-Backend: `npm run build` (in `backend/`) → `dist/`, run with `npm run start:prod`.
-Frontend: `npm run build` (in `frontend/`) → `dist/`, deployable to any static host (Vercel/Netlify/Cloudflare Pages).
+```
+npm run build    # from the repo root — builds backend/dist and frontend/dist together
+```
+
+Backend: `backend/dist`, run with `npm run start:prod -w backend`.
+Frontend: `frontend/dist`, deployable to any static host (Vercel/Netlify/Cloudflare Pages).
 
 ## Deployment
 

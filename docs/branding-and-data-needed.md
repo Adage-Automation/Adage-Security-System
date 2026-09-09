@@ -17,13 +17,13 @@ These populate the `settings` table (Settings screen, or I can seed them directl
 - The "from" display name for outgoing emails (`EMAIL_SENDER_NAME`, currently `"Adage Security System"`)
 - Confirm the timezone stays `Asia/Kolkata`, or tell me if operations span another timezone
 
-## 3. Real employee data — in progress
+## 3. Real employee data — mostly done
 
-✅ First 6 real employees added (2026-09-03): Shivani R Naik, Bala Dattaprasad Patwardhan, Pranav P Naik, Raj Ramanand Fal Dessai, Sai Sanjay Kunkalienkar, Adarsh Bhaskaran Chanabhat. The 4 fake test employees (Rahul Sharma, Rahul Patil, Amit Patil, Priya Nair) have been permanently deleted, along with their test movement records — a deliberate exception to the app's normal "never hard-delete" rule, made because these were seed/test rows, not real former employees.
+✅ First 6 real employees added (2026-09-03), then the full roster of 205 employees imported (2026-09-09) from `backend/data/employees.csv` — this is now the one, current, living roster file (re-run `npm run import:employees -- data/employees.csv` from `backend/` any time it's updated; upserts by employee code, safe to re-run). The 4 fake test employees (Rahul Sharma, Rahul Patil, Amit Patil, Priya Nair) have been permanently deleted, along with their test movement records.
 
-**Department/designation dropped** (2026-09-03, by request): confirmed these fields weren't used anywhere in search, filtering, or reports — pure unused metadata. Removed from the "Add Employee" form and the standard CSV import format entirely. The database columns remain (nullable, harmless) in case they're wanted later, but nothing in the app requires them now.
+**Department/designation dropped** (2026-09-03, by request): confirmed these fields weren't used anywhere in search, filtering, or reports — pure unused metadata. Removed from the "Add Employee" form and the CSV import format entirely. The database columns remain (nullable, harmless) in case they're wanted later.
 
-**Still needed**: the rest of the company's employee roster. CSV import format is now just `employee_code,employee_name,email` — hand me the next batch as a CSV in that shape, or as a plain list like before and I'll build the CSV myself. Run via `npm run import:employees -- <path-to-csv>` (`backend/scripts/import-employees.ts`); validates every row before writing, upserts by employee code so re-running with corrections is safe.
+**Email made optional** (2026-09-09): 54 of the 205 imported employees don't have a registered email yet — the schema, import script, and UI (Add Employee form, EMAIL DETAILS button) all handle this correctly now. **Still needed**: those 54 employees' email addresses, whenever available — update `backend/data/employees.csv` and re-run the import, or add them individually via the Employees screen. Until then, "EMAIL DETAILS" simply won't be available for those employees, with a clear inline explanation shown.
 
 ## 4. Real user accounts
 

@@ -1,6 +1,6 @@
 # Roadmap / Task List
 
-Status as of 2026-09-04 (after a full audit pass — see [Audit findings](#audit-findings-2026-09-04) below). Grouped by area, roughly in priority order within each group.
+Status as of 2026-09-09 (after a second full audit pass covering every user workflow — see [Audit findings](#audit-findings-2026-09-04) below, and `CHANGELOG.md`'s 2026-09-09 entries for what's changed since). Grouped by area, roughly in priority order within each group.
 
 ## Done
 
@@ -16,13 +16,18 @@ Status as of 2026-09-04 (after a full audit pass — see [Audit findings](#audit
 - [x] Reports: Puppeteer HTML→PNG/PDF template, on-demand-only email send via SMTP (switched from Resend to SMTP through Adage's existing Microsoft 365 tenant on 2026-09-07 — see [decisions.md](./decisions.md)), persisted-to-storage attachment, email_logs
 - [x] Users/Roles/Permissions/Settings/Audit-logs admin modules
 - [x] Frontend: Login, SecurityHome (search→select→ENTRY/EXIT, duplicate-confirm dialog, offline IndexedDB queue with pending-sync UI), Dashboard (filters + summary + responsive table/cards), EmployeeDetails (view + on-demand email with resend confirmation — download buttons removed 2026-09-03 by request), Employees/Users/Settings admin pages, **Corrections** (`/corrections`) and **Audit Log viewer** (`/audit-log`)
-- [x] **CSV employee import** (spec §41) — `backend/scripts/import-employees.ts`, run via `npm run import:employees -- <path-to-csv>`. Validates every row (required fields, email format, duplicate codes) before writing, upserts by employee code. Used 2026-09-03 to import the first 6 real employees.
+- [x] **CSV employee import** (spec §41) — `backend/scripts/import-employees.ts`, run via `npm run import:employees -- <path-to-csv>`. Validates every row (required fields, email format, duplicate codes) before writing, upserts by employee code, title-cases names on import. Started with 6 real employees (2026-09-03); the full 205-person roster was imported 2026-09-09 from the single living file `backend/data/employees.csv` (54 of those 205 have no email yet — email is now an optional field throughout, see [decisions.md](./decisions.md) and `docs/branding-and-data-needed.md`).
 - [x] Real Adage branding — logo wired in everywhere (header, login, PWA icons, report template); exact brand teal (`#0d828b`) sampled from the logo file. See [branding-and-data-needed.md](./branding-and-data-needed.md) for what's still open (a square mark-only logo variant, not blocking).
 - [x] PWA manifest + service worker (`vite-plugin-pwa`)
 - [x] Both backend and frontend build cleanly (verified via `npm run build`)
 - [x] Full documentation set (this folder + root README/CHANGELOG)
 - [x] Database provider decided and live: Supabase Postgres, Mumbai (ap-south-1) — see [decisions.md](./decisions.md#database-provider-supabase-mumbai)
 - [x] Real `backend/.env` created (never committed) with actual `DATABASE_URL` and a generated `SESSION_SECRET`; email/storage credentials still pending (see `docs/email-provider-options.md`)
+- [x] Movement idempotency key (`clientRequestId`) — closes a duplicate-record risk on ambiguous network failures. See [decisions.md](./decisions.md#movement-idempotency-key).
+- [x] Row Level Security enabled on every database table (defense in depth; app behavior unaffected). See [decisions.md](./decisions.md#row-level-security-defense-in-depth).
+- [x] Converted to an **npm workspaces** monorepo — one `npm install` and one `npm run dev` from the repo root runs both apps together, on any machine, not just the one this was built on. See [decisions.md](./decisions.md#npm-workspaces-single-install-single-dev-command).
+- [x] Data-file cleanup — consolidated to one living `backend/data/employees.csv` (no more dated snapshot files), removed a redundant duplicate logo file at the repo root, one lockfile instead of three.
+- [x] **Full workflow audit (2026-09-09)** — every user-facing workflow checked end to end (API-level + full UI walkthrough) across all three roles. Found and fixed live: leftover test data in `movement_records`/`email_logs` (deleted), and a real pagination/search gap on the Employees admin screen (155 of 205 employees were unreachable — fixed with search + "Load More" pagination). See `CHANGELOG.md`'s 2026-09-09 (cont. 4) entry.
 
 ## Audit findings (2026-09-04)
 
@@ -64,14 +69,14 @@ These are code-complete but can't be verified end-to-end until someone outside t
 ## Not started — quality
 
 - [ ] Automated tests — `docs/testing.md` defines the full required checklist (auth, employees, movements, dashboard, email, authorization); zero test files currently exist, though `npm test` / `npm run test:e2e` scripts are wired up and ready.
-- [ ] Load/perf testing against a realistic employee count (spec calls out "large employee databases" as a case to handle).
+- [ ] Formal load/perf testing — the app now runs against a real 205-employee roster (no longer hypothetical), and the Employees admin screen's pagination/search gap this exposed (fixed 2026-09-09) confirms this case is worth continuing to test deliberately, not just eyeballing.
 - [ ] Accessibility pass: no focus trap or Escape-to-close on any modal (confirm-duplicate dialog, Corrections edit modal), missing aria-labels in places, color-contrast not formally checked against the teal palette.
 - [ ] Loading-vs-empty-state flash: Dashboard/EmployeeDetails/Corrections all initialize their record list as `[]`, so the "No records found" empty state renders briefly before the first fetch resolves, on every navigation.
 - [ ] No request timeout: `frontend/src/api/client.ts` has no `AbortController`/timeout on any fetch — a genuinely hung request leaves a "Sending…"/"Saving…" button stuck indefinitely with no way out but reloading.
 
 ## Known simplifications worth revisiting
 
-- **Timezone correctness (backend)**: day-boundary queries (`dayRange` in `movements.service.ts`) rely on the server process's OS timezone being set to `Asia/Kolkata`, rather than doing explicit UTC↔IST conversion with `date-fns-tz` (which is already a dependency but unused so far). Fine as long as deploys always set `TZ=Asia/Kolkata`; worth hardening if the backend ever runs in a different-timezone environment. (Note: the equivalent *frontend* bug — default dates computed in UTC instead of local time — was found and fixed 2026-09-04; this bullet is about the backend's day-boundary math specifically, which is a different, still-open simplification.)
+- **Timezone correctness (backend)**: day-boundary queries (`dayRange` in `movements.service.ts`) rely on the server process's OS timezone being set to `Asia/Kolkata`, rather than doing explicit UTC↔IST conversion (e.g. via `date-fns-tz`, not currently a dependency — removed 2026-09-09 as unused when it turned out nothing had ever wired it in). Fine as long as deploys always set `TZ=Asia/Kolkata`; worth hardening (and adding the dependency back) if the backend ever runs in a different-timezone environment. (Note: the equivalent *frontend* bug — default dates computed in UTC instead of local time — was found and fixed 2026-09-04; this bullet is about the backend's day-boundary math specifically, which is a different, still-open simplification.)
 - **Offline sync conflict handling is still fairly minimal**: a queued movement that comes back `requiresConfirmation` on sync is now auto-confirmed rather than getting stuck forever (fixed 2026-09-04), but there's still no explicit handling for e.g. two queued movements for the same employee racing against a movement recorded from another device in between. Acceptable for a single-guard-per-gate deployment; revisit if multiple guards can record for the same gate concurrently while offline.
 - **Offline + app restart mid-outage = temporary lockout**: if the PWA is closed/reloaded while offline, `/auth/me` fails and `ProtectedRoute` redirects to `/login` — but login itself needs network. A guard whose app gets killed (common under mobile memory pressure) during an outage can't reach the recording screen again until connectivity returns, even though the offline queue exists specifically for this scenario. Would need either a "last known authenticated" grace state or a service-worker-level auth cache to fully close.
 - **A new headless Chromium process launches per report generation** (`ReportGeneratorService.renderWithPuppeteer`) rather than reusing a pooled browser instance. Each launch costs real time and memory; fine at today's volume, will degrade under concurrent "Email Details" clicks or a burst of downloads, and is a plausible OOM risk on a small hosting instance. Fix: launch once at module init, reuse across requests, open/close only pages per call.

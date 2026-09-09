@@ -8,32 +8,75 @@
 
 ## First-time setup
 
+This is an **npm workspaces** monorepo (root `package.json` lists `backend` and `frontend` as workspaces) — one `npm install` at the repo root installs both, and one `npm run dev` runs both together. This works identically on any machine; nothing here is specific to how this repo happened to be set up originally.
+
 ```bash
 # 1. Database
 #    Provision a Supabase project (Mumbai/ap-south-1 region) — see
 #    docs/deployment.md#setting-up-supabase — or point at any local/other
 #    Postgres instance for pure local dev. Note the connection string.
 
-# 2. Backend
+# 2. Configure the backend's environment
 cd backend
 cp .env.example .env
 # edit .env: at minimum set DATABASE_URL, SESSION_SECRET
-npm install
-npm run prisma:migrate     # creates tables
-npm run seed                # creates dev users + sample data
-npm run start:dev           # http://localhost:4000, API at /api
+cd ..
 
-# 3. Frontend (separate terminal)
-cd frontend
+# 3. Install everything (root + backend + frontend) in one command
 npm install
-npm run dev                 # http://localhost:5173, proxies /api to :4000
+# This also runs `prisma generate` automatically (backend's `postinstall`
+# hook) — no separate manual step needed.
+
+# 4. Create tables and seed dev data (one-time, or after a schema change)
+npm run prisma:migrate
+npm run seed
+
+# 5. Run both backend and frontend together
+npm run dev
 ```
 
-Seeded dev logins (never reuse these credentials outside local development): `admin` / `hr` / `security`, all with password `ChangeMe123!`.
+`npm run dev` starts the backend (NestJS, port 4000) and frontend (Vite, port 5173) together in one terminal, color-coded (`[backend]`/`[frontend]`) so you can tell the two apart. `Ctrl+C` once stops both. If you ever want them in separate terminals instead (e.g. to scroll one's output without the other interleaving), `npm run dev:backend` and `npm run dev:frontend` still work individually — but there's no requirement to run them separately anymore.
+
+Seeded dev logins (never reuse these credentials outside local development):
+
+| Username | Password | Role | Access |
+|---|---|---|---|
+| `admin` | `ChangeMe123!` | ADMIN | Everything |
+| `hr` | `ChangeMe123!` | HR | Record Movement, Dashboard, Employees |
+| `security` | `ChangeMe123!` | SECURITY | Record Movement, Dashboard |
+
+(Roles have differentiated access — see `docs/decisions.md`.)
+
+## What's running where
+
+| | URL | Notes |
+|---|---|---|
+| Frontend (PWA) | http://localhost:5173 | React + Vite dev server, hot-reloads on save |
+| Backend API | http://localhost:4000/api | NestJS, `--watch` mode, hot-reloads on save |
+| Database | Supabase, Mumbai (ap-south-1) | Remote — not running locally; both servers above talk to it over the network |
+
+## Day-to-day: starting the servers again
+
+Once first-time setup is done, starting the app back up is just:
+
+```bash
+npm run dev
+```
+
+run from the repo root. Wait for `Adage Security System backend listening on port 4000` in the output before using it — first boot after a fresh install/migration can take ~15-20 seconds. Stop with a single `Ctrl+C`; nothing leaves background processes.
+
+| Symptom | Fix |
+|---|---|
+| `EADDRINUSE: address already in use :::4000` | Something is already listening on port 4000 — a previous `npm run start:dev` wasn't stopped, or another app is using it. Find and stop it, or change `PORT` in `backend/.env`. |
+| Backend takes a long time to become reachable after starting | Normal on first boot after a fresh `npm install` or the very first request after a cold Supabase connection (pooled connection + `connect-pg-simple` session table both need to initialize) — give it ~15-20 seconds. |
+| `P1001: Can't reach database server` | You're using the direct connection host (`db.<ref>.supabase.co:5432`) instead of the pooler (`aws-0-<region>.pooler.supabase.com:5432`) — see `docs/deployment.md#setting-up-supabase`. |
+| Frontend loads but every API call fails | Confirm the backend terminal shows `listening on port 4000` — the frontend's dev proxy silently fails if nothing's there to proxy to. |
+| `nest build` / `npm run build` silently produces an incomplete or empty `dist/` with no error output | Seen intermittently on Windows (2026-09-09) — not a code issue (`npx tsc -p tsconfig.build.json --listFiles` confirms the correct file set is picked up every time). Reproduced identically in both Git Bash and PowerShell with no antivirus/OneDrive root-caused yet. Fix: `rm -rf dist tsconfig.tsbuildinfo` and rebuild again — it has succeeded on a clean retry each time so far. If this keeps recurring, try temporarily excluding the project folder from real-time antivirus scanning. |
 
 ## Repo layout
 
 ```
+package.json NPM workspaces root — `npm install`/`npm run dev` from here runs both apps
 backend/     NestJS API — see docs/architecture.md#backend-module-layout
 frontend/    React PWA  — see docs/architecture.md#frontend-structure
 docs/        this documentation
@@ -71,11 +114,10 @@ Follow the existing module pattern (e.g. copy `employees/` as a template):
 ## Building
 
 ```bash
-cd backend && npm run build     # -> backend/dist
-cd frontend && npm run build    # -> frontend/dist (tsc -b && vite build)
+npm run build     # from the repo root — builds backend then frontend
 ```
 
-Both must build with zero TypeScript errors before merging — this is currently manually verified; see `docs/roadmap.md` for wiring up CI.
+`-> backend/dist` (NestJS) and `frontend/dist` (`tsc -b && vite build`). Both must build with zero TypeScript errors before merging — this is currently manually verified; see `docs/roadmap.md` for wiring up CI.
 
 ## Environment variables
 

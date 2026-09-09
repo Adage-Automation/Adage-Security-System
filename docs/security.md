@@ -22,6 +22,7 @@
 - CORS is locked to `FRONTEND_URL` — no wildcard origins.
 - Helmet sets standard security headers on every response.
 - Input validation: every DTO uses `class-validator` decorators; `ValidationPipe({ whitelist: true, transform: true })` is applied globally, so unexpected fields in a request body are stripped rather than silently accepted.
+- **Row Level Security enabled on every table** (Supabase Postgres, 2026-09-09) with no policies defined — a second layer of default-deny below the application layer. The app's Prisma connection uses the table-owner role, which Postgres always exempts from RLS, so this has zero effect on normal app behavior; it only matters if some other credential (e.g. a Supabase API key) ever touches the database directly. See [decisions.md](./decisions.md#row-level-security-defense-in-depth).
 
 ## Audit trail
 

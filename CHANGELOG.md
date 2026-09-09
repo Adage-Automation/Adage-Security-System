@@ -1,5 +1,124 @@
 # Changelog
 
+## 2026-09-09 (cont. 6) — Removed unused dependencies, deprecated tsconfig option
+
+### Removed
+
+- **`@nestjs/schedule`** (backend dependency) — never wired in anywhere: no `ScheduleModule` import, no `@Cron`/`@Interval`/`@Timeout` decorator anywhere in the codebase. Confirmed unused, removed.
+- **`date-fns-tz`** (backend dependency) — the only place its name appeared was in a code comment describing it as a future option, never an actual import. Confirmed unused, removed. Updated the comment in `movements.service.ts`'s `dayRange()` and the matching note in `docs/roadmap.md` accordingly.
+- **`baseUrl` in `backend/tsconfig.json`** — flagged by the editor as deprecated (removed in TypeScript 7.0). Nothing in the codebase uses path aliasing (no `paths` map exists), so it was dead configuration; removed rather than suppressed.
+
+### Verified
+
+- `npm install` from the repo root cleanly removed 7 transitive packages with the two dependencies gone.
+- Full `npm run build` (backend + frontend) still succeeds with zero errors after all three removals.
+
+## 2026-09-09 (cont. 5) — Stale-data sweep across code and docs; docs fully synced to current state
+
+Checked the whole repo (code comments + all of `docs/` + root `README.md`) for stale references left behind by recent changes (npm workspaces conversion, CSV consolidation, the `clientRequestId`/RLS additions, the Employees pagination fix). Found and fixed real staleness, not just cosmetic:
+
+### Fixed — real bugs in comments/docs, not just prose
+
+- **`backend/scripts/import-employees.ts`'s usage comment pointed at a deleted file** (`data/employees-import.csv`, removed in the CSV-consolidation pass) — following it verbatim would fail. Corrected to `data/employees.csv`.
+- **`docs/deployment.md`'s "Build & run" steps were broken by the npm-workspaces conversion** — `cd backend && npm ci` / `cd frontend && npm ci` can no longer work, since `backend/package-lock.json` and `frontend/package-lock.json` were deleted in favor of one root lockfile. Rewritten to install/build from the repo root, with `-w backend` for the workspace-specific deploy step.
+- **`README.md`'s "Build" section still described two separate per-app build commands**, contradicting its own "Local Development" section above it (which correctly describes the single-root-command flow). Rewritten to match.
+- **`docs/api-reference.md` had three real inaccuracies**, not just missing-new-feature gaps: `GET /employees/:id`'s documented permission (`MANAGE_EMPLOYEES`) doesn't match the code (`VIEW_EMPLOYEE_HISTORY`, changed in an earlier audit); `CreateEmployeeDto`'s `email` was documented as required when it's been optional since the email-optional rollout; `POST /movements`'s body was missing the `clientRequestId` field entirely. All three fixed, plus documented the new `GET /employees` search/pagination shape (`q` param, `{ rows, total }` response).
+
+### Updated — docs that were accurate but had fallen behind recent work
+
+- `docs/roadmap.md` — was still headed "Status as of 2026-09-04"; added everything shipped since (idempotency key, RLS, npm workspaces, full 205-employee roster + email-optional, the 2026-09-09 workflow audit's two fixes), updated the stale "6 employees imported" and "hypothetical large employee count" lines.
+- `docs/decisions.md` — added three missing ADR entries for decisions already live in the code but never written down: movement idempotency key, Row Level Security (defense in depth), npm workspaces.
+- `docs/architecture.md` — frontend page list was missing `Corrections.tsx` and `AuditLog.tsx` entirely; added those plus the idempotency-key and RLS bullets to "Key design decisions."
+- `docs/security.md` — added the RLS bullet under Data protection.
+- `docs/user-guide-admin.md` / `docs/user-guide-hr.md` — updated the Employees-screen instructions to reflect email now being optional and the new search/pagination UI (previously undocumented since it didn't exist until this session's earlier fix).
+
+## 2026-09-09 (cont. 4) — Full workflow audit: leftover test data purged, Employees pagination gap fixed
+
+Ran a complete pass over every user-facing workflow (Auth, Security movement recording, Dashboard, Employees, Users, Corrections, Audit Log, Settings, Reports/Email) across all three roles, both at the API level (25-check script) and via a full Puppeteer UI walkthrough of every screen. Two real issues found and fixed live; everything else passed.
+
+### Fixed
+
+- **`movement_records` and `email_logs` held leftover test data from earlier sessions' verification work** — all 4 movement records (dated 2026-09-03/09-04, one with the literal `correctionReason: "test"`) and both `email_logs` rows (FAILED, test sends) were artifacts, not real activity. Deleted via `deleteMany({})`. `audit_logs` was deliberately left untouched — it's a permanent record and none of its entries were fabricated data, just a true log of the test actions that were taken.
+- **Employees admin screen (`/employees`) had no pagination or search** — `findAll()` returned a flat, silently-capped 50 results with no way to reach the rest. With the roster now at 205 real employees, 155 were completely unreachable through this screen (spec §53's "large employee databases" case). Fixed:
+  - `backend/src/employees/employees.service.ts` — `findAll()` now takes `{ skip, take, q }`, searches name/code/email, and returns `{ rows, total }` via a parallel count query.
+  - `backend/src/employees/employees.controller.ts` — passes the new `q` query param through.
+  - `frontend/src/pages/Employees.tsx` — rewritten with a debounced search box, "Load More" pagination (same pattern as `AuditLog.tsx`), and an empty state.
+  - Verified live: `GET /employees` → 50 of 205 with an accurate total; `GET /employees?q=Naik` → all 12 matches (uncapped, unlike the guard-facing 10-result autocomplete); confirmed visually in the browser for both the paginated list and the search.
+
+### Verified, no changes needed
+
+- Auth (login/logout/session, rate limiting), Security's search-and-record flow, Dashboard filters, Users/Corrections/Audit Log/Settings admin screens, RBAC 403s for Security/HR on admin-only routes, report PNG download, email-logs listing. Zero console/page errors across the full UI walkthrough.
+
+### Tracked as "asks" (blocked on external input, not fixable from here)
+
+- SMTP credentials for `security@adage-automation.com` (Microsoft 365 admin) — `docs/email-m365-admin-handoff.md`.
+- Supabase Storage bucket + S3-compatible keys for persisting emailed reports.
+- 54 employees still missing an email address in `backend/data/employees.csv`.
+
+All three already tracked in `docs/roadmap.md`'s "Blocked — waiting on external input" section; restated here as the outcome of this audit.
+
+## 2026-09-09 (cont. 3) — Data file consolidation, casing regression fix, directory cleanup
+
+### Fixed
+
+- **Real data-quality regression found while checking a doc question**: importing the full 205-person roster (`backend/data/employees-roster-2026-09-09.csv`) had silently overwritten the 6 originally-imported employees' nicely title-cased names with the source data's ALL-CAPS formatting (e.g. "Shivani R Naik" → "SHIVANI R NAIK") — and left all 199 other employees in ALL CAPS too, since the import script never normalized casing. Every screen in the app displays `employeeName` directly (Security search, Dashboard, reports, emails), so this was a real, visible regression. Fixed `backend/scripts/import-employees.ts` to title-case names on import going forward, then re-ran the import to fix all 205 existing records. Verified live: zero employees remain in ALL CAPS.
+
+### Changed — data file consolidation
+
+- **`backend/data/employees-import.csv` (the original 6-employee batch) deleted** — confirmed first that all 6 of its employees, with matching emails, already existed in the larger roster file (just checked, didn't assume), so it was fully redundant.
+- **`backend/data/employees-roster-2026-09-09.csv` renamed to `backend/data/employees.csv`** — one stable, living filename for the current roster instead of a dated snapshot name, so future updates overwrite this one file in place rather than accumulating a new dated CSV (and the same redundancy) every time.
+- **Removed the duplicate `Adage_Logo.png` at the repo root** — this was the original file as first shared, since copied into the two places the app actually uses it (`frontend/public/logo.png` for the browser, `backend/src/reports/assets/adage-logo.png` embedded into generated reports). Those two *are* necessarily separate — they ship inside two independently-built/deployed apps — but the root copy served no purpose once both were in place and was just a stale-copy risk.
+- Checked the full repo tree for other redundancy (temp/debug files, doc overlap) — found none beyond the above; the doc consolidation pass from earlier today already covered the docs folder.
+- Updated `docs/branding-and-data-needed.md`'s employee-data section to reflect reality (205 imported, not "still needed"; the real remaining gap is 54 employees' missing email addresses, not the roster itself).
+
+## 2026-09-09 (cont. 2) — Converted to npm workspaces for true single-command portability
+
+### Changed
+
+- **Root `package.json` converted to npm workspaces** (`"workspaces": ["backend", "frontend"]`), replacing the earlier `--prefix`-based approach. On any machine, `npm install` once at the repo root installs backend + frontend + root dependencies together (npm hoists shared packages into one root `node_modules`) — no separate `cd backend && npm install` / `cd frontend && npm install` steps needed anymore.
+- **`backend/package.json` gained a `postinstall: "prisma generate"` hook** — the Prisma client is now generated automatically as part of that single `npm install`, rather than requiring a manual `npx prisma generate` afterward.
+- Added root scripts: `build` (backend then frontend), `seed`, `prisma:migrate` — so common tasks also don't require `cd`-ing into a workspace.
+- Removed `backend/package-lock.json` and `frontend/package-lock.json` in favor of one root `package-lock.json` (npm workspaces requires a single lockfile).
+- Updated `README.md` and `docs/developer-guide.md`'s setup/day-to-day/build instructions to the new one-command flow. Deployment-specific instructions (`docs/deployment.md`) intentionally left as separate backend/frontend steps, since production deploys them to different hosts.
+
+### Verified
+
+- Full clean-slate test: deleted all `node_modules` (root, backend, frontend) and all lockfiles, ran `npm install` once from the root, confirmed the Prisma client was generated automatically with no manual step, confirmed `npm run build` (root) built both apps with a complete `backend/dist` (including the logo asset at the correct path) and a complete `frontend/dist`, and confirmed `npm run dev` (root) brought up both the backend (`:4000`, `/api/auth/me` → 401 as expected) and frontend (`:5173`) together from a single command. This is the same flow anyone cloning the repo fresh on a different machine would run.
+
+## 2026-09-09 (cont.) — Combined dev script, closed out email-optional rollout
+
+### Added
+
+- **Root `package.json` with `npm run dev`** — runs backend and frontend together from one command (`concurrently`), instead of two separate terminals. `npm run dev:backend`/`npm run dev:frontend` remain available individually. Verified live: both `http://localhost:5173` and `http://localhost:4000/api` come up from the single command.
+
+### Completed (picked up in-progress work)
+
+- Verified the employee-email-optional change (schema `Employee.email` now `String?`, migration `20260909123000_allow_employee_email_null`, backend DTOs, frontend `types.ts`) was already fully applied to the live database — not just partially done.
+- Verified the ~205-employee real roster (`backend/data/employees-roster-2026-09-09.csv`) was already successfully imported (54 of them intentionally with no email yet) via `backend/scripts/import-employees.ts`, which now accepts a blank email per row.
+- **Found and fixed a real gap this left behind**: the "Add Employee" form and "EMAIL DETAILS" button hadn't been updated to match — the form still marked email `required` (and would have sent `""` rather than omitting the field, which `@IsEmail()` rejects even though `@IsOptional()` is set), and "EMAIL DETAILS" had no check for a missing email before rendering, meaning clicking it for any of the 54 no-email employees would round-trip to the server just to get a 400. Fixed: email field is now optional in the form (blank omitted from the payload rather than sent empty), the employee table shows "—" for a missing email, and "EMAIL DETAILS" only renders when an email is actually on file, with a clear inline note when it isn't ("No email on file for X — add one via Employees before details can be sent.").
+- Confirmed the earlier RLS migration, idempotency-key migration, and this session's clean backend rebuild are all still intact and the database is fully in sync (`prisma migrate status` → up to date, 4 migrations applied).
+
+## 2026-09-09 — Second audit pass, idempotency fix, RLS hardening, docs consolidation
+
+### Fixed (from a second audit pass — new SMTP/storage code + fresh spec-completeness check)
+
+- **`requireTLS: true` added to the SMTP transport** (`email.service.ts`) — without it, nodemailer's default "opportunistic STARTTLS" silently falls back to plaintext if the server doesn't advertise STARTTLS, sending the SMTP password and employee PII unencrypted with no error.
+- **"Report Downloaded" is now audit-logged** (`reports.controller.ts`, both `image` and `pdf` handlers) — spec §21 requires this action be audited; only email sends were logged before.
+- **`getSignedDownloadUrl` wired into a real endpoint** (`GET /reports/email-logs/:id/download`) — this method existed but was never called from anywhere, undercutting the documented promise that a previously-emailed report "can be resolved by re-serving the exact file."
+- **Duplicate-record risk on ambiguous network failure, closed with a proper idempotency key.** New finding: if a movement request is sent, the server commits it, but the response is lost before the client reads it, the client's retry (including the offline queue's auto-confirm-on-sync path added in the 2026-09-04 audit) would create a second, genuinely duplicate ENTRY/EXIT with no guard awareness. Fixed with a `clientRequestId` (new `movement_records.client_request_id`, unique, migration `20260909113728`) generated once per guard tap and reused across every retry of that same tap (confirm-resubmit, offline enqueue, sync retry). `MovementsService.createMovement` now checks it first and returns the existing record on replay instead of creating a duplicate; also handles the race where two near-simultaneous retries both pass the check before either commits (catches the resulting unique-constraint violation and treats it the same as a normal replay). Verified live: submitting the same `clientRequestId` twice returns the same record id both times, and exactly one row exists in the database afterward.
+- **A lightweight global exception filter added** (`backend/src/common/filters/all-exceptions.filter.ts`, registered in `main.ts`) — spec §62 asks for backend error logging across DB/auth/report-generation/unexpected failures; previously only two services (`email`, `reports`) had any logging at all. Every uncaught exception is now logged with method/path/status/userId, at `error` level for 5xx and `warn` for 4xx, without ever leaking a raw stack trace to the client.
+- **Fixed a broken production build**: `scripts/import-employees.ts` (used only for `npm run import:employees` via `ts-node`, not meant to ship) wasn't excluded from `tsconfig.build.json`, and being outside `src/` shifted TypeScript's inferred `rootDir`, nesting all compiled output under an extra `dist/src/` — which broke the report-download feature at runtime (`ENOENT` looking for the logo asset at the old expected path). Fixed by excluding `scripts/**/*` and setting `rootDir: "./src"` explicitly. **Note**: after this fix, `nest build` became intermittently unreliable in this environment — sometimes emitting only a partial `dist/` with no error output, reproduced identically in both Git Bash and PowerShell. Root cause not conclusively identified (suspected antivirus/OneDrive file-lock interference on Windows); a clean retry (`rm -rf dist tsconfig.tsbuildinfo` then rebuild) has succeeded every time so far. Documented in `docs/developer-guide.md`'s troubleshooting table.
+
+### Security — Row Level Security enabled on all 11 Supabase tables
+
+- User-supplied screenshot of Supabase's Security Advisor showed 11 errors: every `public`-schema table had RLS disabled. Supabase auto-exposes every such table through its own REST/GraphQL API (PostgREST) regardless of this app's own auth — anyone holding the project's `anon`/`service` key could potentially read or write `users`, `employees`, `movement_records`, etc. directly, completely bypassing the NestJS backend.
+- Verified this app's own access is unaffected before fixing: confirmed via a direct query that Prisma connects as the `postgres` role, which owns every table (`current_user = tableowner = 'postgres'`) — Postgres exempts table owners from RLS by default, so enabling it blocks only *other* roles (exactly Supabase's PostgREST anon/authenticated roles, which this app never uses).
+- Migration `20260909120000_enable_row_level_security` enables RLS with no policies (default-deny for any non-owner role) on all 9 Prisma-modeled tables plus `session` (created at runtime by `connect-pg-simple`) and `_prisma_migrations` (Prisma's own tracking table) — both live in `public` and were flagged by the same scan. Verified live afterward: `relrowsecurity: true` on all 11 tables, and a normal Prisma query (`employee.count()`) still succeeds.
+
+### Documentation
+
+- **Consolidated `docs/running-locally.md` into `docs/developer-guide.md`**, per user request to reduce duplicated content across docs — the two had near-identical start-server commands and the same seeded-login table. `developer-guide.md` now has both the first-time setup and a "day-to-day: starting the servers again" section with the merged troubleshooting table; `running-locally.md` deleted, its one inbound link (`docs/README.md`) removed. Checked other likely-duplicate candidates (the two email docs, Supabase setup instructions, the three role-based user guides) and found they already cross-link rather than repeat content — left as-is.
+
 ## 2026-09-07 — Switched email sending from Resend to SMTP (Microsoft 365)
 
 ### Changed

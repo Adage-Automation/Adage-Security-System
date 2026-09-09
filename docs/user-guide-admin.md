@@ -6,7 +6,8 @@ Covers everything in the [Security](./user-guide-security.md) and [HR](./user-gu
 
 Navigate to **Employees** (also available to HR, not Admin-only).
 
-- **Add employee**: fill in Employee Code (must be unique), Name, and Email, then **Add Employee**. The email you enter here is where their movement-record emails will be sent — double check it. (Department/Designation aren't collected — they turned out to be unused anywhere in the system and were dropped from this form by request.)
+- **Add employee**: fill in Employee Code (must be unique) and Name; Email is optional — leave it blank if you don't have it yet, and fill it in later via the same screen once you do. The email you enter is where their movement-record emails will be sent — double check it. An employee with no email on file simply can't be sent EMAIL DETAILS until one is added (shown clearly on their details page). (Department/Designation aren't collected — they turned out to be unused anywhere in the system and were dropped from this form by request.)
+- **Search**: the list is the full employee roster (200+ people), so use the search box (matches name, code, or email) rather than scrolling — results load a page at a time with a **Load More** button.
 - **Deactivate**: marks an employee inactive instead of deleting them. They stop appearing in the Security search box, but every historical movement record stays fully intact and visible on the Dashboard. Use this when someone leaves the company — never delete an employee outright.
 - **Reactivate**: brings a deactivated employee back into the Security search box.
 

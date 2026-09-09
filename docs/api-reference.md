@@ -22,14 +22,14 @@ Returns `{ user: AuthUser }` for the current session, or `401` if not logged in.
 |---|---|---|---|
 | GET | `/employees/search?q=` | `RECORD_ENTRY` | Active employees only, top 10 matches, name/code/email, case-insensitive |
 | GET | `/employees/search-all?q=` | `CORRECT_RECORDS` | Includes inactive employees — for the admin correction flow |
-| GET | `/employees` | `MANAGE_EMPLOYEES` | Paginated (`skip`, `take`) |
-| GET | `/employees/:id` | `MANAGE_EMPLOYEES` | |
+| GET | `/employees?skip=&take=&q=` | `MANAGE_EMPLOYEES` | Admin management list. `q` (optional) filters name/code/email, case-insensitive. Returns `{ rows: Employee[], total: number }` — `total` reflects the filtered count, so the frontend can page/search the full roster rather than being capped at one page. |
+| GET | `/employees/:id` | `VIEW_EMPLOYEE_HISTORY` | Single-employee lookup — intentionally not gated behind `MANAGE_EMPLOYEES`, since it backs the Employee Details page that Security/HR reach via the Dashboard even though they lack `MANAGE_EMPLOYEES` |
 | POST | `/employees` | `MANAGE_EMPLOYEES` | Body: `CreateEmployeeDto` |
 | PUT | `/employees/:id` | `MANAGE_EMPLOYEES` | Body: `UpdateEmployeeDto` |
 | PATCH | `/employees/:id/deactivate` | `MANAGE_EMPLOYEES` | Soft — sets `isActive: false` |
 | PATCH | `/employees/:id/reactivate` | `MANAGE_EMPLOYEES` | |
 
-`CreateEmployeeDto`: `{ employeeCode, employeeName, email, phone?, department?, designation? }`
+`CreateEmployeeDto`: `{ employeeCode, employeeName, email?, phone?, department?, designation? }` — `email` is optional (some employees don't have one on file yet); when omitted, that employee simply can't be emailed a report until one is added. `department`/`designation` are accepted but unused by any search/filter/report — kept only because the DB columns still exist.
 
 ## Movements
 
@@ -43,7 +43,9 @@ Returns `{ user: AuthUser }` for the current session, or `401` if not logged in.
 
 ### `POST /movements` — creating a movement
 
-Body: `{ employeeId: number, movementType: 'ENTRY' | 'EXIT', confirmed?: boolean }`
+Body: `{ employeeId: number, movementType: 'ENTRY' | 'EXIT', confirmed?: boolean, clientRequestId?: string }`
+
+`clientRequestId` is an optional client-generated idempotency key, one per guard tap, resent unchanged on any retry of that same tap (including the offline queue's sync retry). If a record already exists for that key, the server returns it instead of creating a duplicate — closes the "request succeeded but the response was lost, so the client retries" duplicate-record risk.
 
 Response is one of:
 ```json
