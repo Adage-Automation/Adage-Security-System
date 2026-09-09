@@ -26,10 +26,11 @@ export class EmployeesController {
 
   @Get()
   @RequirePermissions('MANAGE_EMPLOYEES')
-  findAll(@Query('skip') skip?: string, @Query('take') take?: string) {
+  findAll(@Query('skip') skip?: string, @Query('take') take?: string, @Query('q') q?: string) {
     return this.employeesService.findAll({
       skip: skip ? Number(skip) : undefined,
       take: take ? Number(take) : undefined,
+      q,
     });
   }
 

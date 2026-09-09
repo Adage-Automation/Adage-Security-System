@@ -53,12 +53,36 @@ export class EmployeesService {
     });
   }
 
-  async findAll(params: { skip?: number; take?: number }) {
-    return this.prisma.employee.findMany({
-      orderBy: { employeeName: 'asc' },
-      skip: params.skip ?? 0,
-      take: params.take ?? 50,
-    });
+  // The admin management list — unlike search()/searchIncludingInactive()
+  // above (deliberately capped at 10 for the guard's fast autocomplete),
+  // this browses/filters the FULL roster with real pagination. Found
+  // missing in the 2026-09-09 workflow audit: once the roster grew from a
+  // handful of employees to 205, the un-filterable, un-paginated default
+  // (50 results, no way to reach the rest) silently made 155 employees
+  // unreachable through this screen — exactly the "large employee
+  // databases" case spec §53 calls out.
+  async findAll(params: { skip?: number; take?: number; q?: string }) {
+    const where = params.q?.trim()
+      ? {
+          OR: [
+            { employeeName: { contains: params.q.trim(), mode: 'insensitive' as const } },
+            { employeeCode: { contains: params.q.trim(), mode: 'insensitive' as const } },
+            { email: { contains: params.q.trim(), mode: 'insensitive' as const } },
+          ],
+        }
+      : undefined;
+
+    const [rows, total] = await Promise.all([
+      this.prisma.employee.findMany({
+        where,
+        orderBy: { employeeName: 'asc' },
+        skip: params.skip ?? 0,
+        take: params.take ?? 50,
+      }),
+      this.prisma.employee.count({ where }),
+    ]);
+
+    return { rows, total };
   }
 
   async findById(id: number) {
