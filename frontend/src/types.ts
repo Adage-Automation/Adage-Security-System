@@ -11,7 +11,7 @@ export interface Employee {
   id: number;
   employeeCode: string;
   employeeName: string;
-  email: string;
+  email: string | null;
   phone?: string | null;
   department?: string | null;
   designation?: string | null;

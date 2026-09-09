@@ -3,12 +3,11 @@
 // file (e.g. with corrections) is safe.
 //
 // Usage:
-//   npm run import:employees -- data/employees-import.csv
+//   npm run import:employees -- data/employees.csv
 //
 // Expected CSV header: employee_code,employee_name,email
-// (department/designation columns are still accepted if present, for
-// backward compatibility, but aren't required — they're unused elsewhere
-// in the app and were dropped from the standard format by request.)
+// Email may be blank until the employee's address is available. Department
+// and designation columns are still accepted if present for compatibility.
 
 import { readFileSync } from 'fs';
 import { parse } from 'csv-parse/sync';
@@ -19,12 +18,26 @@ const prisma = new PrismaClient();
 interface EmployeeRow {
   employee_code: string;
   employee_name: string;
-  email: string;
+  email?: string;
   department?: string;
   designation?: string;
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Source HR data tends to arrive ALL CAPS ("ADARSH BHASKARAN CHANABHAT").
+// Every screen in the app displays employeeName directly (Security search,
+// Dashboard, reports, emails) — normalize to Title Case on import so it
+// reads properly everywhere, rather than importing raw. This also fixes a
+// real regression found 2026-09-09: importing an ALL-CAPS roster
+// overwrote 6 employees' names that had been manually title-cased earlier.
+function toTitleCase(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .map((word) => (word.length ? word[0].toUpperCase() + word.slice(1).toLowerCase() : word))
+    .join(' ');
+}
 
 function validateRows(rows: EmployeeRow[]): string[] {
   const errors: string[] = [];
@@ -34,9 +47,7 @@ function validateRows(rows: EmployeeRow[]): string[] {
     const line = i + 2; // +1 for 0-index, +1 for header row
     if (!row.employee_code?.trim()) errors.push(`Line ${line}: missing employee_code`);
     if (!row.employee_name?.trim()) errors.push(`Line ${line}: missing employee_name`);
-    if (!row.email?.trim()) {
-      errors.push(`Line ${line}: missing email`);
-    } else if (!EMAIL_RE.test(row.email.trim())) {
+    if (row.email?.trim() && !EMAIL_RE.test(row.email.trim())) {
       errors.push(`Line ${line}: invalid email "${row.email}"`);
     }
     if (row.employee_code && seenCodes.has(row.employee_code.trim())) {
@@ -74,8 +85,8 @@ async function main() {
 
   for (const row of rows) {
     const data = {
-      employeeName: row.employee_name.trim(),
-      email: row.email.trim(),
+      employeeName: toTitleCase(row.employee_name),
+      email: row.email?.trim() || null,
       department: row.department?.trim() || null,
       designation: row.designation?.trim() || null,
     };

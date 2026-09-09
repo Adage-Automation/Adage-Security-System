@@ -9,8 +9,9 @@ export class CreateEmployeeDto {
   @MinLength(1)
   employeeName: string;
 
+  @IsOptional()
   @IsEmail()
-  email: string;
+  email?: string;
 
   @IsOptional()
   @IsString()

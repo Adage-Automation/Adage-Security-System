@@ -39,6 +39,12 @@ export class EmailService {
         host: process.env.SMTP_HOST,
         port: Number(process.env.SMTP_PORT ?? 587),
         secure: false, // STARTTLS on 587, not implicit TLS
+        // Without this, nodemailer's default "opportunistic STARTTLS"
+        // silently falls back to plaintext if the server doesn't advertise
+        // STARTTLS (e.g. stripped by a MITM, or a transient misconfig) —
+        // sending the SMTP password and employee PII unencrypted with no
+        // error. This makes that fail loudly instead. Found in audit.
+        requireTLS: true,
         auth: {
           user: process.env.SMTP_USER,
           pass: process.env.SMTP_PASS,

@@ -77,7 +77,7 @@ model Employee {
   id           Int      @id @default(autoincrement())
   employeeCode String   @unique @map("employee_code")
   employeeName String   @map("employee_name")
-  email        String
+  email        String?
   phone        String?
   department   String?
   designation  String?

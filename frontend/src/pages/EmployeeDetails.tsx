@@ -37,7 +37,11 @@ export function EmployeeDetails() {
 
   // EMAIL DETAILS only appears once employee + date + loaded records are
   // all present (spec §30) — email is strictly on-demand, never automatic.
-  const canEmail = employee && records.length > 0;
+  // Also requires the employee to actually have a registered email — since
+  // email became optional (2026-09-09, to allow importing employees whose
+  // address isn't known yet), clicking this without one would otherwise
+  // just round-trip to the server for a "no registered email" error.
+  const canEmail = employee && !!employee.email && records.length > 0;
 
   async function sendEmail() {
     if (!employeeId) return;
@@ -127,6 +131,13 @@ export function EmployeeDetails() {
             {emailState === 'sending' ? <span className="spinner dark" /> : <IconMail />}
             {emailState === 'sending' ? 'Sending…' : 'EMAIL DETAILS'}
           </button>
+        </div>
+      )}
+
+      {employee && !employee.email && records.length > 0 && (
+        <div className="status-banner pending">
+          <IconMail />
+          No email on file for {employee.employeeName} — add one via Employees before details can be sent.
         </div>
       )}
 
