@@ -120,6 +120,17 @@ model MovementRecord {
   correctedByUserId Int?    @map("corrected_by_user_id")
   correctionReason  String? @map("correction_reason")
 
+  // Idempotency key generated client-side once per guard tap (spec §52 /
+  // decisions.md). Resolves a duplicate-record risk found in the
+  // 2026-09-09 audit: if a movement is successfully committed but the
+  // response is lost (connection drops after commit, before the client
+  // reads it), the client's retry — including the offline-queue's
+  // auto-confirm-on-sync path — would otherwise create a second, silently
+  // duplicate record. A retry carrying the same clientRequestId is
+  // detected and the original record is returned instead of creating a
+  // new one.
+  clientRequestId String? @unique @map("client_request_id")
+
   employee     Employee         @relation(fields: [employeeId], references: [id])
   recordedBy   User             @relation("RecordedBy", fields: [recordedByUserId], references: [id])
   correctedBy  User?            @relation("CorrectedBy", fields: [correctedByUserId], references: [id])

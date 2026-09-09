@@ -7,6 +7,7 @@ const STORE_NAME = 'pending-movements';
 
 export interface PendingMovement {
   localId: string;
+  clientRequestId: string;
   employeeId: number;
   employeeName: string;
   movementType: 'ENTRY' | 'EXIT';

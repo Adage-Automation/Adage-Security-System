@@ -1,20 +1,34 @@
-import { Controller, Get, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Post, Query, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { SessionAuthGuard } from '../common/guards/session-auth.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { ReportsService } from './reports.service';
+import { AuditLogService } from '../audit-logs/audit-log.service';
 
 @Controller('reports')
 @UseGuards(SessionAuthGuard, PermissionsGuard)
 export class ReportsController {
-  constructor(private reportsService: ReportsService) {}
+  constructor(
+    private reportsService: ReportsService,
+    private auditLog: AuditLogService,
+  ) {}
 
+  // Spec §21 requires "Report Downloaded" as an audited action — this was
+  // previously missing entirely (only email sends were logged). Found in
+  // the 2026-09-09 audit.
   @Get('image')
   @RequirePermissions('DOWNLOAD_REPORT')
-  async image(@Query('employeeId') employeeId: string, @Query('date') date: string, @Res() res: Response) {
+  async image(@Query('employeeId') employeeId: string, @Query('date') date: string, @CurrentUser() user: any, @Res() res: Response) {
     const { buffer, filename } = await this.reportsService.downloadPng(Number(employeeId), date);
+    await this.auditLog.record({
+      userId: user.id,
+      action: 'REPORT_DOWNLOADED',
+      entityType: 'Employee',
+      entityId: Number(employeeId),
+      newValue: { format: 'PNG', date },
+    });
     res.set({
       'Content-Type': 'image/png',
       'Content-Disposition': `attachment; filename="${filename}"`,
@@ -24,8 +38,15 @@ export class ReportsController {
 
   @Get('pdf')
   @RequirePermissions('DOWNLOAD_REPORT')
-  async pdf(@Query('employeeId') employeeId: string, @Query('date') date: string, @Res() res: Response) {
+  async pdf(@Query('employeeId') employeeId: string, @Query('date') date: string, @CurrentUser() user: any, @Res() res: Response) {
     const { buffer, filename } = await this.reportsService.downloadPdf(Number(employeeId), date);
+    await this.auditLog.record({
+      userId: user.id,
+      action: 'REPORT_DOWNLOADED',
+      entityType: 'Employee',
+      entityId: Number(employeeId),
+      newValue: { format: 'PDF', date },
+    });
     res.set({
       'Content-Type': 'application/pdf',
       'Content-Disposition': `attachment; filename="${filename}"`,
@@ -45,5 +66,15 @@ export class ReportsController {
   @RequirePermissions('SEND_EMAIL')
   emailLogs(@Query('employeeId') employeeId?: string) {
     return this.reportsService.listEmailLogs(employeeId ? Number(employeeId) : undefined);
+  }
+
+  // Re-serves the exact file that was previously emailed, via a short-lived
+  // signed URL — resolves an "I never got that email" dispute without
+  // regenerating a fresh (potentially different) report.
+  @Get('email-logs/:id/download')
+  @RequirePermissions('SEND_EMAIL')
+  async downloadEmailedReport(@Param('id') id: string) {
+    const url = await this.reportsService.getSignedUrlForEmailLog(Number(id));
+    return { url };
   }
 }

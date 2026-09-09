@@ -13,6 +13,17 @@ export class CreateMovementDto {
   @IsOptional()
   @IsBoolean()
   confirmed?: boolean;
+
+  // Client-generated idempotency key, one per guard tap, reused across
+  // retries of that same tap (including the offline-queue's sync retry).
+  // Lets the server recognize "this exact request already succeeded" and
+  // return the existing record instead of creating a duplicate — see the
+  // clientRequestId field comment in schema.prisma for the failure mode
+  // this closes. Optional so direct API/test callers aren't forced to
+  // supply one.
+  @IsOptional()
+  @IsString()
+  clientRequestId?: string;
 }
 
 export class CorrectMovementDto {

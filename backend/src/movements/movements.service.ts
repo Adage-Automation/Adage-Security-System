@@ -34,6 +34,23 @@ export class MovementsService {
       throw new NotFoundException('Employee not found');
     }
 
+    // Idempotency replay (found in the 2026-09-09 audit): if this exact
+    // guard tap already succeeded — e.g. the connection dropped after the
+    // server committed but before the client read the response — the
+    // retry (including the offline queue's auto-confirm-on-sync path)
+    // must return the existing record rather than create a genuine
+    // duplicate ENTRY/EXIT. This check runs before the duplicate-type
+    // warning below, since a replay isn't a new tap to warn about.
+    if (dto.clientRequestId) {
+      const existing = await this.prisma.movementRecord.findUnique({
+        where: { clientRequestId: dto.clientRequestId },
+        include: { employee: true },
+      });
+      if (existing) {
+        return { created: true, requiresConfirmation: false, record: existing };
+      }
+    }
+
     const last = await this.getLastMovement(dto.employeeId);
 
     if (last && last.movementType === dto.movementType && !dto.confirmed) {
@@ -46,15 +63,35 @@ export class MovementsService {
 
     // Server is authoritative for the timestamp — the frontend can never
     // supply the official movement time (§20, §46).
-    const record = await this.prisma.movementRecord.create({
-      data: {
-        employeeId: dto.employeeId,
-        movementType: dto.movementType,
-        movementAt: new Date(),
-        recordedByUserId,
-      },
-      include: { employee: true },
-    });
+    let record;
+    try {
+      record = await this.prisma.movementRecord.create({
+        data: {
+          employeeId: dto.employeeId,
+          movementType: dto.movementType,
+          movementAt: new Date(),
+          recordedByUserId,
+          clientRequestId: dto.clientRequestId,
+        },
+        include: { employee: true },
+      });
+    } catch (err: any) {
+      // Race: two near-simultaneous requests carrying the same
+      // clientRequestId (e.g. a retry firing just as the first request's
+      // commit lands) both pass the check above before either commits.
+      // The unique constraint catches what the check couldn't; treat it
+      // the same as a normal idempotency replay rather than a hard error.
+      if (err?.code === 'P2002' && dto.clientRequestId) {
+        const existing = await this.prisma.movementRecord.findUnique({
+          where: { clientRequestId: dto.clientRequestId },
+          include: { employee: true },
+        });
+        if (existing) {
+          return { created: true, requiresConfirmation: false, record: existing };
+        }
+      }
+      throw err;
+    }
 
     await this.auditLog.record({
       userId: recordedByUserId,

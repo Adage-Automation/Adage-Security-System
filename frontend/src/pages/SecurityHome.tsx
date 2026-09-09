@@ -17,6 +17,13 @@ import {
   IconCalendar,
 } from '../components/icons';
 
+function generateRequestId(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 function initials(name: string): string {
   return name
     .split(' ')
@@ -41,6 +48,12 @@ export function SecurityHome() {
   const [confirmDialog, setConfirmDialog] = useState<{ movementType: MovementType; lastType: MovementType } | null>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  // One id per guard tap, reused across that tap's retries (the confirm-
+  // resubmit, and the offline queue's sync) so the server can recognize a
+  // retry of an already-succeeded request instead of creating a duplicate
+  // — see the clientRequestId comment in schema.prisma. Regenerated only
+  // on a fresh tap (confirmed=false), never on a confirm-resubmit.
+  const pendingRequestIdRef = useRef<string | null>(null);
 
   const today = new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }).format(new Date());
 
@@ -104,12 +117,14 @@ export function SecurityHome() {
           employeeId: item.employeeId,
           movementType: item.movementType,
           confirmed: item.confirmed ?? false,
+          clientRequestId: item.clientRequestId,
         });
         if (res.requiresConfirmation) {
           res = await api.post<CreateMovementResponse>('/movements', {
             employeeId: item.employeeId,
             movementType: item.movementType,
             confirmed: true,
+            clientRequestId: item.clientRequestId,
           });
         }
         if (res.created) {
@@ -133,10 +148,20 @@ export function SecurityHome() {
     setSelected(null);
     setQuery('');
     setResults([]);
+    pendingRequestIdRef.current = null;
   }
 
   async function handleMovement(movementType: MovementType, confirmed = false) {
     if (!selected) return;
+
+    // A fresh tap (confirmed=false) gets a new id; a confirm-resubmit
+    // (confirmed=true, from the modal) reuses the id from the tap that
+    // triggered it, so the server can tell they're the same logical
+    // request if the first one's response never arrived.
+    if (!confirmed || !pendingRequestIdRef.current) {
+      pendingRequestIdRef.current = generateRequestId();
+    }
+    const clientRequestId = pendingRequestIdRef.current;
 
     if (!isOnline) {
       // Never falsely report success — the queued state is shown distinctly
@@ -146,6 +171,7 @@ export function SecurityHome() {
         employeeName: selected.employeeName,
         movementType,
         confirmed,
+        clientRequestId,
       });
       await refreshPendingCount();
       setStatus({ kind: 'pending-sync', movementType, employeeName: selected.employeeName });
@@ -158,6 +184,7 @@ export function SecurityHome() {
         employeeId: selected.id,
         movementType,
         confirmed,
+        clientRequestId,
       });
 
       if (res.requiresConfirmation && res.lastMovementType) {
@@ -174,12 +201,17 @@ export function SecurityHome() {
       if (err instanceof ApiError) {
         setStatus({ kind: 'error', message: 'Unable to save record. Please check the connection and try again.' });
       } else {
-        // Network failure (fetch threw) — queue it instead of losing the tap.
+        // Network failure (fetch threw) — queue it instead of losing the
+        // tap. Carries the same clientRequestId as this attempt: if the
+        // request actually reached the server and committed before the
+        // connection dropped, the eventual sync retry will be recognized
+        // as a replay instead of creating a duplicate record.
         await enqueueMovement({
           employeeId: selected.id,
           employeeName: selected.employeeName,
           movementType,
           confirmed,
+          clientRequestId,
         });
         await refreshPendingCount();
         setStatus({ kind: 'pending-sync', movementType, employeeName: selected.employeeName });

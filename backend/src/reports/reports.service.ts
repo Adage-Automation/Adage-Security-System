@@ -157,4 +157,20 @@ export class ReportsService {
       include: { employee: { select: { employeeName: true, employeeCode: true } } },
     });
   }
+
+  // Re-serves the exact file that was actually emailed, resolving a
+  // dispute ("I never got that email") without regenerating a new report
+  // that might not byte-for-byte match what was sent. Previously
+  // reportFileUrl was persisted for exactly this purpose but no endpoint
+  // ever read it back — found in the 2026-09-09 audit.
+  async getSignedUrlForEmailLog(emailLogId: number): Promise<string> {
+    const log = await this.prisma.emailLog.findUnique({ where: { id: emailLogId } });
+    if (!log) {
+      throw new NotFoundException('Email log not found');
+    }
+    if (log.status !== 'SENT' || !log.reportFileUrl) {
+      throw new BadRequestException('No stored report file for this email log (it was not successfully sent)');
+    }
+    return this.storage.getSignedDownloadUrl(log.reportFileUrl);
+  }
 }
