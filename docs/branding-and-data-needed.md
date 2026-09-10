@@ -19,7 +19,7 @@ These populate the `settings` table (Settings screen, or I can seed them directl
 
 ## 3. Real employee data — mostly done
 
-✅ First 6 real employees added (2026-09-03), then the full roster of 205 employees imported (2026-09-09) from `backend/data/employees.csv` — this is now the one, current, living roster file (re-run `npm run import:employees -- data/employees.csv` from `backend/` any time it's updated; upserts by employee code, safe to re-run). The 4 fake test employees (Rahul Sharma, Rahul Patil, Amit Patil, Priya Nair) have been permanently deleted, along with their test movement records.
+✅ First 6 real employees added (2026-09-03), then the full roster of 205 employees imported (2026-09-09) from `backend/data/employees.csv` — this is now the one, current, living roster file (re-run `npm run import:employees -w backend -- data/employees.csv` from the repo root any time it's updated; upserts by employee code, safe to re-run). The 4 fake test employees (Rahul Sharma, Rahul Patil, Amit Patil, Priya Nair) have been permanently deleted, along with their test movement records.
 
 **Department/designation dropped** (2026-09-03, by request): confirmed these fields weren't used anywhere in search, filtering, or reports — pure unused metadata. Removed from the "Add Employee" form and the CSV import format entirely. The database columns remain (nullable, harmless) in case they're wanted later.
 
@@ -32,15 +32,19 @@ The seeded `admin`/`hr`/`security` logins (password `ChangeMe123!`) are for deve
 
 I can create these directly once you confirm the list, or an Admin can create them through the Users screen after the first Admin account exists.
 
-## 5. Email sending — decided, waiting on credentials
+## 5. Email sending — ✅ working
 
-✅ Decided (2026-09-07): SMTP via Adage's existing Microsoft 365 tenant for `adage-automation.com` (confirmed via public DNS/MX records — no new email vendor needed). See [email-provider-options.md](./email-provider-options.md) for the full comparison that led here.
+✅ Decided (2026-09-07): send via Adage's existing Microsoft 365 tenant for `adage-automation.com` (confirmed via public DNS/MX records — no new email vendor needed). See [email-provider-options.md](./email-provider-options.md) for the full comparison that led here.
 
-**Still needed** — see [email-m365-admin-handoff.md](./email-m365-admin-handoff.md) for the exact instructions to hand to whoever administers Microsoft 365: confirmation/creation of the `security@adage-automation.com` mailbox, Authenticated SMTP enabled for it, and the resulting password or app password (goes in `backend/.env` as `SMTP_PASS`, never shared in chat).
+**Updated (2026-09-10)**: the original plan was SMTP with a mailbox password, but Microsoft 365 has retired basic-auth SMTP AUTH — no password or app password can authenticate an SMTP send anymore. The app now uses the **Microsoft Graph API** via an OAuth2 app registration instead.
 
-## 6. Storage (for emailed reports)
+✅ **Verified working end to end (2026-09-10)**: the Azure AD app is registered, admin consent for `Mail.Send` is granted, credentials are set in `backend/.env`, and a real "Email Details" send was confirmed delivered.
 
-- Already using the Supabase project's bundled storage (decided earlier) — just need a bucket created and its S3-compatible keys, per `docs/deployment.md#setting-up-supabase`. No separate action needed unless you'd rather use a different provider.
+**Still to do** (not blocking normal use): (1) run the Exchange Online application access policy restricting the app to just the security mailbox — see [email-m365-admin-handoff.md](./email-m365-admin-handoff.md) step 5; (2) once a real `security@adage-automation.com` mailbox is created, swap `MAIL_FROM_ADDRESS`/`SECURITY_EMAIL` in `backend/.env` away from the current temporary stand-in (`shivani.naik@adage-automation.com`) to it, and re-run the access policy against the new mailbox.
+
+## 6. Storage (for emailed reports) — ✅ working
+
+✅ Bucket created and S3-compatible keys filled in (`STORAGE_*` in `backend/.env`), using the same Supabase project as the database. Verified working end to end 2026-09-10 alongside the email test above.
 
 ## 7. Domain & deployment (when ready to go live)
 

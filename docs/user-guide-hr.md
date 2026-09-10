@@ -4,7 +4,7 @@ This is the guide for HR staff viewing employee movement history and sending rec
 
 ## Logging in
 
-Same as any user: username/email + password on the login screen.
+Same as any user: username + password on the login screen.
 
 ## Dashboard
 

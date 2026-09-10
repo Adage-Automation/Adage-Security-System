@@ -1,6 +1,6 @@
 # API Reference
 
-All routes are prefixed with `/api`. Auth is session-cookie based (`credentials: 'include'` required on every fetch). Every route below except `POST /auth/login` requires an authenticated session; routes also list the permission enforced by `PermissionsGuard`. Roles hold different permission sets (see `docs/security.md` for the current mapping) — the guard check always runs regardless of role.
+All routes are prefixed with `/api`. Auth is session-cookie based (`credentials: 'include'` required on every fetch). Every route below except `POST /auth/login`, `POST /auth/forgot-password`, and `POST /auth/reset-password` requires an authenticated session; routes also list the permission enforced by `PermissionsGuard`. Roles hold different permission sets (see `docs/security.md` for the current mapping) — the guard check always runs regardless of role.
 
 ## Auth
 
@@ -15,6 +15,12 @@ No body. Destroys the session, clears the cookie.
 Returns `{ user: AuthUser }` for the current session, or `401` if not logged in.
 
 `AuthUser` shape: `{ id, name, email, username, role, permissions: string[] }`
+
+### `POST /auth/forgot-password`
+Body: `{ email: string }`. Rate-limited to 5 attempts/60s per IP. Always returns `200 { message }` with the same generic wording regardless of whether the email matched an account — never reveals which addresses have accounts. If it matches an active user, emails them a single-use reset link (expires in 1 hour).
+
+### `POST /auth/reset-password`
+Body: `{ token: string, newPassword: string }` (`newPassword` min 8 characters). Rate-limited to 5 attempts/60s per IP. `200 { message }` on success. `400` if the token is missing, malformed, expired, or already used.
 
 ## Employees
 
@@ -78,8 +84,9 @@ Same body shape as above. Adds a brand-new record (no `correctionOf` link) for a
 |---|---|---|---|
 | GET | `/reports/image?employeeId=&date=` | `DOWNLOAD_REPORT` | Streams a freshly generated PNG, not persisted. API-only — no download button in the current UI (removed by design decision, 2026-09-03) |
 | GET | `/reports/pdf?employeeId=&date=` | `DOWNLOAD_REPORT` | Streams a freshly generated PDF, not persisted. API-only — same as above |
-| POST | `/reports/email?employeeId=&date=` | `SEND_EMAIL` | The **only** endpoint that ever sends an email. Persists the PNG to storage, sends via SMTP (Adage's Microsoft 365 tenant), writes an `email_logs` row |
+| POST | `/reports/email?employeeId=&date=` | `SEND_EMAIL` | The **only** endpoint that ever sends an email. Persists the PNG to storage, sends via the Microsoft Graph API (Adage's Microsoft 365 tenant, OAuth2), writes an `email_logs` row |
 | GET | `/reports/email-logs?employeeId=` | `SEND_EMAIL` | Audit trail of send attempts |
+| GET | `/reports/email-logs/:id/download` | `SEND_EMAIL` | Returns a short-lived signed URL for the exact PNG previously attached to that email |
 
 ## Users (admin)
 
@@ -107,7 +114,7 @@ Same body shape as above. Adds a brand-new record (no `correctionOf` link) for a
 | Method | Path | Permission |
 |---|---|---|
 | GET | `/settings` | `MANAGE_SETTINGS` |
-| PUT | `/settings/:key` | `MANAGE_SETTINGS` — body `{ value: string }` |
+| PUT | `/settings/:key` | `MANAGE_SETTINGS` — body `{ value: string }`. `:key` must be one of the known keys (`backend/src/common/constants/settings-keys.ts`: `COMPANY_NAME`, `TIMEZONE`, `SECURITY_EMAIL`, `EMAIL_SENDER_NAME`) — any other key returns 400 |
 
 ## Audit Logs
 
@@ -117,4 +124,6 @@ Same body shape as above. Adds a brand-new record (no `correctionOf` link) for a
 
 ## Error shape
 
-Non-2xx responses return `{ statusCode, message, error }` (Nest's default). The frontend's `api/client.ts` throws `ApiError` with `.status` and `.message` extracted from this. `401` → not authenticated (redirect to login). `403` → authenticated but missing permission. `429` → rate-limited (login only, currently).
+Non-2xx responses return `{ statusCode, message, error }` (Nest's default). The frontend's `api/client.ts` throws `ApiError` with `.status` and `.message` extracted from this. `401` → not authenticated (redirect to login). `403` → authenticated but missing permission. `429` → rate-limited (login only, currently). `400` → validation failure, including a malformed numeric route/query param (e.g. `GET /employees/abc`) — every `:id` and numeric query param is parsed with `ParseIntPipe` or the `parseOptionalInt` helper, never a raw `Number()` that could reach Prisma and surface as a 500.
+
+A client-side request that takes longer than 20s aborts and throws `ApiTimeoutError` (not an `ApiError`) — see `frontend/src/api/client.ts`.

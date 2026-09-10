@@ -5,7 +5,7 @@ This is the guide for security guards recording employee entry and exit at the g
 ## Logging in
 
 1. Open the app (on your phone: tap the Adage icon if you've installed it; otherwise open the link in your browser).
-2. Enter your username/email and password.
+2. Enter your username and password.
 3. Tap **Login**.
 
 Your name and role ("Security") appear at the top of the screen once logged in.

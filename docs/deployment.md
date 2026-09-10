@@ -25,7 +25,7 @@ Nothing is deployed yet — this document describes the target architecture and 
 
 ## Environment variables to set in each environment
 
-See `backend/.env.example` for the full list. At minimum, production needs its own: `DATABASE_URL`, `SESSION_SECRET` (long, random, unique — never reuse the dev value), `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`EMAIL_FROM`/`SECURITY_EMAIL`, `STORAGE_*`, `FRONTEND_URL`, and `NODE_ENV=production` (this flips the session cookie to `secure`, which requires HTTPS).
+See `backend/.env.example` for the full list. At minimum, production needs its own: `DATABASE_URL`, `SESSION_SECRET` (long, random, unique — never reuse the dev value), `AZURE_TENANT_ID`/`AZURE_CLIENT_ID`/`AZURE_CLIENT_SECRET`/`MAIL_FROM_ADDRESS`/`SECURITY_EMAIL`, `STORAGE_*`, `FRONTEND_URL`, and `NODE_ENV=production` (this flips the session cookie to `secure`, which requires HTTPS).
 
 ## Pre-deployment checklist
 
@@ -36,7 +36,7 @@ See `backend/.env.example` for the full list. At minimum, production needs its o
 - [ ] HTTPS is terminated in front of the backend (at the hosting provider or a reverse proxy) — the app assumes this and does not terminate TLS itself
 - [ ] `FRONTEND_URL` (CORS) matches the actual deployed frontend origin
 - [ ] Storage bucket exists, is **not** publicly readable, and its credentials are set
-- [ ] SMTP credentials are the real Microsoft 365 mailbox's (not a test/dev value), and Authenticated SMTP is confirmed enabled for that account
+- [ ] Microsoft Graph email configuration uses the real Azure app credentials (`AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`), and `MAIL_FROM_ADDRESS` is the mailbox covered by the Exchange application access policy
 - [ ] Database has automated backups configured at the provider level
 - [ ] Backend server's OS timezone (`TZ`) is set to `Asia/Kolkata`, matching `APP_TIMEZONE` — see the timezone note in `docs/architecture.md`
 - [ ] Puppeteer's Chromium dependency is available in the deploy target (some serverless/container platforms need extra config or a Puppeteer-compatible buildpack — verify report generation works in a staging deploy before going live)

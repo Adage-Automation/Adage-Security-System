@@ -15,8 +15,8 @@ This folder contains the complete documentation for the Adage Security System. S
 ## Reference
 
 - [branding-and-data-needed.md](./branding-and-data-needed.md) — exactly what Adage needs to supply (logo, brand color, real data, accounts) before production launch
-- [email-provider-options.md](./email-provider-options.md) — comparison of Resend/SendGrid/SES/SMTP for the on-demand email feature (decision: SMTP via Adage's existing Microsoft 365 tenant — see `docs/decisions.md`)
-- [email-m365-admin-handoff.md](./email-m365-admin-handoff.md) — exact instructions to hand to whoever administers Microsoft 365 for `adage-automation.com`, to enable SMTP sending
+- [email-provider-options.md](./email-provider-options.md) — comparison of Resend/SendGrid/SES/SMTP for the on-demand email feature (decision: Microsoft Graph API via Adage's existing Microsoft 365 tenant — see `docs/decisions.md`)
+- [email-m365-admin-handoff.md](./email-m365-admin-handoff.md) — exact instructions to hand to whoever administers Microsoft 365/Azure for `adage-automation.com`, to register the OAuth2 app and grant it mail-send access
 - [architecture.md](./architecture.md) — system design, data flow, module layout
 - [database-schema.md](./database-schema.md) — every table, field, relationship, and index
 - [api-reference.md](./api-reference.md) — every REST endpoint, request/response shape, required permission

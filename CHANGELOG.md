@@ -1,5 +1,64 @@
 # Changelog
 
+## 2026-09-10 (cont. 3) — Forgot password, full crash/bug audit fixes, a deployment-blocking migration bug fixed
+
+### Added
+
+- **Self-service "forgot password"** — `POST /auth/forgot-password` and `POST /auth/reset-password` (`backend/src/auth/`), a single-use SHA-256-hashed 1-hour-expiring token stored on the `User` row (new migration `20260910100000_add_password_reset_token`). New frontend pages `ForgotPassword.tsx`/`ResetPassword.tsx`; the login page's dead placeholder link now works. Both endpoints rate-limited like login. Verified live end to end: invalid/expired/reused token → 400, valid token + short password → 400, valid token + valid password → 200 and the new password logs in, non-existent email → identical generic response to a real one (no enumeration leak). See `docs/decisions.md`.
+
+### Fixed — full codebase crash/bug audit (forked, then verified/fixed directly)
+
+- **Frontend white-screen crash**: `EmployeeDetails.tsx` computed `dateLabel` from an unvalidated `date` URL param — a malformed/hand-edited/stale-bookmarked link threw a `RangeError` synchronously during render, and no `ErrorBoundary` existed anywhere in the app, so this crashed the entire React tree to a blank screen. Fixed at the source (falls back to today for an invalid date) and added `frontend/src/components/ErrorBoundary.tsx` as defense in depth. Verified live via Puppeteer: navigating to `/employee-details?...&date=not-a-real-date` now renders normally.
+- **Backend 500s instead of clean 400s** on every date-filtered endpoint (`GET /movements`, `GET /movements/employee/:id`, `GET /dashboard/summary`, `GET /reports/image`/`pdf`, `POST /reports/email`) — same root cause, an unvalidated `date` query param reaching Prisma/`Intl.DateTimeFormat` as an `Invalid Date`. Extracted the duplicated `dayRange()` logic (previously copy-pasted in both `movements.service.ts` and `reports.service.ts`) into one shared, validated helper (`backend/src/common/utils/day-range.ts`) that throws a clean `BadRequestException` instead. Verified live: `?date=not-a-date` and `?date=2026-13-99` both now return 400, valid dates unaffected.
+- **Pooled Puppeteer browser had no self-healing**: if it crashed/disconnected mid-session (rather than failing at launch, which was already handled), every subsequent report request kept returning the same dead `Browser` and failing forever until the whole Node process restarted — a regression risk introduced by the 2026-09-10 pooling change itself. Added a `disconnected` listener that clears the cached browser so the next call relaunches.
+- **Corrections.tsx**: clearing the date filter sent `""` to `new Date("")`, throwing a raw `"Invalid time value"` RangeError shown verbatim to the user instead of a friendly message. Now validated before submit.
+- Two unguarded non-null assertions in `report-generator.service.ts` (`bodyHandle!.boundingBox()!`) replaced with an explicit check and a clean `InternalServerErrorException`.
+
+### Fixed — a real deployment-blocking bug, found while adding the password-reset migration
+
+- Migration `20260909120000_enable_row_level_security` unconditionally ran `ALTER TABLE "session" ENABLE ROW LEVEL SECURITY`, but that table only exists once the app has booted at least once (created at runtime by `connect-pg-simple`). On any genuinely fresh database — a real first production deploy, a CI/shadow database — this would fail and abort every migration after it, forever, blocking the app from ever starting. Found via `prisma migrate dev`'s shadow-database validation. Fixed by editing the already-applied migration (a rare, deliberately-justified exception — see `docs/decisions.md` — since nothing has been deployed yet and this dev database is the only environment that has ever run it) to guard the statement behind an existence check. Verified: `prisma migrate deploy` runs clean against the live dev database with no drift/checksum error.
+
+### Docs
+
+- Updated `docs/roadmap.md`, `docs/decisions.md` (two new ADRs), `docs/security.md`, `docs/api-reference.md`, `docs/architecture.md`, `docs/database-schema.md` (also added two previously-undocumented audit actions, `REPORT_DOWNLOADED` and `PASSWORD_RESET_REQUESTED`), and `docs/testing.md` to reflect all of the above.
+
+## 2026-09-10 (cont. 2) — Full "Email Details" flow verified working end to end
+
+### Verified live
+
+- **The Microsoft Graph API OAuth2 email send is confirmed working**: Adage registered the Azure AD app, filled in `AZURE_TENANT_ID`/`AZURE_CLIENT_ID`/`AZURE_CLIENT_SECRET` in `backend/.env`, and granted admin consent for `Mail.Send`. A live isolated test first caught the exact expected failure mode (`403 ErrorAccessDenied` — token acquisition succeeded, confirming the credentials, but the send was rejected pre-consent); after consent was granted, the same test succeeded.
+- **Supabase Storage is confirmed working**: `STORAGE_*` env vars filled in. A full, real `POST /reports/email` call against employee `Adarsh Bhaskaran Chanabhat` returned `email_logs.status: "SENT"` with `reportFileUrl` populated; the signed re-download URL (`GET /reports/email-logs/:id/download`) was fetched directly and confirmed to be a valid 720×530 PNG.
+- This closes both items that were previously tracked as "Blocked — waiting on external input" in `docs/roadmap.md`.
+
+### Changed — temporary configuration, noted for follow-up
+
+- **No `security@adage-automation.com` mailbox exists yet** — `MAIL_FROM_ADDRESS`/`SECURITY_EMAIL` in `backend/.env` are temporarily set to `shivani.naik@adage-automation.com` as a stand-in for both the sending mailbox and the CC address. Swap back once the real mailbox is created (see `docs/email-m365-admin-handoff.md`). Recorded in project memory (`project_email_temp_mailbox.md`) so this isn't forgotten in a future session.
+- **The Exchange Online application access policy restricting the Azure app to one mailbox has not been confirmed run** — `Mail.Send` as an application permission can currently send as any mailbox in the tenant. Tracked as a follow-up security-hardening step in `docs/roadmap.md` and `docs/security.md`, not a blocker to normal use.
+- Cleaned up the one fabricated test movement record created to exercise this flow (`clientRequestId: test-e2e-email-verify-1`). Deliberately **left the resulting `email_logs` row in place** — unlike the movement record, it reflects a real event (a real email was actually sent and delivered), and `email_logs` exists specifically to prove what was sent, so removing it would defeat that purpose (same principle as never touching `audit_logs`).
+
+### Docs
+
+- Brought `docs/roadmap.md`'s "Blocked" section, "Done" list, and "Suggested next step" current with the above. Removed a stale duplicate `docs/decisions.md` reference (`docs/decisions.md#numeric-input-validation...`) gap — added the missing ADR for the `ParseIntPipe({ optional: true })` bug found and fixed 2026-09-10. Added the settings-key-whitelist and numeric-param-validation behavior to `docs/api-reference.md` and `docs/security.md`. Enhanced `README.md`'s Technology Stack table with previously-undocumented pieces (RLS, pooled Puppeteer, npm workspaces, request timeout, RBAC approach). Fixed remaining `cd backend`-style command inconsistencies in `docs/testing.md`, `docs/database-schema.md`, and `docs/branding-and-data-needed.md` to match the npm-workspaces command style used everywhere else.
+
+## 2026-09-10 (cont.) — Fixed loading-vs-empty-state flash on Dashboard/EmployeeDetails/Corrections
+
+### Fixed
+
+- **Dashboard, EmployeeDetails, and Corrections all initialized their record list as `[]`**, which is indistinguishable from "genuinely no records for this date" — so the "No records found" empty state briefly flashed on every navigation or filter change, even when data was about to arrive. Added a `recordsLoading` flag to each page, set before the fetch and cleared in `.finally()`, and gated the empty-state block on `!recordsLoading`. Verified live via a scripted check: switching Dashboard's date to one with real movement data showed zero empty-state flash before the table rendered (a naive fetch-in-progress check would have shown it).
+
+## 2026-09-10 — Email switched to Microsoft Graph API (OAuth2); several roadmap items closed out
+
+### Changed — email transport
+
+- **Switched email sending from SMTP to the Microsoft Graph API** (`backend/src/email/email.service.ts`) — Adage's Microsoft 365 admin confirmed the tenant has basic-auth SMTP AUTH retired, so the SMTP implementation from 2026-09-07 could never have worked regardless of credentials. Now authenticates via an Azure AD app registration (OAuth2 client-credentials grant against `login.microsoftonline.com`) and sends through `graph.microsoft.com/v1.0/users/{mailbox}/sendMail`. Removed `nodemailer`/`@types/nodemailer` (now unused). Rewrote `docs/email-m365-admin-handoff.md` for the new Azure app-registration steps (register app, grant `Mail.Send` with admin consent, scope it to the security mailbox via an Exchange Online application access policy) and updated every doc that referenced SMTP env vars (`README.md`, `docs/architecture.md`, `docs/api-reference.md`, `docs/deployment.md`, `docs/developer-guide.md`, `docs/roadmap.md`, `docs/branding-and-data-needed.md`, `docs/email-provider-options.md`) plus a new ADR in `docs/decisions.md`. New env vars: `AZURE_TENANT_ID`/`AZURE_CLIENT_ID`/`AZURE_CLIENT_SECRET`/`MAIL_FROM_ADDRESS` (replacing `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`EMAIL_FROM`). Still blocked on the admin handoff — no functional regression, since a real send was never possible either way.
+
+### Fixed — closing out several tracked roadmap items
+
+- **`SettingsController` now whitelists known setting keys** (`backend/src/common/constants/settings-keys.ts`) — `PUT /settings/:key` with an unrecognized key now returns a clean 400 instead of silently creating a junk row.
+- **Every controller now uses `ParseIntPipe` (or a small `parseOptionalInt` helper) for numeric route/query params** instead of raw `Number(id)` — a malformed ID now returns a clean 400 instead of reaching Prisma and surfacing as a raw 500. Caught and fixed a real bug introduced mid-change: Nest's built-in `ParseIntPipe({ optional: true })` was found to throw even when the query param is completely absent (verified against the installed `@nestjs/common` 10.4.22), not just when malformed — switched optional numeric query params to a small `parseOptionalInt()` helper (`backend/src/common/utils/parse-optional-int.ts`) instead, verified live against every affected endpoint (employees list/search, movements list, audit logs, email logs) with both present and absent params.
+- **Puppeteer now reuses one pooled browser instance** (`backend/src/reports/report-generator.service.ts`) instead of launching a fresh headless Chromium per report — only a page is opened/closed per request now. Verified live: three consecutive report generations showed decreasing latency (2316ms → 1786ms → 1565ms), consistent with the launch cost being paid once.
+- **Added a request timeout to the frontend API client** (`frontend/src/api/client.ts`) — every fetch now aborts after 20s via `AbortController` instead of a hung request leaving a "Sending…"/"Saving…" button stuck forever with no way out but reloading.
+
 ## 2026-09-09 (cont. 6) — Removed unused dependencies, deprecated tsconfig option
 
 ### Removed

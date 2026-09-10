@@ -9,6 +9,11 @@ No automated tests exist yet (tracked in [roadmap.md](./roadmap.md)). This docum
 - Login rejected for a disabled (`isActive: false`) user
 - Logout destroys the session (subsequent `/auth/me` returns 401)
 - Login is rate-limited after repeated failures
+- `POST /auth/forgot-password` returns the identical generic response for a registered and an unregistered email (no enumeration leak)
+- A valid, unexpired reset token successfully changes the password and the new password logs in
+- An invalid, expired, or already-used reset token is rejected with 400
+- A reset token can only be used once — reusing it after a successful reset fails
+- `POST /auth/forgot-password` and `POST /auth/reset-password` are both rate-limited after repeated attempts
 
 ## Employees
 
@@ -53,9 +58,8 @@ No automated tests exist yet (tracked in [roadmap.md](./roadmap.md)). This docum
 ## Suggested test commands (once written)
 
 ```bash
-cd backend
-npm test          # unit tests
-npm run test:e2e  # end-to-end (requires a test database)
+npm test -w backend          # unit tests
+npm run test:e2e -w backend  # end-to-end (requires a test database)
 ```
 
 `backend/package.json` already has `test` and `test:e2e` scripts wired to Jest — they currently have no test files to run.

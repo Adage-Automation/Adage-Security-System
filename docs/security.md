@@ -21,17 +21,21 @@
 - Generated PNG/PDF reports are **never** served through predictable public URLs. On-demand downloads stream through an authenticated endpoint; emailed reports are stored in S3-compatible storage with no public ACL, retrievable only via a short-lived signed URL (`StorageService.getSignedDownloadUrl`, 5-minute expiry).
 - CORS is locked to `FRONTEND_URL` — no wildcard origins.
 - Helmet sets standard security headers on every response.
-- Input validation: every DTO uses `class-validator` decorators; `ValidationPipe({ whitelist: true, transform: true })` is applied globally, so unexpected fields in a request body are stripped rather than silently accepted.
+- Input validation: every DTO uses `class-validator` decorators; `ValidationPipe({ whitelist: true, transform: true })` is applied globally, so unexpected fields in a request body are stripped rather than silently accepted. Every numeric route/query param (`:id`, `skip`, `take`, etc.) is validated via `ParseIntPipe`/`parseOptionalInt` rather than a raw `Number()`, so a malformed value returns a clean 400 instead of an unhandled 500. `PUT /settings/:key` only accepts a fixed whitelist of known keys.
 - **Row Level Security enabled on every table** (Supabase Postgres, 2026-09-09) with no policies defined — a second layer of default-deny below the application layer. The app's Prisma connection uses the table-owner role, which Postgres always exempts from RLS, so this has zero effect on normal app behavior; it only matters if some other credential (e.g. a Supabase API key) ever touches the database directly. See [decisions.md](./decisions.md#row-level-security-defense-in-depth).
+- **Email-sending credential is scoped to one mailbox.** The Azure AD app used for the Microsoft Graph API holds `Mail.Send` as an *application* permission, which by default can send as any mailbox in the tenant — restricted to just the security mailbox via an Exchange Online application access policy (`New-ApplicationAccessPolicy`), so a compromised client secret can't be used to send as an arbitrary employee or executive mailbox. See `docs/email-m365-admin-handoff.md`.
 
 ## Audit trail
 
 Every sensitive action writes to `audit_logs` (see [database-schema.md](./database-schema.md#audit_logs) for the full action list): logins/logouts, every ENTRY/EXIT, every correction, every employee/user create-update-deactivate, every settings change, every email send attempt (success or failure). Audit rows are never deleted or edited by application code.
 
+## Self-service password reset
+
+- `POST /auth/forgot-password` / `POST /auth/reset-password` (2026-09-10) — a single-use, SHA-256-hashed, 1-hour-expiring token, generated server-side and never stored in plaintext. The request endpoint always returns the same generic response regardless of whether the email matched an account, so it can't be used to enumerate which addresses have accounts. See [decisions.md](./decisions.md#forgot-password-hashed-single-use-tokens-not-jwt-or-plaintext).
+
 ## What's NOT yet implemented (see [roadmap.md](./roadmap.md))
 
 - HTTPS termination is assumed to happen at the hosting layer (Vercel/Render/etc.) — not configured in this repo.
-- "Forgot password" has a UI stub only; no backend reset-link flow exists yet.
 - No automated dependency vulnerability scanning is wired into CI yet (no CI pipeline exists yet at all).
 - No documented incident-response runbook.
 

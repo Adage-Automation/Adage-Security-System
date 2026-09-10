@@ -44,7 +44,7 @@ CORRECT_RECORDS
 
 ## `users`
 
-One row per login account. `passwordHash` is Argon2 — never store or log a plaintext password. `roleId` is a single FK (a user has exactly one role). `isActive = false` disables login without deleting audit/movement history tied to the user.
+One row per login account. `passwordHash` is Argon2 — never store or log a plaintext password. `roleId` is a single FK (a user has exactly one role). `isActive = false` disables login without deleting audit/movement history tied to the user. `resetTokenHash`/`resetTokenExpiresAt` (both nullable, `resetTokenHash` unique) back the self-service "forgot password" flow — only the SHA-256 hash of the reset token is stored, never the raw token; a new request overwrites the previous token (at most one active reset per user); both are cleared on a successful reset. See [decisions.md](./decisions.md#forgot-password-hashed-single-use-tokens-not-jwt-or-plaintext).
 
 ## `employees`
 
@@ -64,11 +64,11 @@ Indexes: `(employeeId, movementAt)` composite (the hot path — "this employee's
 
 ## `email_logs`
 
-One row per **on-demand** email send attempt (never per movement — email is strictly on-demand throughout this system, see spec §29/§66 and `docs/architecture.md`'s key design decisions). `status` moves `PENDING → SENT` or `PENDING → FAILED` on any send failure, including a rejected/failed SMTP send, not just a network-level exception — see `CHANGELOG.md`. `reportFileUrl` points at the S3-compatible object that was actually attached to the email, persisted specifically so a "I never got that email" dispute can be resolved by re-serving the exact file that was sent — see [decisions.md](./decisions.md#report-storage-persist-emailed-reports).
+One row per **on-demand** email send attempt (never per movement — email is strictly on-demand throughout this system, see spec §29/§66 and `docs/architecture.md`'s key design decisions). `status` moves `PENDING → SENT` or `PENDING → FAILED` on any send failure, including a rejected Microsoft Graph send, not just a network-level exception — see `CHANGELOG.md`. `reportFileUrl` points at the S3-compatible object that was actually attached to the email, persisted specifically so a "I never got that email" dispute can be resolved by re-serving the exact file that was sent — see [decisions.md](./decisions.md#report-storage-persist-emailed-reports).
 
 ## `audit_logs`
 
-Append-only trail of every sensitive action: `USER_LOGIN`, `USER_LOGOUT`, `ENTRY_RECORDED`, `EXIT_RECORDED`, `RECORD_CORRECTED`, `MISSING_RECORD_ADDED`, `EMPLOYEE_CREATED/UPDATED/DEACTIVATED/REACTIVATED`, `USER_CREATED/UPDATED/ENABLED/DISABLED/PASSWORD_RESET`, `EMAIL_SENT`, `EMAIL_FAILED`, `SETTING_UPDATED`. `oldValue`/`newValue` are JSON snapshots for before/after diffing. `userId` is nullable so system-triggered events (if any are added later) don't require a synthetic user.
+Append-only trail of every sensitive action: `USER_LOGIN`, `USER_LOGOUT`, `ENTRY_RECORDED`, `EXIT_RECORDED`, `RECORD_CORRECTED`, `MISSING_RECORD_ADDED`, `EMPLOYEE_CREATED/UPDATED/DEACTIVATED/REACTIVATED`, `USER_CREATED/UPDATED/ENABLED/DISABLED/PASSWORD_RESET`, `PASSWORD_RESET_REQUESTED` (self-service forgot-password request — logged only when the email matched a real account, to avoid audit-log noise from arbitrary addresses), `EMAIL_SENT`, `EMAIL_FAILED`, `REPORT_DOWNLOADED`, `SETTING_UPDATED`. `oldValue`/`newValue` are JSON snapshots for before/after diffing. `userId` is nullable so system-triggered events (if any are added later) don't require a synthetic user.
 
 ## `settings`
 
@@ -81,9 +81,8 @@ Not in `schema.prisma` — created at runtime by `connect-pg-simple` (`createTab
 ## Migrations
 
 ```
-cd backend
-npm run prisma:migrate     # dev: creates a new migration from schema changes
-npm run prisma:deploy      # prod: applies existing migrations, no schema diffing
+npm run prisma:migrate         # dev: creates a new migration from schema changes (root script)
+npm run prisma:deploy -w backend  # prod: applies existing migrations, no schema diffing
 ```
 
 Never edit a migration file that has already been applied in any shared environment — create a new migration instead.

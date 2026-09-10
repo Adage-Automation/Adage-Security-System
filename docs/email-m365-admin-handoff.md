@@ -1,32 +1,50 @@
-# Handoff: Enabling SMTP Sending for the Adage Security System
+# Handoff: Enabling Mail Sending for the Adage Security System (OAuth2 / Microsoft Graph)
 
-Send this to whoever administers Microsoft 365 for `adage-automation.com`. Confirmed via public DNS (MX records) that this domain is already on Microsoft 365 — no new email vendor needed, just enabling SMTP sending for one mailbox.
+Send this to whoever administers Microsoft 365 / Azure for `adage-automation.com`. This supersedes an earlier handoff that asked for SMTP AUTH with a mailbox password — **that approach no longer works**: Microsoft 365 has retired basic-auth SMTP AUTH on Exchange Online, so no mailbox password or app password can authenticate an SMTP send anymore. The supported replacement is an Azure AD app registration using OAuth2, sending through the **Microsoft Graph API** instead of SMTP.
 
 ## What's needed
 
-1. **Confirm or create the mailbox**: `security@adage-automation.com` (or whichever address should be the "from" address for automated employee movement-record emails). This needs to be a regular **licensed mailbox** with its own password — not a shared mailbox (shared mailboxes don't have passwords, which SMTP AUTH needs) and not just an alias.
+1. **Register an app** in the [Azure Portal](https://portal.azure.com) → **Microsoft Entra ID** → **App registrations** → **New registration**.
+   - Name: something recognizable, e.g. "Adage Security System — Mail Sender"
+   - Supported account types: **Single tenant** (accounts in this organizational directory only)
+   - Redirect URI: leave blank (this app never involves a user sign-in)
 
-2. **Enable Authenticated SMTP for that mailbox specifically**: Microsoft 365 admin center → **Users** → **Active users** → select the mailbox → **Mail** tab → **Manage email apps** → check **Authenticated SMTP** → **Save changes**. (Microsoft disabled this tenant-wide by default in 2022 for security; this re-enables it for just this one account, not the whole tenant.)
+2. **Note two values from the app's Overview page**:
+   - **Application (client) ID**
+   - **Directory (tenant) ID**
 
-3. **Handle MFA**: if that mailbox account has MFA enabled (likely, if it follows the rest of the tenant's security policy), a regular password won't work for SMTP AUTH. Either:
-   - Generate an **app password** for the account (Microsoft 365 → My Account → Security info → Add sign-in method → App password), or
-   - Exclude that one account from MFA via a Conditional Access policy (less preferred — an app password is more targeted and easier to revoke later).
+3. **Create a client secret**: app registration → **Certificates & secrets** → **New client secret**. Copy the secret's **value** immediately — it's only shown once. Set an expiry per your organization's policy (e.g. 12 or 24 months) and calendar a reminder to rotate it before then.
 
-4. **Send back** (not through a public/unsecured channel):
-   - The exact mailbox address
-   - The password or app password generated in step 3
+4. **Grant the app permission to send mail**: app registration → **API permissions** → **Add a permission** → **Microsoft Graph** → **Application permissions** → search for and add **`Mail.Send`** → then click **Grant admin consent for [tenant]** (requires a Global Administrator or Privileged Role Administrator).
+
+5. **Restrict which mailbox the app can send as** (important — `Mail.Send` as an application permission can otherwise send as *any* mailbox in the tenant). Create a mail-enabled security group or distribution group containing only the sending mailbox, then run this once in **Exchange Online PowerShell**, using that group's email address or ID as the policy scope:
+   ```powershell
+   New-ApplicationAccessPolicy -AppId "<the Application (client) ID from step 2>" `
+   -PolicyScopeGroupId "<mail-enabled group containing only the sending mailbox>" `
+     -AccessRight RestrictAccess `
+     -Description "Adage Security System - restrict to security mailbox only"
+   ```
+   (This requires the target mailbox and the mail-enabled scope group to exist first — see step 6.)
+
+6. **Confirm or create the mailbox**: `security@adage-automation.com` — a regular mailbox (licensed or shared both work here, since Graph doesn't need a password for this mailbox at all; only the app's client secret is used).
+
+7. **Send back** (not through a public/unsecured channel):
+   - Directory (tenant) ID
+   - Application (client) ID
+   - The client secret's value
+   - Confirmation of which mailbox address the access policy was scoped to
 
 ## What this will be used for
 
-An internal security-desk web app sends, **only when a staff member explicitly clicks "Email Details"** (never automatically, never in bulk), a single PNG image of one employee's entry/exit record for one day, to that employee's own `@adage-automation.com` address, CC'd to this same security mailbox. Expected volume: at most a handful to a few dozen emails per day.
+An internal security-desk web app sends, **only when a staff member explicitly clicks "Email Details"** (never automatically, never in bulk), a single PNG image of one employee's entry/exit record for one day, to that employee's own `@adage-automation.com` address, CC'd to the security mailbox above. Expected volume: at most a handful to a few dozen emails per day.
 
-## Technical connection details (for reference)
+## Technical details (for reference)
 
 ```
-SMTP host: smtp.office365.com
-Port: 587
-Encryption: STARTTLS
-Auth: the mailbox's own username (full email address) + password/app password
+Auth:  OAuth2 client-credentials grant against
+       https://login.microsoftonline.com/{tenant-id}/oauth2/v2.0/token
+       scope: https://graph.microsoft.com/.default
+Send:  POST https://graph.microsoft.com/v1.0/users/{mailbox}/sendMail
 ```
 
-These go into the application's environment configuration (`backend/.env`, never committed to source control) as `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`.
+These three values go into the application's environment configuration (`backend/.env`, never committed to source control) as `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, alongside `MAIL_FROM_ADDRESS` (the mailbox from step 6).

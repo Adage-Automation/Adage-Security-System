@@ -24,15 +24,15 @@
          ┌──────────────┼───────────────┐
          ▼              ▼               ▼
    ┌───────────┐  ┌────────────┐  ┌─────────────┐
-   │ PostgreSQL│  │  SMTP      │  │ S3-compatible│
-   │ (Prisma)  │  │  (M365)    │  │  storage     │
+   │ PostgreSQL│  │ Microsoft  │  │ S3-compatible│
+   │ (Prisma)  │  │ Graph API  │  │  storage     │
    │ + sessions│  │            │  │ (emailed     │
    │   table   │  │            │  │  reports     │
    └───────────┘  └────────────┘  │  only)       │
                                    └─────────────┘
 ```
 
-The frontend never talks to Postgres, the SMTP server, or storage directly — everything routes through the NestJS API, and every API route re-verifies authentication and permission server-side (never trust the UI to hide a button as the only access control).
+The frontend never talks to Postgres, Microsoft Graph, or storage directly — everything routes through the NestJS API, and every API route re-verifies authentication and permission server-side (never trust the UI to hide a button as the only access control).
 
 ## Backend module layout
 
@@ -46,7 +46,7 @@ backend/src/
 ├── movements/       the event log: create (with duplicate-confirm), list/filter, correct
 ├── dashboard/       daily summary stats (counts only, no working-hours math)
 ├── reports/         PNG/PDF generation (Puppeteer) + on-demand email orchestration
-├── email/           SMTP wrapper (nodemailer, via Adage's Microsoft 365 tenant) — the only place that sends email
+├── email/           Microsoft Graph API wrapper (OAuth2, via Adage's Microsoft 365 tenant) — the only place that sends email
 ├── audit-logs/      write-through audit trail, read endpoint for admins
 ├── settings/        key/value system config (company name, timezone, security email, sender name)
 ├── common/          shared decorators (CurrentUser, RequirePermissions), guards, permission constants
@@ -72,12 +72,14 @@ frontend/src/
 ├── api/client.ts        thin fetch wrapper, always sends cookies, throws ApiError
 ├── auth/AuthContext.tsx React context: current user, login/logout, permission check
 ├── offline/movementQueue.ts  IndexedDB-backed queue for offline ENTRY/EXIT taps
-├── components/           Header, ProtectedRoute
+├── components/           Header, ProtectedRoute, ErrorBoundary
 ├── pages/
 │   ├── Login.tsx
+│   ├── ForgotPassword.tsx  request a reset link by email
+│   ├── ResetPassword.tsx   set a new password from the emailed link
 │   ├── SecurityHome.tsx   the core guard workflow: search → select → ENTRY/EXIT
 │   ├── Dashboard.tsx      date/employee/movement-type filters + summary + records
-│   ├── EmployeeDetails.tsx  one employee's day: view, download, EMAIL DETAILS
+│   ├── EmployeeDetails.tsx  one employee's day: view, EMAIL DETAILS
 │   ├── Employees.tsx      admin: employee CRUD, deactivate/reactivate, search + pagination over the full roster
 │   ├── Users.tsx          admin: user CRUD, enable/disable
 │   ├── Corrections.tsx    admin: search a date + employee, append-only-correct or add a missing record
@@ -100,6 +102,12 @@ See [decisions.md](./decisions.md) for full rationale on each of these.
 - **RBAC scaffolding paid off** — `role_permissions` started as every permission mapped to every role (v1 spec default), but every endpoint was already gated by `@RequirePermissions(...)`. When the roles needed to diverge (2026-09-04: Security limited to the recording workflow + Dashboard, HR gets that plus Employees, only Admin gets Users/Corrections/Audit Log/Settings), it was a data change to `DEFAULT_ROLE_PERMISSIONS` plus reconciling the live `role_permissions` table — zero endpoint code touched.
 - **Idempotent movement creation** — `POST /movements` accepts an optional client-generated `clientRequestId`. If the same key arrives twice (an ambiguous network failure where the client retries a request that actually succeeded), the server returns the existing record instead of creating a duplicate. See [decisions.md](./decisions.md#movement-idempotency-key).
 - **Database-level defense in depth (RLS)** — every Supabase/Postgres table has Row Level Security enabled with no policies defined. The app's own Prisma connection uses the table-owner role, which Postgres exempts from RLS, so this is invisible to normal app behavior; it exists purely so that any *other* credential (e.g. Supabase's separate `anon`/`authenticated` API roles, never used by this app but present by default in a Supabase project) is denied by default rather than defaulting to full read/write access. See [decisions.md](./decisions.md#row-level-security-defense-in-depth).
+- **Pooled Puppeteer browser** — `ReportGeneratorService` launches one headless Chromium instance at first use and reuses it across every report generation (only a page is opened/closed per request), instead of paying a fresh launch cost per PNG/PDF. Closed on module shutdown.
+- **Validated numeric inputs everywhere** — every route/query param that should be a number goes through `ParseIntPipe` (route params) or a small `parseOptionalInt()` helper (optional query params, since Nest's built-in `ParseIntPipe({ optional: true })` was found not to behave as documented — see `docs/decisions.md`), so a malformed ID returns a clean 400 instead of reaching Prisma and surfacing as a raw 500.
+- **Settings key whitelist** — `PUT /settings/:key` only accepts the fixed set of keys in `backend/src/common/constants/settings-keys.ts`; anything else is a 400, not a silently-created junk row.
+- **Frontend request timeout** — every API call from `frontend/src/api/client.ts` aborts after 20s via `AbortController`, so a hung request can't leave a "Sending…"/"Saving…" button stuck forever.
+- **Validated date inputs everywhere** — every date-scoped backend query goes through one shared `dayRange()` helper (`backend/src/common/utils/day-range.ts`) that rejects a malformed `date` with a clean 400 instead of producing an `Invalid Date` that surfaces as a raw 500 deep inside Prisma or `Intl.DateTimeFormat`. The frontend's `EmployeeDetails.tsx` does the same for the `date` URL param, falling back to today rather than crashing. A top-level `ErrorBoundary` (`frontend/src/components/ErrorBoundary.tsx`) is a last-resort safety net, not a substitute for this.
+- **Self-service password reset** — single-use, SHA-256-hashed, 1-hour-expiring token stored directly on `User` (not a separate table); the request endpoint never reveals whether an email matched an account. See [decisions.md](./decisions.md#forgot-password-hashed-single-use-tokens-not-jwt-or-plaintext).
 
 ## Timezone handling
 

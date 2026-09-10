@@ -128,8 +128,8 @@ Full reference lives in `backend/.env.example`. Never commit a real `.env`. Key 
 | `DATABASE_URL` | Postgres connection string |
 | `SESSION_SECRET` | Signs the session cookie — long random string, unique per environment |
 | `APP_TIMEZONE` | Should stay `Asia/Kolkata`; also set the OS-level `TZ` on the backend process (see architecture doc's timezone note) |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` | SMTP config — Adage's Microsoft 365 tenant, see `docs/email-m365-admin-handoff.md` |
-| `EMAIL_FROM` / `SECURITY_EMAIL` | Sender display name and CC address |
+| `AZURE_TENANT_ID` / `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` | OAuth2 app registration for the Microsoft Graph API — Adage's Microsoft 365 tenant, see `docs/email-m365-admin-handoff.md` |
+| `MAIL_FROM_ADDRESS` / `SECURITY_EMAIL` | Sending mailbox and CC address |
 | `STORAGE_*` | S3-compatible bucket for persisted emailed reports |
 | `FRONTEND_URL` | Used for CORS allow-list |
 
