@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import nodemailer, { Transporter } from 'nodemailer';
 
 interface SendMovementEmailInput {
   to: string;
@@ -10,48 +9,84 @@ interface SendMovementEmailInput {
   attachment: { filename: string; content: Buffer };
 }
 
+interface SendPasswordResetEmailInput {
+  to: string;
+  name: string;
+  resetLink: string;
+  senderName: string;
+}
+
+interface CachedToken {
+  token: string;
+  expiresAt: number;
+}
+
+interface RequiredConfig {
+  tenantId: string;
+  clientId: string;
+  clientSecret: string;
+  fromAddress: string;
+}
+
 // All email sending happens server-side only (spec §36) — the frontend
 // never talks to the email provider directly. Strictly on-demand: this
 // service is only ever invoked from the "EMAIL DETAILS" endpoint, never
 // from the movement-recording path (spec §29, §66).
 //
-// Sends via SMTP (Microsoft 365 / Office 365) rather than a third-party
-// transactional-email API — adage-automation.com's MX records already
-// point at Microsoft 365, so this rides on email infrastructure Adage
-// already pays for and depends on, rather than adding a new vendor
-// relationship with its own free-tier terms that could change. See
+// Sends via the Microsoft Graph API (application permissions, OAuth2
+// client-credentials flow), not SMTP — Microsoft has retired basic-auth
+// SMTP AUTH on Exchange Online tenants, so a username/password can no
+// longer authenticate here even with an app password (2026-09-10, per
+// Adage's Microsoft 365 admin). Graph is Microsoft's supported
+// replacement for unattended/app-only mail sending. This still rides on
+// email infrastructure Adage already pays for and depends on for its
+// actual business email, not a new third-party vendor relationship — see
 // docs/decisions.md and docs/email-m365-admin-handoff.md.
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
-  private transporter: Transporter | null = null;
+  private cachedToken: CachedToken | null = null;
 
-  // Constructed lazily rather than in the constructor: a missing/invalid
-  // SMTP config must only ever fail the send call, never crash the whole
-  // app at boot (the app must keep working — auth, movements, dashboard —
-  // even before email is configured).
-  private getTransporter(): Transporter {
-    if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
-      throw new Error('SMTP is not configured (SMTP_HOST/SMTP_USER/SMTP_PASS) — cannot send email.');
+  // Read lazily, not in the constructor: missing/invalid config must only
+  // ever fail the send call, never crash the whole app at boot (auth,
+  // movements, dashboard must keep working even before email is set up).
+  private requireConfig(): RequiredConfig {
+    const tenantId = process.env.AZURE_TENANT_ID;
+    const clientId = process.env.AZURE_CLIENT_ID;
+    const clientSecret = process.env.AZURE_CLIENT_SECRET;
+    const fromAddress = process.env.MAIL_FROM_ADDRESS;
+    if (!tenantId || !clientId || !clientSecret || !fromAddress) {
+      throw new Error(
+        'Microsoft Graph email is not configured (AZURE_TENANT_ID/AZURE_CLIENT_ID/AZURE_CLIENT_SECRET/MAIL_FROM_ADDRESS) — cannot send email.',
+      );
     }
-    if (!this.transporter) {
-      this.transporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST,
-        port: Number(process.env.SMTP_PORT ?? 587),
-        secure: false, // STARTTLS on 587, not implicit TLS
-        // Without this, nodemailer's default "opportunistic STARTTLS"
-        // silently falls back to plaintext if the server doesn't advertise
-        // STARTTLS (e.g. stripped by a MITM, or a transient misconfig) —
-        // sending the SMTP password and employee PII unencrypted with no
-        // error. This makes that fail loudly instead. Found in audit.
-        requireTLS: true,
-        auth: {
-          user: process.env.SMTP_USER,
-          pass: process.env.SMTP_PASS,
-        },
-      });
+    return { tenantId, clientId, clientSecret, fromAddress };
+  }
+
+  // Client-credentials tokens are valid for ~1 hour; cached in memory and
+  // refreshed a little early rather than fetched fresh on every send.
+  private async getAccessToken(config: RequiredConfig): Promise<string> {
+    const now = Date.now();
+    if (this.cachedToken && this.cachedToken.expiresAt > now + 30_000) {
+      return this.cachedToken.token;
     }
-    return this.transporter;
+
+    const res = await fetch(`https://login.microsoftonline.com/${config.tenantId}/oauth2/v2.0/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: config.clientId,
+        client_secret: config.clientSecret,
+        scope: 'https://graph.microsoft.com/.default',
+        grant_type: 'client_credentials',
+      }),
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to acquire Microsoft Graph access token: ${res.status} ${await res.text()}`);
+    }
+    const data = (await res.json()) as { access_token: string; expires_in: number };
+    this.cachedToken = { token: data.access_token, expiresAt: now + data.expires_in * 1000 };
+    return this.cachedToken.token;
   }
 
   async sendMovementRecordEmail(input: SendMovementEmailInput): Promise<void> {
@@ -61,29 +96,88 @@ export class EmailService {
       <p>This is an automatically generated record from the ${escapeHtml(input.senderName)}.</p>
       <p>Regards,<br/>${escapeHtml(input.senderName)}</p>
     `;
-
     try {
-      // nodemailer throws for both transport-level AND SMTP-rejection
-      // failures (unlike some provider SDKs that silently resolve with an
-      // error field) — no separate error-field check needed here, but see
-      // the 2026-09-04 audit note in reports.service.ts for why that
-      // distinction matters and was previously missed with Resend.
-      await this.getTransporter().sendMail({
-        from: process.env.EMAIL_FROM ?? 'Adage Security System <security@adage-automation.com>',
+      await this.sendMail({
         to: input.to,
         cc: input.cc,
         subject: `Employee Movement Record — ${input.dateLabel}`,
         html,
-        attachments: [
-          {
-            filename: input.attachment.filename,
-            content: input.attachment.content,
-          },
-        ],
+        attachment: { filename: input.attachment.filename, contentType: 'image/png', content: input.attachment.content },
       });
     } catch (err) {
       this.logger.error(`Failed to send movement email to ${input.to}`, err as Error);
       throw err;
+    }
+  }
+
+  // Self-service "forgot password" — never reveals whether an account
+  // exists (see AuthService.requestPasswordReset); this method is only
+  // ever called once a matching, active account has already been found.
+  async sendPasswordResetEmail(input: SendPasswordResetEmailInput): Promise<void> {
+    const html = `
+      <p>Hello ${escapeHtml(input.name.split(' ')[0])},</p>
+      <p>We received a request to reset your ${escapeHtml(input.senderName)} password. Click the link below to choose a new one:</p>
+      <p><a href="${escapeHtml(input.resetLink)}">${escapeHtml(input.resetLink)}</a></p>
+      <p>This link expires in 1 hour and can only be used once. If you didn't request this, you can safely ignore this email — your password hasn't been changed.</p>
+      <p>Regards,<br/>${escapeHtml(input.senderName)}</p>
+    `;
+    try {
+      await this.sendMail({
+        to: input.to,
+        subject: `Reset your ${input.senderName} password`,
+        html,
+      });
+    } catch (err) {
+      this.logger.error(`Failed to send password reset email to ${input.to}`, err as Error);
+      throw err;
+    }
+  }
+
+  private async sendMail(input: {
+    to: string;
+    cc?: string;
+    subject: string;
+    html: string;
+    attachment?: { filename: string; contentType: string; content: Buffer };
+  }): Promise<void> {
+    const config = this.requireConfig();
+    const token = await this.getAccessToken(config);
+    // sendMail on the specific mailbox we're allowed to act as — the
+    // Azure app's Mail.Send permission is scoped to just this address via
+    // an Exchange Online application access policy (see
+    // docs/email-m365-admin-handoff.md), not tenant-wide.
+    const res = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(config.fromAddress)}/sendMail`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        message: {
+          subject: input.subject,
+          body: { contentType: 'HTML', content: input.html },
+          toRecipients: [{ emailAddress: { address: input.to } }],
+          ccRecipients: input.cc ? [{ emailAddress: { address: input.cc } }] : [],
+          attachments: input.attachment
+            ? [
+                {
+                  '@odata.type': '#microsoft.graph.fileAttachment',
+                  name: input.attachment.filename,
+                  contentType: input.attachment.contentType,
+                  contentBytes: input.attachment.content.toString('base64'),
+                },
+              ]
+            : [],
+        },
+        saveToSentItems: true,
+      }),
+    });
+    if (!res.ok) {
+      // Graph returns 202 with no body on success; anything else is a
+      // real failure — never treat a non-2xx as sent (same principle as
+      // the earlier Resend bug where a failed send was reported as
+      // successful, see docs/roadmap.md's 2026-09-04 audit findings).
+      throw new Error(`Microsoft Graph sendMail failed: ${res.status} ${await res.text()}`);
     }
   }
 }
