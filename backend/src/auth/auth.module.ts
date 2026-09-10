@@ -5,9 +5,11 @@ import { AuthService } from './auth.service';
 import { LocalStrategy } from './local.strategy';
 import { SessionSerializer } from './session.serializer';
 import { AuditLogModule } from '../audit-logs/audit-log.module';
+import { EmailModule } from '../email/email.module';
+import { SettingsModule } from '../settings/settings.module';
 
 @Module({
-  imports: [PassportModule.register({ session: true }), AuditLogModule],
+  imports: [PassportModule.register({ session: true }), AuditLogModule, EmailModule, SettingsModule],
   controllers: [AuthController],
   providers: [AuthService, LocalStrategy, SessionSerializer],
   exports: [AuthService],

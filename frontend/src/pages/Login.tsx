@@ -1,14 +1,16 @@
 import { FormEvent, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth, ApiError } from '../auth/AuthContext';
 
 export function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const passwordResetSuccess = Boolean((location.state as { passwordResetSuccess?: boolean } | null)?.passwordResetSuccess);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -35,6 +37,12 @@ export function Login() {
       <div className="login-card">
         <img src="/logo.png" alt="Adage" className="login-logo-img" />
         <div className="subtitle">Security System</div>
+
+        {passwordResetSuccess && (
+          <div className="status-banner success" style={{ marginBottom: 16 }}>
+            Password updated. You can now log in with your new password.
+          </div>
+        )}
 
         <form onSubmit={handleSubmit}>
           <div className="field">
@@ -69,9 +77,7 @@ export function Login() {
           </button>
         </form>
         <p style={{ textAlign: 'center', marginTop: '16px', fontSize: '14px' }}>
-          <a href="#" onClick={(e) => e.preventDefault()}>
-            Forgot password?
-          </a>
+          <Link to="/forgot-password">Forgot password?</Link>
         </p>
       </div>
     </div>

@@ -59,6 +59,14 @@ model User {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
+  // Self-service "forgot password" (spec requirement, closed 2026-09-10).
+  // Only the SHA-256 hash of the reset token is stored — never the raw
+  // token — so a database leak alone can't be used to complete a reset.
+  // Single active token per user (a new request overwrites the old one);
+  // cleared on successful reset or replaced by the next request.
+  resetTokenHash      String?   @unique @map("reset_token_hash")
+  resetTokenExpiresAt DateTime? @map("reset_token_expires_at")
+
   role               Role             @relation(fields: [roleId], references: [id])
   recordedMovements  MovementRecord[] @relation("RecordedBy")
   correctedMovements MovementRecord[] @relation("CorrectedBy")

@@ -3,6 +3,8 @@ import { AuthProvider, useAuth } from './auth/AuthContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Header } from './components/Header';
 import { Login } from './pages/Login';
+import { ForgotPassword } from './pages/ForgotPassword';
+import { ResetPassword } from './pages/ResetPassword';
 import { SecurityHome } from './pages/SecurityHome';
 import { Dashboard } from './pages/Dashboard';
 import { EmployeeDetails } from './pages/EmployeeDetails';
@@ -19,6 +21,8 @@ function Shell() {
       {user && <Header />}
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/" element={<ProtectedRoute><SecurityHome /></ProtectedRoute>} />
         <Route path="/dashboard" element={<ProtectedRoute permission="VIEW_DASHBOARD"><Dashboard /></ProtectedRoute>} />
         <Route path="/employee-details" element={<ProtectedRoute permission="VIEW_EMPLOYEE_HISTORY"><EmployeeDetails /></ProtectedRoute>} />
