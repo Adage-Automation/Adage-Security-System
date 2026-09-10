@@ -103,7 +103,10 @@ export function Dashboard() {
           <label>Employee</label>
           {selectedEmployee ? (
             <div className="filter-chip">
-              <span>{selectedEmployee.employeeName}</span>
+              <span>
+                {selectedEmployee.employeeName}
+                {selectedEmployee.carNumber ? ` · ${selectedEmployee.carNumber}` : ''}
+              </span>
               <button type="button" onClick={() => setSelectedEmployee(null)} aria-label="Clear employee filter">
                 <IconX />
               </button>
@@ -129,6 +132,7 @@ export function Dashboard() {
                   <span className="result-text">
                     <div className="result-name">{emp.employeeName}</div>
                     <div className="result-meta">{emp.employeeCode}</div>
+                    {emp.carNumber && <div className="result-meta">Car: {emp.carNumber}</div>}
                   </span>
                 </button>
               ))}

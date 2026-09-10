@@ -12,7 +12,7 @@ export function Employees() {
   const [query, setQuery] = useState('');
   const [skip, setSkip] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [form, setForm] = useState({ employeeCode: '', employeeName: '', email: '' });
+  const [form, setForm] = useState({ employeeCode: '', employeeName: '', email: '', carNumber: '' });
   const [error, setError] = useState<string | null>(null);
 
   function load(reset: boolean) {
@@ -52,8 +52,12 @@ export function Employees() {
       // isn't known yet) — but the backend's @IsEmail() rejects an empty
       // string outright (only @IsOptional() skips undefined/null), so a
       // blank field must be omitted from the payload, not sent as "".
-      await api.post('/employees', { ...form, email: form.email.trim() || undefined });
-      setForm({ employeeCode: '', employeeName: '', email: '' });
+      await api.post('/employees', {
+        ...form,
+        email: form.email.trim() || undefined,
+        carNumber: form.carNumber.trim() || undefined,
+      });
+      setForm({ employeeCode: '', employeeName: '', email: '', carNumber: '' });
       load(true);
     } catch (err: any) {
       setError(err?.message ?? 'Failed to create employee.');
@@ -96,6 +100,10 @@ export function Employees() {
             <label>Email (optional)</label>
             <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Leave blank if not known yet" />
           </div>
+          <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
+            <label>Car Number (optional)</label>
+            <input value={form.carNumber} onChange={(e) => setForm({ ...form, carNumber: e.target.value })} placeholder="Leave blank if not known yet" />
+          </div>
           <div style={{ display: 'flex', alignItems: 'flex-end' }}>
             <button type="submit" className="primary-button" style={{ width: 'auto', padding: '12px 20px' }}>
               Add Employee
@@ -107,7 +115,7 @@ export function Employees() {
 
       <div className="filters-bar">
         <div className="field" style={{ position: 'relative', marginBottom: 0 }}>
-          <label>Search (name, code, or email)</label>
+          <label>Search (name, code, email, or car number)</label>
           <div style={{ position: 'relative' }}>
             <IconSearch className="search-icon" style={{ left: 12, width: 16, height: 16 }} />
             <input
@@ -128,6 +136,7 @@ export function Employees() {
                 <th>Code</th>
                 <th>Name</th>
                 <th>Email</th>
+                <th>Car Number</th>
                 <th>Status</th>
                 <th></th>
               </tr>
@@ -138,6 +147,7 @@ export function Employees() {
                   <td>{emp.employeeCode}</td>
                   <td>{emp.employeeName}</td>
                   <td>{emp.email ?? <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
+                  <td>{emp.carNumber ?? <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
                   <td>
                     <span className={`status-pill ${emp.isActive ? 'active' : 'inactive'}`}>
                       {emp.isActive ? 'Active' : 'Inactive'}

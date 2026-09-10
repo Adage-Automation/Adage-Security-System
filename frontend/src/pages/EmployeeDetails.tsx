@@ -96,6 +96,8 @@ export function EmployeeDetails() {
           <div className="avatar">{initials(employee.employeeName)}</div>
           <div className="name">{employee.employeeName}</div>
           <div className="code">Employee ID: {employee.employeeCode}</div>
+          {employee.email && <div className="code">Email: {employee.email}</div>}
+          {employee.carNumber && <div className="code">Car Number: {employee.carNumber}</div>}
           <div className="code">Date: {dateLabel}</div>
         </div>
       )}

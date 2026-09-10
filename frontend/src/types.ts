@@ -15,6 +15,7 @@ export interface Employee {
   phone?: string | null;
   department?: string | null;
   designation?: string | null;
+  carNumber?: string | null;
   isActive: boolean;
 }
 

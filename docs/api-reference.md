@@ -26,16 +26,16 @@ Body: `{ token: string, newPassword: string }` (`newPassword` min 8 characters).
 
 | Method | Path | Permission | Notes |
 |---|---|---|---|
-| GET | `/employees/search?q=` | `RECORD_ENTRY` | Active employees only, top 10 matches, name/code/email, case-insensitive |
-| GET | `/employees/search-all?q=` | `CORRECT_RECORDS` | Includes inactive employees — for the admin correction flow |
-| GET | `/employees?skip=&take=&q=` | `MANAGE_EMPLOYEES` | Admin management list. `q` (optional) filters name/code/email, case-insensitive. Returns `{ rows: Employee[], total: number }` — `total` reflects the filtered count, so the frontend can page/search the full roster rather than being capped at one page. |
+| GET | `/employees/search?q=` | `RECORD_ENTRY` | Active employees only, top 10 matches, name/code/email/car number, case-insensitive |
+| GET | `/employees/search-all?q=` | `CORRECT_RECORDS` | Includes inactive employees — for the admin correction flow; searches name/code/email/car number |
+| GET | `/employees?skip=&take=&q=` | `MANAGE_EMPLOYEES` | Admin management list. `q` (optional) filters name/code/email/car number, case-insensitive. Returns `{ rows: Employee[], total: number }` — `total` reflects the filtered count, so the frontend can page/search the full roster rather than being capped at one page. |
 | GET | `/employees/:id` | `VIEW_EMPLOYEE_HISTORY` | Single-employee lookup — intentionally not gated behind `MANAGE_EMPLOYEES`, since it backs the Employee Details page that Security/HR reach via the Dashboard even though they lack `MANAGE_EMPLOYEES` |
 | POST | `/employees` | `MANAGE_EMPLOYEES` | Body: `CreateEmployeeDto` |
 | PUT | `/employees/:id` | `MANAGE_EMPLOYEES` | Body: `UpdateEmployeeDto` |
 | PATCH | `/employees/:id/deactivate` | `MANAGE_EMPLOYEES` | Soft — sets `isActive: false` |
 | PATCH | `/employees/:id/reactivate` | `MANAGE_EMPLOYEES` | |
 
-`CreateEmployeeDto`: `{ employeeCode, employeeName, email?, phone?, department?, designation? }` — `email` is optional (some employees don't have one on file yet); when omitted, that employee simply can't be emailed a report until one is added. `department`/`designation` are accepted but unused by any search/filter/report — kept only because the DB columns still exist.
+`CreateEmployeeDto`: `{ employeeCode, employeeName, email?, phone?, department?, designation?, carNumber? }` — `email` and `carNumber` are optional. When email is omitted, that employee simply can't be emailed a report until one is added. `carNumber` is searchable and displayed where employee details are shown. `department`/`designation` are accepted but unused by any search/filter/report — kept only because the DB columns still exist.
 
 ## Movements
 

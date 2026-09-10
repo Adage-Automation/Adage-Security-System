@@ -281,7 +281,10 @@ export function SecurityHome() {
                   <span className="result-avatar">{initials(emp.employeeName)}</span>
                   <span className="result-text">
                     <div className="result-name">{emp.employeeName}</div>
-                    <div className="result-meta">{emp.employeeCode}</div>
+                    <div className="result-meta">
+                      {emp.employeeCode}
+                      {emp.carNumber ? ` · ${emp.carNumber}` : ''}
+                    </div>
                   </span>
                 </button>
               ))}
@@ -299,7 +302,7 @@ export function SecurityHome() {
         <div className="empty-state">
           <IconUserSearch />
           <div className="empty-title">Search for an employee</div>
-          <div className="empty-hint">Type a name, employee ID, or email to get started.</div>
+          <div className="empty-hint">Type a name, employee ID, email, or car number to get started.</div>
         </div>
       )}
 
@@ -309,6 +312,7 @@ export function SecurityHome() {
             <div className="avatar">{initials(selected.employeeName)}</div>
             <div className="name">{selected.employeeName}</div>
             <div className="code">Employee ID: {selected.employeeCode}</div>
+            {selected.carNumber && <div className="code">Car Number: {selected.carNumber}</div>}
           </div>
 
           <div className="action-buttons">

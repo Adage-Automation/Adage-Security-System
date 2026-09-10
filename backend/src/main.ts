@@ -10,7 +10,12 @@ import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // Nest's default logger prints every module's dependency init
+  // (InstanceLoader) and every single route it registers (RouterExplorer/
+  // RoutesResolver) on every boot — none of that is actionable day to day.
+  // Keep only warnings and errors; our own "listening on port ..." line
+  // below (a plain console.log, unaffected by this) still confirms boot.
+  const app = await NestFactory.create(AppModule, { logger: ['warn', 'error'] });
 
   // Without this, req.ip returns the reverse proxy's own address on every
   // PaaS this app is meant to deploy to (Railway/Render/Fly.io) — breaking

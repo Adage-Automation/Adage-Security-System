@@ -153,7 +153,11 @@ export function Corrections() {
           <label>Employee</label>
           {selected ? (
             <div className="filter-chip">
-              <span>{selected.employeeName}{!selected.isActive ? ' (inactive)' : ''}</span>
+              <span>
+                {selected.employeeName}
+                {selected.carNumber ? ` · ${selected.carNumber}` : ''}
+                {!selected.isActive ? ' (inactive)' : ''}
+              </span>
               <button type="button" onClick={() => setSelected(null)} aria-label="Clear employee">
                 <IconX />
               </button>
@@ -178,7 +182,10 @@ export function Corrections() {
                       {emp.employeeName}
                       {!emp.isActive && <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}> · inactive</span>}
                     </div>
-                    <div className="result-meta">{emp.employeeCode}</div>
+                    <div className="result-meta">
+                      {emp.employeeCode}
+                      {emp.carNumber ? ` · ${emp.carNumber}` : ''}
+                    </div>
                   </span>
                 </button>
               ))}

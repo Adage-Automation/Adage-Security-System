@@ -5,9 +5,10 @@
 // Usage:
 //   npm run import:employees -- data/employees.csv
 //
-// Expected CSV header: employee_code,employee_name,email
+// Expected CSV header: employee_code,employee_name,email,car_number
 // Email may be blank until the employee's address is available. Department
 // and designation columns are still accepted if present for compatibility.
+// car_number is optional too -- most employees don't have this on file yet.
 
 import { readFileSync } from 'fs';
 import { parse } from 'csv-parse/sync';
@@ -21,6 +22,7 @@ interface EmployeeRow {
   email?: string;
   department?: string;
   designation?: string;
+  car_number?: string;
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -89,6 +91,7 @@ async function main() {
       email: row.email?.trim() || null,
       department: row.department?.trim() || null,
       designation: row.designation?.trim() || null,
+      carNumber: row.car_number?.trim() || null,
     };
 
     const existing = await prisma.employee.findUnique({ where: { employeeCode: row.employee_code.trim() } });

@@ -27,6 +27,7 @@ export class EmployeesService {
           { employeeName: { contains: query, mode: 'insensitive' } },
           { employeeCode: { contains: query, mode: 'insensitive' } },
           { email: { contains: query, mode: 'insensitive' } },
+          { carNumber: { contains: query, mode: 'insensitive' } },
         ],
       },
       take: SEARCH_RESULT_LIMIT,
@@ -46,6 +47,7 @@ export class EmployeesService {
           { employeeName: { contains: query, mode: 'insensitive' } },
           { employeeCode: { contains: query, mode: 'insensitive' } },
           { email: { contains: query, mode: 'insensitive' } },
+          { carNumber: { contains: query, mode: 'insensitive' } },
         ],
       },
       take: SEARCH_RESULT_LIMIT,
@@ -68,6 +70,7 @@ export class EmployeesService {
             { employeeName: { contains: params.q.trim(), mode: 'insensitive' as const } },
             { employeeCode: { contains: params.q.trim(), mode: 'insensitive' as const } },
             { email: { contains: params.q.trim(), mode: 'insensitive' as const } },
+            { carNumber: { contains: params.q.trim(), mode: 'insensitive' as const } },
           ],
         }
       : undefined;

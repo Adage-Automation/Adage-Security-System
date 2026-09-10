@@ -24,6 +24,10 @@ export class CreateEmployeeDto {
   @IsOptional()
   @IsString()
   designation?: string;
+
+  @IsOptional()
+  @IsString()
+  carNumber?: string;
 }
 
 export class UpdateEmployeeDto {
@@ -46,6 +50,10 @@ export class UpdateEmployeeDto {
   @IsOptional()
   @IsString()
   designation?: string;
+
+  @IsOptional()
+  @IsString()
+  carNumber?: string;
 
   @IsOptional()
   @IsBoolean()
