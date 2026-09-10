@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Put, UseGuards } from '@nestjs/common';
 import { SessionAuthGuard } from '../common/guards/session-auth.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
@@ -19,8 +19,8 @@ export class UsersController {
 
   @Get(':id')
   @RequirePermissions('MANAGE_USERS')
-  findOne(@Param('id') id: string) {
-    return this.usersService.findById(Number(id));
+  findOne(@Param('id', ParseIntPipe) id: number) {
+    return this.usersService.findById(id);
   }
 
   @Post()
@@ -31,25 +31,25 @@ export class UsersController {
 
   @Put(':id')
   @RequirePermissions('MANAGE_USERS')
-  update(@Param('id') id: string, @Body() dto: UpdateUserDto, @CurrentUser() user: any) {
-    return this.usersService.update(Number(id), dto, user.id);
+  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateUserDto, @CurrentUser() user: any) {
+    return this.usersService.update(id, dto, user.id);
   }
 
   @Patch(':id/disable')
   @RequirePermissions('MANAGE_USERS')
-  disable(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.usersService.setActive(Number(id), false, user.id);
+  disable(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: any) {
+    return this.usersService.setActive(id, false, user.id);
   }
 
   @Patch(':id/enable')
   @RequirePermissions('MANAGE_USERS')
-  enable(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.usersService.setActive(Number(id), true, user.id);
+  enable(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: any) {
+    return this.usersService.setActive(id, true, user.id);
   }
 
   @Patch(':id/reset-password')
   @RequirePermissions('MANAGE_USERS')
-  resetPassword(@Param('id') id: string, @Body() dto: ResetPasswordDto, @CurrentUser() user: any) {
-    return this.usersService.resetPassword(Number(id), dto.newPassword, user.id);
+  resetPassword(@Param('id', ParseIntPipe) id: number, @Body() dto: ResetPasswordDto, @CurrentUser() user: any) {
+    return this.usersService.resetPassword(id, dto.newPassword, user.id);
   }
 }

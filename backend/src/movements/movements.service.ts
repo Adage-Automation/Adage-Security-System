@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../audit-logs/audit-log.service';
+import { dayRange } from '../common/utils/day-range';
 import { CreateMovementDto, CorrectMovementDto } from './dto/movement.dto';
 
 export interface CreateMovementResult {
@@ -246,14 +247,8 @@ export class MovementsService {
   }
 }
 
-// NOTE: relies on the server process running in APP_TIMEZONE (Asia/Kolkata)
-// so local midnight boundaries match the company's day. Deploy with TZ set
-// accordingly, or switch to explicit date-fns-tz conversion if the server
-// ever runs in a different timezone than the configured one.
-function dayRange(dateStr: string) {
-  const start = new Date(dateStr);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
-  return { start, end };
-}
+// NOTE: dayRange() (imported above, backend/src/common/utils/day-range.ts)
+// relies on the server process running in APP_TIMEZONE (Asia/Kolkata) so
+// local midnight boundaries match the company's day. Deploy with TZ set
+// accordingly, or switch to explicit UTC↔IST conversion if the server ever
+// runs in a different timezone than the configured one.

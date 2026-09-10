@@ -3,6 +3,12 @@
 // authoritative (spec §20, §46).
 const BASE_URL = '/api';
 
+// A genuinely hung request (dead connection, misbehaving proxy) previously
+// left a "Sending…"/"Saving…" button stuck forever with no way out but
+// reloading — found in the 2026-09-09 audit. 20s comfortably covers the
+// slowest real request (report generation via Puppeteer) with margin.
+const REQUEST_TIMEOUT_MS = 20_000;
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -11,15 +17,35 @@ export class ApiError extends Error {
   }
 }
 
+export class ApiTimeoutError extends Error {
+  constructor() {
+    super('Request timed out. Please check your connection and try again.');
+  }
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    ...options,
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers ?? {}),
-    },
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}${path}`, {
+      ...options,
+      credentials: 'include',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options.headers ?? {}),
+      },
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new ApiTimeoutError();
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (!res.ok) {
     let message = res.statusText;

@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { AuditLogService } from '../audit-logs/audit-log.service';
+import { dayRange } from '../common/utils/day-range';
 import { ReportGeneratorService } from './report-generator.service';
 import { StorageService } from './storage.service';
 import { EmailService } from '../email/email.service';
@@ -23,10 +24,7 @@ export class ReportsService {
       throw new NotFoundException('Employee not found');
     }
 
-    const start = new Date(date);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setDate(end.getDate() + 1);
+    const { start, end } = dayRange(date);
 
     const movements = await this.prisma.movementRecord.findMany({
       where: { employeeId, isSuperseded: false, movementAt: { gte: start, lt: end } },

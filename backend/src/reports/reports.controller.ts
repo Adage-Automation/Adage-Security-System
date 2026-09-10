@@ -1,9 +1,10 @@
-import { Controller, Get, Param, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, ParseIntPipe, Post, Query, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { SessionAuthGuard } from '../common/guards/session-auth.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { parseOptionalInt } from '../common/utils/parse-optional-int';
 import { ReportsService } from './reports.service';
 import { AuditLogService } from '../audit-logs/audit-log.service';
 
@@ -20,13 +21,13 @@ export class ReportsController {
   // the 2026-09-09 audit.
   @Get('image')
   @RequirePermissions('DOWNLOAD_REPORT')
-  async image(@Query('employeeId') employeeId: string, @Query('date') date: string, @CurrentUser() user: any, @Res() res: Response) {
-    const { buffer, filename } = await this.reportsService.downloadPng(Number(employeeId), date);
+  async image(@Query('employeeId', ParseIntPipe) employeeId: number, @Query('date') date: string, @CurrentUser() user: any, @Res() res: Response) {
+    const { buffer, filename } = await this.reportsService.downloadPng(employeeId, date);
     await this.auditLog.record({
       userId: user.id,
       action: 'REPORT_DOWNLOADED',
       entityType: 'Employee',
-      entityId: Number(employeeId),
+      entityId: employeeId,
       newValue: { format: 'PNG', date },
     });
     res.set({
@@ -38,13 +39,13 @@ export class ReportsController {
 
   @Get('pdf')
   @RequirePermissions('DOWNLOAD_REPORT')
-  async pdf(@Query('employeeId') employeeId: string, @Query('date') date: string, @CurrentUser() user: any, @Res() res: Response) {
-    const { buffer, filename } = await this.reportsService.downloadPdf(Number(employeeId), date);
+  async pdf(@Query('employeeId', ParseIntPipe) employeeId: number, @Query('date') date: string, @CurrentUser() user: any, @Res() res: Response) {
+    const { buffer, filename } = await this.reportsService.downloadPdf(employeeId, date);
     await this.auditLog.record({
       userId: user.id,
       action: 'REPORT_DOWNLOADED',
       entityType: 'Employee',
-      entityId: Number(employeeId),
+      entityId: employeeId,
       newValue: { format: 'PDF', date },
     });
     res.set({
@@ -58,14 +59,14 @@ export class ReportsController {
   // from the movement-recording flow (spec §29, §66).
   @Post('email')
   @RequirePermissions('SEND_EMAIL')
-  email(@Query('employeeId') employeeId: string, @Query('date') date: string, @CurrentUser() user: any) {
-    return this.reportsService.emailDailyRecord(Number(employeeId), date, user.id);
+  email(@Query('employeeId', ParseIntPipe) employeeId: number, @Query('date') date: string, @CurrentUser() user: any) {
+    return this.reportsService.emailDailyRecord(employeeId, date, user.id);
   }
 
   @Get('email-logs')
   @RequirePermissions('SEND_EMAIL')
   emailLogs(@Query('employeeId') employeeId?: string) {
-    return this.reportsService.listEmailLogs(employeeId ? Number(employeeId) : undefined);
+    return this.reportsService.listEmailLogs(parseOptionalInt(employeeId, 'employeeId'));
   }
 
   // Re-serves the exact file that was previously emailed, via a short-lived
@@ -73,8 +74,8 @@ export class ReportsController {
   // regenerating a fresh (potentially different) report.
   @Get('email-logs/:id/download')
   @RequirePermissions('SEND_EMAIL')
-  async downloadEmailedReport(@Param('id') id: string) {
-    const url = await this.reportsService.getSignedUrlForEmailLog(Number(id));
+  async downloadEmailedReport(@Param('id', ParseIntPipe) id: number) {
+    const url = await this.reportsService.getSignedUrlForEmailLog(id);
     return { url };
   }
 }

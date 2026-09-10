@@ -13,6 +13,11 @@ export function Dashboard() {
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [movementType, setMovementType] = useState<'' | MovementType>('');
   const [records, setRecords] = useState<MovementRecord[]>([]);
+  // Distinguishes "haven't heard back yet" from "heard back, genuinely
+  // empty" — without this, the empty state briefly flashes on every
+  // navigation/filter change before the fetch resolves, since `records`
+  // starts as [] either way (found in the 2026-09-09 audit).
+  const [recordsLoading, setRecordsLoading] = useState(true);
   const [summary, setSummary] = useState<{ totalEmployees: number; totalEntries: number; totalExits: number; currentlyInside: number } | null>(null);
 
   const isToday = date === todayIso();
@@ -25,13 +30,15 @@ export function Dashboard() {
   }, [date]);
 
   useEffect(() => {
+    setRecordsLoading(true);
     const params = new URLSearchParams({ date });
     if (selectedEmployee) params.set('employeeId', String(selectedEmployee.id));
     if (movementType) params.set('movementType', movementType);
     api
       .get<MovementRecord[]>(`/movements?${params.toString()}`)
       .then(setRecords)
-      .catch(() => setRecords([]));
+      .catch(() => setRecords([]))
+      .finally(() => setRecordsLoading(false));
   }, [date, selectedEmployee, movementType]);
 
   useEffect(() => {
@@ -190,7 +197,7 @@ export function Dashboard() {
         </>
       )}
 
-      {records.length === 0 && (
+      {!recordsLoading && records.length === 0 && (
         <div className="empty-state">
           <IconInbox />
           <div className="empty-title">No records found</div>

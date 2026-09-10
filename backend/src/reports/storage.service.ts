@@ -17,6 +17,7 @@ export class StorageService {
     this.client = new S3Client({
       region: process.env.STORAGE_REGION ?? 'auto',
       endpoint: process.env.STORAGE_ENDPOINT,
+      forcePathStyle: true,
       credentials: {
         accessKeyId: process.env.STORAGE_ACCESS_KEY ?? '',
         secretAccessKey: process.env.STORAGE_SECRET_KEY ?? '',

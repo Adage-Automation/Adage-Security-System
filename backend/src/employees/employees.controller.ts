@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { SessionAuthGuard } from '../common/guards/session-auth.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { parseOptionalInt } from '../common/utils/parse-optional-int';
 import { EmployeesService } from './employees.service';
 import { CreateEmployeeDto, UpdateEmployeeDto } from './dto/employee.dto';
 
@@ -28,8 +29,8 @@ export class EmployeesController {
   @RequirePermissions('MANAGE_EMPLOYEES')
   findAll(@Query('skip') skip?: string, @Query('take') take?: string, @Query('q') q?: string) {
     return this.employeesService.findAll({
-      skip: skip ? Number(skip) : undefined,
-      take: take ? Number(take) : undefined,
+      skip: parseOptionalInt(skip, 'skip'),
+      take: parseOptionalInt(take, 'take'),
       q,
     });
   }
@@ -42,8 +43,8 @@ export class EmployeesController {
   // DETAILS) for Security — found in the 2026-09-04 audit.
   @Get(':id')
   @RequirePermissions('VIEW_EMPLOYEE_HISTORY')
-  findOne(@Param('id') id: string) {
-    return this.employeesService.findById(Number(id));
+  findOne(@Param('id', ParseIntPipe) id: number) {
+    return this.employeesService.findById(id);
   }
 
   @Post()
@@ -54,19 +55,19 @@ export class EmployeesController {
 
   @Put(':id')
   @RequirePermissions('MANAGE_EMPLOYEES')
-  update(@Param('id') id: string, @Body() dto: UpdateEmployeeDto, @CurrentUser() user: any) {
-    return this.employeesService.update(Number(id), dto, user.id);
+  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateEmployeeDto, @CurrentUser() user: any) {
+    return this.employeesService.update(id, dto, user.id);
   }
 
   @Patch(':id/deactivate')
   @RequirePermissions('MANAGE_EMPLOYEES')
-  deactivate(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.employeesService.setActive(Number(id), false, user.id);
+  deactivate(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: any) {
+    return this.employeesService.setActive(id, false, user.id);
   }
 
   @Patch(':id/reactivate')
   @RequirePermissions('MANAGE_EMPLOYEES')
-  reactivate(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.employeesService.setActive(Number(id), true, user.id);
+  reactivate(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: any) {
+    return this.employeesService.setActive(id, true, user.id);
   }
 }

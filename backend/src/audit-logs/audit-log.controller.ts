@@ -2,6 +2,7 @@ import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { SessionAuthGuard } from '../common/guards/session-auth.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
+import { parseOptionalInt } from '../common/utils/parse-optional-int';
 import { AuditLogService } from './audit-log.service';
 
 @Controller('audit-logs')
@@ -20,10 +21,10 @@ export class AuditLogController {
   ) {
     return this.auditLogService.list({
       entityType,
-      entityId: entityId ? Number(entityId) : undefined,
-      userId: userId ? Number(userId) : undefined,
-      skip: skip ? Number(skip) : undefined,
-      take: take ? Number(take) : undefined,
+      entityId: parseOptionalInt(entityId, 'entityId'),
+      userId: parseOptionalInt(userId, 'userId'),
+      skip: parseOptionalInt(skip, 'skip'),
+      take: parseOptionalInt(take, 'take'),
     });
   }
 }

@@ -14,23 +14,36 @@ function initials(name: string): string {
     .join('');
 }
 
+const VALID_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 export function EmployeeDetails() {
   const [params] = useSearchParams();
   const employeeId = params.get('employeeId');
-  const date = params.get('date') ?? todayIso();
+  const rawDate = params.get('date');
+  // A malformed/hand-edited/stale-bookmarked `date` param (e.g. from a
+  // saved link) used to crash the whole page with a RangeError from
+  // Intl.DateTimeFormat further down — found in the 2026-09-10 audit.
+  // Falls back to today rather than rendering a blank/broken page.
+  const date = rawDate && VALID_DATE_RE.test(rawDate) && !Number.isNaN(new Date(rawDate).getTime()) ? rawDate : todayIso();
 
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [records, setRecords] = useState<MovementRecord[]>([]);
+  // Distinguishes "haven't heard back yet" from "heard back, genuinely
+  // empty" — without this, the empty state briefly flashes on every
+  // navigation before the fetch resolves (found in the 2026-09-09 audit).
+  const [recordsLoading, setRecordsLoading] = useState(true);
   const [emailState, setEmailState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   const [emailError, setEmailError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!employeeId) return;
+    setRecordsLoading(true);
     api.get<Employee>(`/employees/${employeeId}`).then(setEmployee).catch(() => setEmployee(null));
     api
       .get<MovementRecord[]>(`/movements/employee/${employeeId}?date=${date}`)
       .then(setRecords)
-      .catch(() => setRecords([]));
+      .catch(() => setRecords([]))
+      .finally(() => setRecordsLoading(false));
   }, [employeeId, date]);
 
   const dateLabel = new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }).format(new Date(date));
@@ -117,7 +130,7 @@ export function EmployeeDetails() {
         </>
       )}
 
-      {records.length === 0 && (
+      {!recordsLoading && records.length === 0 && (
         <div className="empty-state">
           <IconInbox />
           <div className="empty-title">No movement records</div>

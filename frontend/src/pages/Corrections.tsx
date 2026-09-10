@@ -28,6 +28,11 @@ export function Corrections() {
   const [results, setResults] = useState<Employee[]>([]);
   const [selected, setSelected] = useState<Employee | null>(null);
   const [records, setRecords] = useState<MovementRecord[]>([]);
+  // Distinguishes "haven't heard back yet" from "heard back, genuinely
+  // empty" — without this, the empty state briefly flashes on every
+  // employee/date change before the fetch resolves (found in the
+  // 2026-09-09 audit).
+  const [recordsLoading, setRecordsLoading] = useState(false);
   const [edit, setEdit] = useState<EditState | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,10 +40,12 @@ export function Corrections() {
 
   function loadRecords() {
     if (!selected) return;
+    setRecordsLoading(true);
     api
       .get<MovementRecord[]>(`/movements/employee/${selected.id}?date=${date}`)
       .then(setRecords)
-      .catch(() => setRecords([]));
+      .catch(() => setRecords([]))
+      .finally(() => setRecordsLoading(false));
   }
 
   useEffect(loadRecords, [selected, date]);
@@ -79,10 +86,18 @@ export function Corrections() {
       setError('A reason is required — it is recorded in the audit log.');
       return;
     }
+    // A cleared native date input sends "" — new Date("") is an Invalid
+    // Date, which used to throw a raw "Invalid time value" RangeError
+    // from .toISOString() below instead of a friendly message (found in
+    // the 2026-09-10 audit).
+    const movementAt = new Date(date);
+    if (!date || Number.isNaN(movementAt.getTime())) {
+      setError('Please select a valid date above before saving.');
+      return;
+    }
     setSaving(true);
     setError(null);
     const [hours, minutes] = edit.time.split(':').map(Number);
-    const movementAt = new Date(date);
     movementAt.setHours(hours, minutes, 0, 0);
 
     try {
@@ -197,7 +212,7 @@ export function Corrections() {
             </tbody>
           </table>
 
-          {records.length === 0 && (
+          {!recordsLoading && records.length === 0 && (
             <div className="empty-state">
               <IconInbox />
               <div className="empty-title">No records for this date</div>

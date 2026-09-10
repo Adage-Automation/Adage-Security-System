@@ -1,9 +1,10 @@
-import { Body, Controller, ForbiddenException, Get, Param, Post, Query, UseGuards, Req } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Param, ParseIntPipe, Post, Query, UseGuards, Req } from '@nestjs/common';
 import { Request } from 'express';
 import { SessionAuthGuard } from '../common/guards/session-auth.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { parseOptionalInt } from '../common/utils/parse-optional-int';
 import { MovementsService } from './movements.service';
 import { CreateMovementDto, CorrectMovementDto } from './dto/movement.dto';
 
@@ -36,21 +37,21 @@ export class MovementsController {
   ) {
     return this.movementsService.listWithFilters({
       date,
-      employeeId: employeeId ? Number(employeeId) : undefined,
+      employeeId: parseOptionalInt(employeeId, 'employeeId'),
       movementType,
     });
   }
 
   @Get('employee/:id')
   @RequirePermissions('VIEW_EMPLOYEE_HISTORY')
-  listForEmployee(@Param('id') id: string, @Query('date') date: string) {
-    return this.movementsService.listByEmployeeAndDate(Number(id), date);
+  listForEmployee(@Param('id', ParseIntPipe) id: number, @Query('date') date: string) {
+    return this.movementsService.listByEmployeeAndDate(id, date);
   }
 
   @Post(':id/correct')
   @RequirePermissions('CORRECT_RECORDS')
-  correct(@Param('id') id: string, @Body() dto: CorrectMovementDto, @CurrentUser() user: any) {
-    return this.movementsService.correctMovement(Number(id), dto, user.id);
+  correct(@Param('id', ParseIntPipe) id: number, @Body() dto: CorrectMovementDto, @CurrentUser() user: any) {
+    return this.movementsService.correctMovement(id, dto, user.id);
   }
 
   @Post('missing')
