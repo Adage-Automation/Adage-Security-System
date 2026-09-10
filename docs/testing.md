@@ -1,6 +1,6 @@
 # Testing
 
-No automated tests exist yet (tracked in [roadmap.md](./roadmap.md)). This document defines what must be covered, per the original spec, so tests can be filled in module-by-module without re-deriving requirements.
+Backend Jest tests cover username authentication, password reset, employee search/car-number behavior, movement creation/idempotency/corrections, dashboard queries, RBAC, Microsoft Graph failures, and storage failures. Frontend Jest tests cover the IndexedDB movement queue (including userId scoping and conflict state). This document defines the remaining coverage required, per the original spec, so tests can be expanded module-by-module without re-deriving requirements.
 
 ## Authentication
 
@@ -17,7 +17,7 @@ No automated tests exist yet (tracked in [roadmap.md](./roadmap.md)). This docum
 
 ## Employees
 
-- Search matches name, employee code, and email, case-insensitively
+- Search matches name, employee code, email, and car number, case-insensitively
 - Search returns only active employees on `/employees/search`, but includes inactive on `/employees/search-all`
 - Search caps at 10 results
 - Create rejects a duplicate `employeeCode`
@@ -28,7 +28,8 @@ No automated tests exist yet (tracked in [roadmap.md](./roadmap.md)). This docum
 - ENTRY and EXIT both create a `movement_records` row with a server-generated `movementAt`
 - An employee can have unlimited ENTRY/EXIT rows on the same day — verify a sequence like ENTRY/EXIT/ENTRY/EXIT all persist as separate rows
 - Duplicate-movement warning: pressing the same movement type twice in a row returns `requiresConfirmation: true` and does **not** create a record; resubmitting with `confirmed: true` creates it
-- A client-supplied `movementAt` or `recordedByUserId` in the request body is ignored — the server always uses its own clock and the authenticated user
+- `clientRequestId` is generated once per tap and reused on retries; a duplicate key returns the existing record, not a new one
+- A queued movement that comes back `requiresConfirmation` during sync is marked `syncState: 'conflict'` and is **not** auto-confirmed; the guard sees a "Record anyway" prompt and can either confirm or leave it pending
 - Correcting a record marks the original `isSuperseded: true` and creates a new linked record — the original is never deleted or mutated in place
 - "Current" queries (dashboard, employee history) exclude superseded records
 
@@ -59,7 +60,17 @@ No automated tests exist yet (tracked in [roadmap.md](./roadmap.md)). This docum
 
 ```bash
 npm test -w backend          # unit tests
-npm run test:e2e -w backend  # end-to-end (requires a test database)
+E2E_TEST_DATABASE_URL="postgresql://..." npm run test:e2e -w backend  # controller/database e2e
 ```
 
-`backend/package.json` already has `test` and `test:e2e` scripts wired to Jest — they currently have no test files to run.
+`backend/package.json` has `test` and `test:e2e` scripts wired to Jest. Unit tests and controller/database-backed e2e specs are implemented; e2e tests run only when `E2E_TEST_DATABASE_URL` is provided, so ordinary CI does not mutate a development database.
+
+## Load testing
+
+The authenticated employee-search benchmark uses `autocannon`:
+
+```bash
+LOAD_TEST_USERNAME=admin LOAD_TEST_PASSWORD=ChangeMe123! npm run load:test
+```
+
+Optional variables are `LOAD_TEST_BASE_URL`, `LOAD_TEST_QUERY`, `LOAD_TEST_CONNECTIONS`, and `LOAD_TEST_DURATION` (seconds). Run it against a staging database/environment, not production, and record latency/error-rate results with the chosen deployment size.

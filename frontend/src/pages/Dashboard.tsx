@@ -113,6 +113,7 @@ export function Dashboard() {
             </div>
           ) : (
             <input
+              aria-label="Search dashboard employees by name, employee code, email, or car number"
               placeholder="All Employees"
               value={employeeQuery}
               onChange={(e) => setEmployeeQuery(e.target.value)}

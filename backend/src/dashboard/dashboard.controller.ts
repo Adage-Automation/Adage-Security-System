@@ -10,7 +10,9 @@ export class DashboardController {
   constructor(private movementsService: MovementsService) {}
 
   // Today's stats (§23): total employees, total entries, total exits.
-  // Deliberately no working-hours calculation anywhere (spec §64).
+  // No working-hours math here — the day-view span (first entry → last exit)
+  // is derived client-side in EmployeeDetails.tsx from the existing movement
+  // list; this summary endpoint stays count-only.
   @Get('summary')
   @RequirePermissions('VIEW_DASHBOARD')
   summary(@Query('date') date?: string) {

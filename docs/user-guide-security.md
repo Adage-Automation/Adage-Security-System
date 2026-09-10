@@ -48,6 +48,8 @@ Every tap is recorded separately — you don't need to do anything special for r
 
 If you're offline or the network fails when you tap ENTRY/EXIT, you'll see **"Queued: pending sync"** instead of a green confirmation. This means the record is saved on your device and will be sent automatically as soon as you're back online — you don't need to tap it again. Never assume a record was saved unless you see the green "Recorded" confirmation or the "pending sync" message; if you see a red error, try again.
 
+**If a queued record has a conflict**: occasionally, when the app syncs a queued movement it finds that the same employee already has a more recent record of the same type — for example, another device also recorded an ENTRY while you were offline. Instead of auto-recording a duplicate, the app flags it with a red banner: **"X offline movements need review because a newer record exists."** Tap **Record anyway** to confirm you still want to record it, or just leave it — a supervisor can correct the record if needed. This only ever happens after a reconnect, never immediately when you tap.
+
 ## Viewing records (Dashboard)
 
 Tap **DASHBOARD** at the bottom of the main screen to look up past records — for example if an employee asks you to check when they came in yesterday. See [user-guide-hr.md](./user-guide-hr.md#dashboard) for how to use the filters; the dashboard works the same way for every role.

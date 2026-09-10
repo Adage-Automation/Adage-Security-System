@@ -6,8 +6,9 @@ Covers everything in the [Security](./user-guide-security.md) and [HR](./user-gu
 
 Navigate to **Employees** (also available to HR, not Admin-only).
 
-- **Add employee**: fill in Employee Code (must be unique) and Name; Email is optional — leave it blank if you don't have it yet, and fill it in later via the same screen once you do. The email you enter is where their movement-record emails will be sent — double check it. An employee with no email on file simply can't be sent EMAIL DETAILS until one is added (shown clearly on their details page). (Department/Designation aren't collected — they turned out to be unused anywhere in the system and were dropped from this form by request.)
-- **Search**: the list is the full employee roster (200+ people), so use the search box (matches name, code, or email) rather than scrolling — results load a page at a time with a **Load More** button.
+- **Add employee**: fill in Employee Code (must be unique) and Name; Email and Car Number are optional — leave either blank if you don't have it yet, and use **Edit** on the same screen once you do. The email you enter is where their movement-record emails will be sent — double check it. An employee with no email on file simply can't be sent EMAIL DETAILS until one is added (shown clearly on their details page). (Department/Designation aren't collected — they turned out to be unused anywhere in the system and were dropped from this form by request.)
+- **Search**: the list is the full employee roster (200+ people), so use the search box (matches name, code, email, or car number) rather than scrolling — results load a page at a time with a **Load More** button.
+- **Edit**: update an employee's name, optional email, or optional car number without changing the employee code.
 - **Deactivate**: marks an employee inactive instead of deleting them. They stop appearing in the Security search box, but every historical movement record stays fully intact and visible on the Dashboard. Use this when someone leaves the company — never delete an employee outright.
 - **Reactivate**: brings a deactivated employee back into the Security search box.
 
@@ -19,7 +20,7 @@ Navigate to **Users**.
 
 - **Add user**: Name, Email, Username, temporary Password, and Role (SECURITY / HR / ADMIN). The role determines what they can access: Security gets the recording workflow plus Dashboard; HR additionally gets Employees; only Admin gets Users, Corrections, Audit Log, and Settings. Choose carefully — it's not just a label.
 - **Disable / Enable**: disabling a user immediately blocks login (even an existing open session is re-checked on the next request and will be logged out) — use this rather than deleting a user, since audit history references them.
-- **Reset password**: sets a new password for a user who's lost theirs. There's no self-service "forgot password" flow yet — a user has to ask an Admin.
+- **Reset password**: sets a new password for a user who's lost theirs. Users can also use the self-service **Forgot password?** link on the login screen; it sends a single-use reset link to the registered email address.
 
 ## Settings
 
@@ -44,6 +45,6 @@ Every login/logout, every ENTRY/EXIT, every correction, every employee/user chan
 
 ## Things that are intentionally not built
 
-- **No working-hours calculation anywhere** — the system is a movement register, not a timesheet.
+- **No working-hours timesheet roll-up** — the day view shows a total (first entry to last exit) as a convenience, but there is no daily/weekly timesheet, no per-gap breakdown, and no payroll export. The system is a movement register, not a timesheet.
 - **No automatic or scheduled emails** — every email requires someone to explicitly click EMAIL DETAILS.
 - **No keyboard shortcuts** for ENTRY/EXIT or any other state-changing action, anywhere in the app — this is deliberate, to prevent an accidental keypress from recording the wrong thing.

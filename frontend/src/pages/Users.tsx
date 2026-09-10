@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { IconUsers as IconUsersGroup } from '../components/icons';
 import { AdminNav } from '../components/AdminNav';
-import { useAuth } from '../auth/AuthContext';
+import { useAuth } from '../auth/useAuth';
 
 interface UserRow {
   id: number;

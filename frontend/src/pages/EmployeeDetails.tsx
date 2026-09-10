@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { Employee, MovementRecord } from '../types';
-import { IconArrowLeft, IconMail, IconCheckCircle, IconXCircle, IconInbox } from '../components/icons';
+import { IconArrowLeft, IconMail, IconCheckCircle, IconXCircle, IconInbox, IconClock } from '../components/icons';
 import { todayIso } from '../utils/date';
 
 function initials(name: string): string {
@@ -15,6 +15,29 @@ function initials(name: string): string {
 }
 
 const VALID_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Calculates total working hours for the day from a sorted list of movement
+ * records. Uses the first ENTRY and last EXIT of the day to compute the span.
+ * Returns a human-readable string like "7h 45m", or null if there isn't at
+ * least one ENTRY and one EXIT to work with.
+ */
+function calcWorkingHours(records: import('../types').MovementRecord[]): string | null {
+  const firstEntry = records.find((r) => r.movementType === 'ENTRY');
+  const lastExit = [...records].reverse().find((r) => r.movementType === 'EXIT');
+  if (!firstEntry || !lastExit) return null;
+
+  const ms = new Date(lastExit.movementAt).getTime() - new Date(firstEntry.movementAt).getTime();
+  if (ms <= 0) return null;
+
+  const totalMinutes = Math.floor(ms / 60_000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  if (hours === 0) return `${minutes}m`;
+  if (minutes === 0) return `${hours}h`;
+  return `${hours}h ${minutes}m`;
+}
 
 export function EmployeeDetails() {
   const [params] = useSearchParams();
@@ -55,6 +78,10 @@ export function EmployeeDetails() {
   // address isn't known yet), clicking this without one would otherwise
   // just round-trip to the server for a "no registered email" error.
   const canEmail = employee && !!employee.email && records.length > 0;
+
+  // Derived from the already-loaded records — no extra fetch needed.
+  // null means we can't compute a span (e.g. employee only has entries, no exit yet).
+  const workingHours = calcWorkingHours(records);
 
   async function sendEmail() {
     if (!employeeId) return;
@@ -137,6 +164,15 @@ export function EmployeeDetails() {
           <IconInbox />
           <div className="empty-title">No movement records</div>
           <div className="empty-hint">Nothing recorded for {employee?.employeeName ?? 'this employee'} on {dateLabel}.</div>
+        </div>
+      )}
+
+      {workingHours && (
+        <div className="working-hours-banner">
+          <IconClock />
+          <span>
+            Total working hours: <strong>{workingHours}</strong>
+          </span>
         </div>
       )}
 

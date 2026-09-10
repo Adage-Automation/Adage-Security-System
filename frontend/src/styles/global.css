@@ -45,6 +45,11 @@ button {
   font-family: inherit;
 }
 
+:focus-visible {
+  outline: 3px solid var(--brand-dark);
+  outline-offset: 3px;
+}
+
 a {
   color: var(--brand);
 }
@@ -862,6 +867,30 @@ table.records-table th {
 .movement-badge.EXIT {
   background: var(--exit-tint);
   color: var(--exit-red);
+}
+
+.working-hours-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--brand-tint);
+  border: 1px solid var(--brand-light);
+  border-radius: var(--radius-md);
+  padding: 14px 18px;
+  margin-top: 16px;
+  color: var(--brand-dark);
+  font-size: 15px;
+}
+
+.working-hours-banner svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  color: var(--brand);
+}
+
+.working-hours-banner strong {
+  font-weight: 800;
 }
 
 .status-pill {

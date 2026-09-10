@@ -22,8 +22,8 @@
 - CORS is locked to `FRONTEND_URL` — no wildcard origins.
 - Helmet sets standard security headers on every response.
 - Input validation: every DTO uses `class-validator` decorators; `ValidationPipe({ whitelist: true, transform: true })` is applied globally, so unexpected fields in a request body are stripped rather than silently accepted. Every numeric route/query param (`:id`, `skip`, `take`, etc.) is validated via `ParseIntPipe`/`parseOptionalInt` rather than a raw `Number()`, so a malformed value returns a clean 400 instead of an unhandled 500. `PUT /settings/:key` only accepts a fixed whitelist of known keys.
-- **Row Level Security enabled on every table** (Supabase Postgres, 2026-09-09) with no policies defined — a second layer of default-deny below the application layer. The app's Prisma connection uses the table-owner role, which Postgres always exempts from RLS, so this has zero effect on normal app behavior; it only matters if some other credential (e.g. a Supabase API key) ever touches the database directly. See [decisions.md](./decisions.md#row-level-security-defense-in-depth).
-- **Email-sending credential is scoped to one mailbox.** The Azure AD app used for the Microsoft Graph API holds `Mail.Send` as an *application* permission, which by default can send as any mailbox in the tenant — restricted to just the security mailbox via an Exchange Online application access policy (`New-ApplicationAccessPolicy`), so a compromised client secret can't be used to send as an arbitrary employee or executive mailbox. See `docs/email-m365-admin-handoff.md`.
+- **Row Level Security enabled on every application table** (Supabase Postgres, 2026-09-09) with no policies defined — a second layer of default-deny below the application layer. The runtime-created `session` table is not present when migrations run and is therefore excluded from that migration. The app's Prisma connection uses the table-owner role, which Postgres always exempts from RLS, so this has zero effect on normal app behavior; it only matters if some other credential (e.g. a Supabase API key) ever touches the database directly. See [decisions.md](./decisions.md#row-level-security-defense-in-depth).
+- **Email-sending credential still needs mailbox scoping.** The Azure AD app used for the Microsoft Graph API holds `Mail.Send` as an *application* permission. Admin consent is complete, but the Exchange Online application access policy (`New-ApplicationAccessPolicy`) must still be applied and verified so a compromised client secret cannot send as an arbitrary employee or executive mailbox. See `docs/email-m365-admin-handoff.md`.
 
 ## Audit trail
 
@@ -36,7 +36,7 @@ Every sensitive action writes to `audit_logs` (see [database-schema.md](./databa
 ## What's NOT yet implemented (see [roadmap.md](./roadmap.md))
 
 - HTTPS termination is assumed to happen at the hosting layer (Vercel/Render/etc.) — not configured in this repo.
-- No automated dependency vulnerability scanning is wired into CI yet (no CI pipeline exists yet at all).
+- No automated dependency vulnerability scanning is wired into CI yet; the existing CI runs lint, tests, and builds.
 - No documented incident-response runbook.
 
 ## Reporting a vulnerability

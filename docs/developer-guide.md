@@ -107,7 +107,7 @@ Follow the existing module pattern (e.g. copy `employees/` as a template):
 - **Never trust the client for a timestamp, user identity, or permission check.** The server is always authoritative — see `docs/architecture.md`.
 - **State-changing actions must call `AuditLogService.record(...)`.** Look at any existing service method for the pattern.
 - **Corrections to `movement_records` are append-only.** Never write code that does `prisma.movementRecord.update()` to change `movementType` or `movementAt` on an existing row — use the supersede-and-insert pattern in `MovementsService.correctMovement`.
-- **No working-hours calculations anywhere** — this is an explicit, permanent scope exclusion (see spec / `docs/decisions.md`).
+- **Working-hours total is frontend-only** — `calcWorkingHours()` in `EmployeeDetails.tsx` derives the span from the already-loaded `records` array (first ENTRY → last EXIT). No backend change, no new endpoint, no timesheet calculation. Any future expansion (daily roll-up, per-gap breakdown, export) belongs in a dedicated module.
 - **No keyboard shortcuts for state-changing actions.**
 - DTOs use `strictPropertyInitialization: false` (set in `backend/tsconfig.json`) since `class-validator` DTOs are populated by the framework, not a constructor — don't "fix" this by adding constructors or `!` assertions project-wide.
 

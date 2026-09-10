@@ -1,6 +1,6 @@
 import { Navigate } from 'react-router-dom';
 import { ReactNode } from 'react';
-import { useAuth } from '../auth/AuthContext';
+import { useAuth } from '../auth/useAuth';
 
 // Requires login, and optionally a specific permission. This is a UX
 // convenience (redirect instead of a broken page full of failed API

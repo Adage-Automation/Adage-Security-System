@@ -12,10 +12,21 @@
     "dev:backend": "npm run start:dev -w backend",
     "dev:frontend": "npm run dev -w frontend",
     "build": "npm run build -w backend && npm run build -w frontend",
+    "test": "npm test -w backend -- --runInBand && npm test -w frontend -- --runInBand",
+    "load:test": "node scripts/load-test.mjs",
     "seed": "npm run seed -w backend",
     "prisma:migrate": "npm run prisma:migrate -w backend"
   },
   "devDependencies": {
-    "concurrently": "^9.0.1"
+    "@types/supertest": "^7.2.1",
+    "@typescript-eslint/eslint-plugin": "^8.70.0",
+    "@typescript-eslint/parser": "^8.70.0",
+    "autocannon": "^8.0.0",
+    "concurrently": "^9.0.1",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.6",
+    "fake-indexeddb": "^6.2.5",
+    "supertest": "^7.2.2"
   }
 }

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { useAuth } from '../auth/AuthContext';
+import { useAuth } from '../auth/useAuth';
 import { IconArrowLeft, IconGrid, IconUsers, IconSettings, IconEdit, IconHistory } from './icons';
 
 // Shared cross-links for every admin/dashboard-adjacent screen. Each link

@@ -8,11 +8,13 @@ const STORE_NAME = 'pending-movements';
 export interface PendingMovement {
   localId: string;
   clientRequestId: string;
+  userId: number;
   employeeId: number;
   employeeName: string;
   movementType: 'ENTRY' | 'EXIT';
   confirmed?: boolean;
   queuedAt: string;
+  syncState?: 'pending' | 'conflict';
 }
 
 function openDb(): Promise<IDBDatabase> {
@@ -35,6 +37,7 @@ export async function enqueueMovement(entry: Omit<PendingMovement, 'localId' | '
     ...entry,
     localId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
     queuedAt: new Date().toISOString(),
+    syncState: 'pending',
   };
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
@@ -44,12 +47,30 @@ export async function enqueueMovement(entry: Omit<PendingMovement, 'localId' | '
   });
 }
 
-export async function listPendingMovements(): Promise<PendingMovement[]> {
+export async function updatePendingMovement(localId: string, changes: Partial<PendingMovement>): Promise<void> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    const request = store.get(localId);
+    request.onsuccess = () => {
+      if (request.result) store.put({ ...request.result, ...changes });
+    };
+    request.onerror = () => reject(request.error);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function listPendingMovements(userId?: number): Promise<PendingMovement[]> {
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readonly');
     const req = tx.objectStore(STORE_NAME).getAll();
-    req.onsuccess = () => resolve(req.result as PendingMovement[]);
+    req.onsuccess = () => {
+      const entries = req.result as PendingMovement[];
+      resolve(userId === undefined ? entries : entries.filter((entry) => entry.userId === userId));
+    };
     req.onerror = () => reject(req.error);
   });
 }

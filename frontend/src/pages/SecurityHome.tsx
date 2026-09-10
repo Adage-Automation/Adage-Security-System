@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, ApiError } from '../api/client';
+import { useAuth } from '../auth/useAuth';
 import { Employee, CreateMovementResponse, MovementType } from '../types';
-import { enqueueMovement, listPendingMovements, removePendingMovement } from '../offline/movementQueue';
+import { enqueueMovement, listPendingMovements, removePendingMovement, updatePendingMovement } from '../offline/movementQueue';
 import {
   IconSearch,
   IconEntry,
@@ -40,11 +41,14 @@ type Status =
   | { kind: 'error'; message: string };
 
 export function SecurityHome() {
+  const { user } = useAuth();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Employee[]>([]);
   const [selected, setSelected] = useState<Employee | null>(null);
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const [pendingCount, setPendingCount] = useState(0);
+  const [conflictCount, setConflictCount] = useState(0);
+  const [conflicts, setConflicts] = useState<Awaited<ReturnType<typeof listPendingMovements>>>([]);
   const [confirmDialog, setConfirmDialog] = useState<{ movementType: MovementType; lastType: MovementType } | null>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
@@ -54,6 +58,8 @@ export function SecurityHome() {
   // — see the clientRequestId comment in schema.prisma. Regenerated only
   // on a fresh tap (confirmed=false), never on a confirm-resubmit.
   const pendingRequestIdRef = useRef<string | null>(null);
+  const confirmButtonRef = useRef<HTMLButtonElement>(null);
+  const confirmDialogRef = useRef<HTMLDivElement>(null);
 
   const today = new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }).format(new Date());
 
@@ -67,13 +73,6 @@ export function SecurityHome() {
       window.removeEventListener('offline', goOffline);
     };
   }, []);
-
-  useEffect(() => {
-    refreshPendingCount();
-    if (isOnline) {
-      void syncPending();
-    }
-  }, [isOnline]);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -94,14 +93,20 @@ export function SecurityHome() {
     };
   }, [query]);
 
-  async function refreshPendingCount() {
-    const pending = await listPendingMovements();
+  const refreshPendingCount = useCallback(async () => {
+    if (!user) return;
+    const pending = await listPendingMovements(user.id);
     setPendingCount(pending.length);
-  }
+    const conflictItems = pending.filter((item) => item.syncState === 'conflict');
+    setConflicts(conflictItems);
+    setConflictCount(conflictItems.length);
+  }, [user]);
 
-  async function syncPending() {
-    const pending = await listPendingMovements();
+  const syncPending = useCallback(async () => {
+    if (!user) return;
+    const pending = await listPendingMovements(user.id);
     for (const item of pending) {
+      if (item.syncState === 'conflict') continue;
       try {
         // A movement queued while offline was never actually confirmed
         // against the duplicate-check (that requires a server round trip,
@@ -111,21 +116,17 @@ export function SecurityHome() {
         // queue forever with no UI to ever resolve it: the guard's
         // original tap while offline is the only signal of intent
         // available during a background sync. Found in the 2026-09-04
-        // audit — the previous code never handled this response shape at
-        // all, so a genuinely duplicate offline tap silently never synced.
-        let res = await api.post<CreateMovementResponse>('/movements', {
+        // audit — a duplicate response is now kept as an explicit conflict
+        // for review instead of being silently auto-confirmed.
+        const res = await api.post<CreateMovementResponse>('/movements', {
           employeeId: item.employeeId,
           movementType: item.movementType,
           confirmed: item.confirmed ?? false,
           clientRequestId: item.clientRequestId,
         });
         if (res.requiresConfirmation) {
-          res = await api.post<CreateMovementResponse>('/movements', {
-            employeeId: item.employeeId,
-            movementType: item.movementType,
-            confirmed: true,
-            clientRequestId: item.clientRequestId,
-          });
+          await updatePendingMovement(item.localId, { syncState: 'conflict' });
+          continue;
         }
         if (res.created) {
           await removePendingMovement(item.localId);
@@ -135,7 +136,55 @@ export function SecurityHome() {
       }
     }
     await refreshPendingCount();
+  }, [refreshPendingCount, user]);
+
+  async function resolveConflict(localId: string) {
+    const item = conflicts.find((candidate) => candidate.localId === localId);
+    if (!item || !window.confirm(`Record this ${item.movementType} for ${item.employeeName} anyway?`)) return;
+    try {
+      const result = await api.post<CreateMovementResponse>('/movements', {
+        employeeId: item.employeeId,
+        movementType: item.movementType,
+        confirmed: true,
+        clientRequestId: item.clientRequestId,
+      });
+      if (result.created) await removePendingMovement(item.localId);
+      await refreshPendingCount();
+    } catch {
+      setStatus({ kind: 'error', message: 'Unable to resolve this offline conflict. It remains queued.' });
+    }
   }
+
+  useEffect(() => {
+    void refreshPendingCount();
+    if (isOnline) void syncPending();
+  }, [isOnline, refreshPendingCount, syncPending]);
+
+  useEffect(() => {
+    if (confirmDialog) confirmButtonRef.current?.focus();
+  }, [confirmDialog]);
+
+  useEffect(() => {
+    if (!confirmDialog) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setConfirmDialog(null);
+      if (event.key === 'Tab') {
+        const focusable = confirmDialogRef.current?.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+        if (!focusable?.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [confirmDialog]);
 
   function selectEmployee(emp: Employee) {
     setSelected(emp);
@@ -167,6 +216,7 @@ export function SecurityHome() {
       // Never falsely report success — the queued state is shown distinctly
       // from a confirmed save (spec §52, decided deliberately).
       await enqueueMovement({
+        userId: user!.id,
         employeeId: selected.id,
         employeeName: selected.employeeName,
         movementType,
@@ -207,6 +257,7 @@ export function SecurityHome() {
         // connection dropped, the eventual sync retry will be recognized
         // as a replay instead of creating a duplicate record.
         await enqueueMovement({
+          userId: user!.id,
           employeeId: selected.id,
           employeeName: selected.employeeName,
           movementType,
@@ -231,6 +282,20 @@ export function SecurityHome() {
         <div className="status-banner pending">
           <IconWifiOff />
           You are offline. Records will be saved once connection returns.
+        </div>
+      )}
+
+      {conflictCount > 0 && (
+        <div className="status-banner error" role="alert">
+          {conflictCount} offline movement{conflictCount === 1 ? '' : 's'} need review because a newer record exists.
+          {conflicts.map((item) => (
+            <div key={item.localId} style={{ marginTop: 8 }}>
+              {item.employeeName} · {item.movementType}{' '}
+              <button type="button" className="table-action-btn" onClick={() => void resolveConflict(item.localId)}>
+                Record anyway
+              </button>
+            </div>
+          ))}
         </div>
       )}
       {pendingCount > 0 && (
@@ -269,6 +334,7 @@ export function SecurityHome() {
         <div className="search-box">
           <IconSearch className="search-icon" />
           <input
+            aria-label="Search employees by name, employee code, email, or car number"
             placeholder="Search employee..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -338,12 +404,12 @@ export function SecurityHome() {
       </Link>
 
       {confirmDialog && (
-        <div className="modal-overlay">
-          <div className="modal-card">
+        <div className="modal-overlay" role="presentation">
+          <div ref={confirmDialogRef} className="modal-card" role="dialog" aria-modal="true" aria-labelledby="duplicate-movement-title">
             <div className="modal-icon">
               <IconAlertTriangle />
             </div>
-            <p>
+            <p id="duplicate-movement-title">
               This employee was already marked as{' '}
               {confirmDialog.lastType === 'ENTRY' ? 'inside' : 'outside'}.
               <br />
@@ -358,6 +424,7 @@ export function SecurityHome() {
               </button>
               <button
                 className="confirm-btn"
+                ref={confirmButtonRef}
                 onClick={() => {
                   const { movementType } = confirmDialog;
                   setConfirmDialog(null);

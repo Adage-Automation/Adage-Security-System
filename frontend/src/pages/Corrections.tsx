@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { Employee, MovementRecord, MovementType } from '../types';
 import { IconEdit, IconPlus, IconInbox, IconX, IconCheckCircle } from '../components/icons';
@@ -37,6 +37,8 @@ export function Corrections() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const modalCloseRef = useRef<HTMLButtonElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
 
   function loadRecords() {
     if (!selected) return;
@@ -49,6 +51,29 @@ export function Corrections() {
   }
 
   useEffect(loadRecords, [selected, date]);
+
+  useEffect(() => {
+    if (edit) modalCloseRef.current?.focus();
+    if (!edit) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !saving) setEdit(null);
+      if (event.key === 'Tab') {
+        const focusable = modalRef.current?.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+        if (!focusable?.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [edit, saving]);
 
   useEffect(() => {
     if (!query.trim()) {
@@ -163,7 +188,7 @@ export function Corrections() {
               </button>
             </div>
           ) : (
-            <input placeholder="Search employee (including inactive)..." value={query} onChange={(e) => setQuery(e.target.value)} />
+            <input aria-label="Search employees including inactive employees" placeholder="Search employee (including inactive)..." value={query} onChange={(e) => setQuery(e.target.value)} />
           )}
           {results.length > 0 && (
             <div className="search-results">
@@ -245,10 +270,12 @@ export function Corrections() {
       )}
 
       {edit && (
-        <div className="modal-overlay">
-          <div className="modal-card" style={{ textAlign: 'left' }}>
+        <div className="modal-overlay" role="presentation">
+          <div ref={modalRef} className="modal-card" role="dialog" aria-modal="true" aria-labelledby="correction-dialog-title" style={{ textAlign: 'left' }}>
             <h3 style={{ marginTop: 0, textAlign: 'center' }}>
+              <span id="correction-dialog-title">
               {edit.mode === 'correct' ? 'Correct Movement Record' : 'Add Missing Record'}
+              </span>
             </h3>
             <div className="field">
               <label>Movement Type</label>
@@ -267,7 +294,7 @@ export function Corrections() {
             </div>
             {error && <div className="error-text">{error}</div>}
             <div className="modal-actions">
-              <button className="cancel-btn" onClick={() => setEdit(null)} disabled={saving}>
+              <button ref={modalCloseRef} className="cancel-btn" onClick={() => setEdit(null)} disabled={saving}>
                 Cancel
               </button>
               <button className="confirm-btn" onClick={submitEdit} disabled={saving}>

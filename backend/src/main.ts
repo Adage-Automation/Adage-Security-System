@@ -15,6 +15,9 @@ async function bootstrap() {
   // RoutesResolver) on every boot — none of that is actionable day to day.
   // Keep only warnings and errors; our own "listening on port ..." line
   // below (a plain console.log, unaffected by this) still confirms boot.
+  if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) {
+    throw new Error('SESSION_SECRET must be configured in production.');
+  }
   const app = await NestFactory.create(AppModule, { logger: ['warn', 'error'] });
 
   // Without this, req.ip returns the reverse proxy's own address on every

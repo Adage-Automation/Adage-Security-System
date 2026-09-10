@@ -26,7 +26,7 @@ The records table updates automatically as you change filters. On a phone, the t
 
 1. On the Dashboard, select a **Date** and search for the **Employee**.
 2. Tap **View Employee Day**.
-3. You'll see that employee's full movement history for that specific date — every ENTRY and EXIT in order, with times. No working-hours total is shown; this is intentional.
+3. You'll see that employee's full movement history for that specific date — every ENTRY and EXIT in order, with times. A **Total working hours** banner is shown below the list, calculated from the first ENTRY to the last EXIT of the day (e.g. "7h 45m"). This only appears when there is at least one ENTRY and one EXIT on record; if the employee hasn't exited yet, the banner is not shown.
 
 ## Emailing a record
 
@@ -45,6 +45,6 @@ If you tap EMAIL DETAILS again for a record you already sent, you'll be asked to
 
 ## What you can't do (by design)
 
-- You can't see working-hours totals — the system only shows raw ENTRY/EXIT events.
+- You can see **total working hours** on the day view (first ENTRY to last EXIT), but not a breakdown of individual in/out gaps or a daily timesheet roll-up.
 - You can't trigger an automatic daily email — every send is a deliberate action.
 - You can't edit a movement record directly from this screen — record corrections are handled by an authorized user through the correction flow (see [user-guide-admin.md](./user-guide-admin.md#correcting-a-movement-record)).

@@ -52,9 +52,15 @@ Dated record of decisions made while turning the original specification into a w
 
 ## Offline handling: full offline queueing
 
-**Decision**: v1 includes offline queueing via IndexedDB and a service worker, not just a "fail and ask the guard to retry" message. A queued movement is visibly distinct from a confirmed save ("pending sync" banner) until the server confirms it.
+**Decision**: v1 includes offline queueing via IndexedDB and a service worker, not just a "fail and ask the guard to retry" message. A queued movement is visibly distinct from a confirmed save ("pending sync" banner) until the server confirms it. A queued movement that comes back `requiresConfirmation` during sync is flagged as a **conflict** and surfaced to the guard for intentional resolution ("Record anyway"), rather than auto-confirmed — the auto-confirm path from the 2026-09-04 audit was replaced with explicit conflict review because silently recording a duplicate without the guard knowing is worse than a short queue review.
 
-**Why**: considered against the simpler fail-clearly-no-queue alternative. Given guards work from a gate that may have unreliable wifi, and the core promise of the app is "never falsely report success," a real offline queue was judged worth the added complexity (dedup on sync, visible pending state). Decided 2026-09-03 — see the caveat in `docs/roadmap.md` about conflict-handling depth still being minimal.
+**Why**: considered against the simpler fail-clearly-no-queue alternative. Given guards work from a gate that may have unreliable wifi, and the core promise of the app is "never falsely report success," a real offline queue was judged worth the added complexity (dedup on sync, visible pending state). Decided 2026-09-03; conflict-surface behavior updated 2026-09-10 — see `docs/roadmap.md`.
+
+## Offline auth: short-lived local user cache
+
+**Decision**: `AuthContext.tsx` caches the last successfully authenticated user in `localStorage` (key `adage.last-authenticated-user`) with a 12-hour expiry. If `/auth/me` fails and the browser is offline (no `ApiError`, but no network), the cached user is restored so the recording screen and offline queue remain usable. For any real online API call, the server session is always the authority — the local cache is only used when there is genuinely no network.
+
+**Why**: without this, a guard whose device lost connectivity but still had an active session would see the login screen on reload, losing access to the recording screen and any queued movements, even though the session is still valid server-side. The 12-hour window is short enough to prevent stale credentials persisting indefinitely (guards typically work one shift), and the cache is cleared explicitly on logout. Decided 2026-09-10.
 
 ## Record correction: append-only, not soft-edit
 
@@ -130,7 +136,7 @@ Supabase offers the Mumbai region, built-in daily backups + point-in-time recove
 
 ## Row Level Security: defense in depth
 
-**Decision**: enabled Postgres Row Level Security on every table in the Supabase database, with zero policies defined (migration `20260909120000_enable_row_level_security`).
+**Decision**: enabled Postgres Row Level Security on every application table in the Supabase database, with zero policies defined (migration `20260909120000_enable_row_level_security`). The runtime-created `session` table is not present when migrations run and is therefore excluded from that migration.
 
 **Why**: prompted by Supabase's own Security Advisor flagging RLS as disabled on all 11 tables. The app's Prisma connection authenticates as the table-owner role, and Postgres always exempts a table's owner from its own RLS policies — so this change has no effect on the app's normal behavior (verified live: every workflow still worked immediately after). What it does close off: a Supabase project ships separate `anon`/`authenticated` API roles by default, intended for direct client-side (PostgREST/Supabase-JS) access — unused by this app, which only ever talks to Postgres through the NestJS backend, but present in the database regardless. With RLS off, those roles could read/write every table directly if their keys ever leaked or were reused; with RLS on and no policies, they're denied by default. A second layer of protection with no application-level cost. Decided 2026-09-09.
 

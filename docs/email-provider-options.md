@@ -24,4 +24,4 @@ The deciding concern (raised explicitly): free-tier terms from a third-party ven
 1. ~~Which provider~~ — decided: Adage's existing Microsoft 365 tenant.
 2. ~~An account with that provider~~ — not needed, rides on the existing tenant.
 3. ~~Domain/mailbox confirmation~~ — done, see `email-m365-admin-handoff.md`.
-4. **Azure app registration + credentials** (`AZURE_TENANT_ID`/`AZURE_CLIENT_ID`/`AZURE_CLIENT_SECRET` in `backend/.env`) — waiting on whoever administers Microsoft 365/Azure. SMTP AUTH was tried first but turned out to be retired on this tenant (2026-09-10), hence the switch to OAuth2/Graph.
+4. ~~Azure app registration + credentials~~ — completed and verified. `Mail.Send` admin consent is granted and live Graph token acquisition/email delivery work. The remaining security follow-up is applying and verifying the Exchange Online application access policy for the approved sender mailbox. SMTP AUTH was tried first but turned out to be retired on this tenant (2026-09-10), hence the switch to OAuth2/Graph.

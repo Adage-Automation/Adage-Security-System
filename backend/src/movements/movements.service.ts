@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../audit-logs/audit-log.service';
 import { dayRange } from '../common/utils/day-range';
@@ -48,6 +48,9 @@ export class MovementsService {
         include: { employee: true },
       });
       if (existing) {
+        if (existing.employeeId !== dto.employeeId || existing.movementType !== dto.movementType || existing.recordedByUserId !== recordedByUserId) {
+          throw new ConflictException('clientRequestId is already associated with a different movement');
+        }
         return { created: true, requiresConfirmation: false, record: existing };
       }
     }
@@ -88,6 +91,9 @@ export class MovementsService {
           include: { employee: true },
         });
         if (existing) {
+          if (existing.employeeId !== dto.employeeId || existing.movementType !== dto.movementType || existing.recordedByUserId !== recordedByUserId) {
+            throw new ConflictException('clientRequestId is already associated with a different movement');
+          }
           return { created: true, requiresConfirmation: false, record: existing };
         }
       }

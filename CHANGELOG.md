@@ -1,5 +1,51 @@
 # Changelog
 
+## 2026-09-10 (cont. 4) — Total working hours, offline conflict surfacing, auth cache, edit-in-place for employees, accessibility improvements, stale-code/docs sweep
+
+### Added
+
+- **Total working hours on the employee day view** (`frontend/src/pages/EmployeeDetails.tsx`) — a teal banner showing "Total working hours: Xh Ym" now appears below the movement list. Calculated client-side from the already-loaded records: first ENTRY to last EXIT of the day. No backend change, no new endpoint. Returns `null` (banner hidden) when there is no EXIT yet. Formatted as `"8h"`, `"30m"`, or `"7h 45m"`. `IconClock` (already in icons.tsx) used for the icon. `.working-hours-banner` CSS added to `global.css` using the existing brand teal palette.
+
+- **Offline conflict surfacing** (`frontend/src/pages/SecurityHome.tsx`, `frontend/src/offline/movementQueue.ts`) — a queued movement that comes back `requiresConfirmation` during sync is now flagged `syncState: 'conflict'` and surfaced to the guard as a red "X offline movements need review" banner with a "Record anyway" button, instead of being silently auto-confirmed. The queue is also scoped per `userId` so guards sharing a device don't see each other's pending movements.
+
+- **Offline auth cache** (`frontend/src/auth/AuthContext.tsx`) — the last successfully authenticated user is cached in `localStorage` (12h expiry, key `adage.last-authenticated-user`). If `/auth/me` fails because the browser is offline (no `ApiError`), the cached user is restored so the recording screen and queue remain accessible. Cleared explicitly on logout.
+
+- **Edit-in-place for employees** (`frontend/src/pages/Employees.tsx`) — an "Edit" button per row expands an inline form to update name, email, and car number without navigating away. Previously the edit UI was undocumented / non-functional from the admin screen.
+
+- **`SESSION_SECRET` production guard** (`backend/src/main.ts`) — throws at boot if `SESSION_SECRET` is unset in production, preventing a silent deploy with an empty/default session secret.
+
+- **`clientRequestId` conflict check** (`backend/src/movements/movements.service.ts`) — if a `clientRequestId` arrives that already exists but maps to a *different* employee, movement type, or recorder, the server throws `ConflictException` instead of silently returning the wrong record. Closes a theoretical idempotency-key collision scenario.
+
+- **`AuthContext` refactored into three files** — `AuthContext.tsx` (provider + cache logic), `auth-context.ts` (context object + type, no React imports beyond `createContext`), `useAuth.ts` (`useAuth` hook). All component imports updated to use `useAuth.ts`. Eliminates the re-export of `ApiError` from `AuthContext.tsx` — callers now import it directly from `api/client.ts`.
+
+- **`ErrorBoundary` wrapped around entire app** (`frontend/src/App.tsx`) — previously `ErrorBoundary` existed but was never mounted at the root level.
+
+- **`eslint-disable` comment removed** (`frontend/src/components/ErrorBoundary.tsx`) — the `no-console` disable in `componentDidCatch` was unnecessary since `console.error` is appropriate for error boundary logging.
+
+- **Modal accessibility** (`SecurityHome.tsx`, `Corrections.tsx`) — both confirm/correction dialogs now have `role="dialog"`, `aria-modal="true"`, `aria-labelledby`, initial focus on open, Tab focus-trap, and Escape-to-close.
+
+- **`aria-label` added** to employee search inputs on SecurityHome, Dashboard, and Corrections for screen-reader clarity.
+
+- **`npm run test`** wired at the root workspace level to run backend and frontend tests together (`--runInBand`). `npm run load:test` added for the `autocannon` benchmark. Root-level test tooling deps (`supertest`, `@typescript-eslint/*`, `eslint*`, `fake-indexeddb`, `autocannon`) added. Frontend `package.json` gains a `test` script.
+
+### Changed
+
+- **Login label** (`frontend/src/pages/Login.tsx`) — field label changed from "Username or Email" to "Username" to match what the backend actually accepts (username only, not email).
+
+- **Users.tsx** imports `useAuth` from `auth/useAuth` (not `auth/AuthContext`) — consistent with the refactor above.
+
+- **`UnauthorizedException` import removed** from `backend/src/auth/auth.service.ts` — it was imported but unused; the local strategy throws it directly.
+
+### Docs
+
+- `docs/architecture.md` — updated `auth/` file listing for the three-file split; updated `movementQueue.ts` description for userId scoping and conflict state.
+- `docs/decisions.md` — updated "Offline handling" ADR to reflect conflict-surface behavior; added new "Offline auth cache" ADR.
+- `docs/roadmap.md` — working hours added to Done; audit findings section updated (offline auth, modal a11y, offline duplicate resolution all now done); "Known simplifications" conflict description updated.
+- `docs/testing.md` — intro updated; added test items for conflict state and idempotency-key collision.
+- `docs/user-guide-security.md` — offline conflict section updated to describe the "Record anyway" banner.
+- `README.md`, `docs/user-guide-hr.md`, `docs/user-guide-admin.md`, `docs/developer-guide.md` — working-hours scope updated (from "none" to "day-view total; no timesheet roll-up").
+- `backend/src/dashboard/dashboard.controller.ts` — stale "no working-hours anywhere" comment updated.
+
 ## 2026-09-10 (cont. 3) — Forgot password, full crash/bug audit fixes, a deployment-blocking migration bug fixed
 
 ### Added

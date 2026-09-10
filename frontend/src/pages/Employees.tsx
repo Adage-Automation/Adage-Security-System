@@ -13,6 +13,8 @@ export function Employees() {
   const [skip, setSkip] = useState(0);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({ employeeCode: '', employeeName: '', email: '', carNumber: '' });
+  const [editing, setEditing] = useState<Employee | null>(null);
+  const [editForm, setEditForm] = useState({ employeeName: '', email: '', carNumber: '' });
   const [error, setError] = useState<string | null>(null);
 
   function load(reset: boolean) {
@@ -74,6 +76,29 @@ export function Employees() {
     }
   }
 
+  function startEditing(emp: Employee) {
+    setEditing(emp);
+    setEditForm({ employeeName: emp.employeeName, email: emp.email ?? '', carNumber: emp.carNumber ?? '' });
+    setError(null);
+  }
+
+  async function saveEdit(e: FormEvent) {
+    e.preventDefault();
+    if (!editing) return;
+    setError(null);
+    try {
+      await api.put(`/employees/${editing.id}`, {
+        employeeName: editForm.employeeName.trim(),
+        email: editForm.email.trim() || undefined,
+        carNumber: editForm.carNumber.trim() || undefined,
+      });
+      setEditing(null);
+      load(true);
+    } catch (err: any) {
+      setError(err?.message ?? 'Failed to update employee.');
+    }
+  }
+
   const hasMore = employees.length < total;
 
   return (
@@ -112,6 +137,30 @@ export function Employees() {
         </form>
         {error && <div className="error-text">{error}</div>}
       </div>
+
+      {editing && (
+        <div className="section-card">
+          <h3>Edit Employee: {editing.employeeCode}</h3>
+          <form onSubmit={saveEdit} style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+            <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
+              <label>Name</label>
+              <input value={editForm.employeeName} onChange={(e) => setEditForm({ ...editForm, employeeName: e.target.value })} required />
+            </div>
+            <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
+              <label>Email (optional)</label>
+              <input type="email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
+            </div>
+            <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
+              <label>Car Number (optional)</label>
+              <input value={editForm.carNumber} onChange={(e) => setEditForm({ ...editForm, carNumber: e.target.value })} />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
+              <button type="submit" className="primary-button" style={{ width: 'auto', padding: '12px 20px' }}>Save</button>
+              <button type="button" className="table-action-btn" onClick={() => setEditing(null)}>Cancel</button>
+            </div>
+          </form>
+        </div>
+      )}
 
       <div className="filters-bar">
         <div className="field" style={{ position: 'relative', marginBottom: 0 }}>
@@ -154,6 +203,9 @@ export function Employees() {
                     </span>
                   </td>
                   <td>
+                    <button className="table-action-btn" onClick={() => startEditing(emp)} style={{ marginRight: 8 }}>
+                      Edit
+                    </button>
                     <button className="table-action-btn" onClick={() => toggleActive(emp)}>
                       {emp.isActive ? 'Deactivate' : 'Reactivate'}
                     </button>

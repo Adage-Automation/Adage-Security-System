@@ -1,6 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { useAuth, ApiError } from '../auth/AuthContext';
+import { useAuth } from '../auth/useAuth';
+import { ApiError } from '../api/client';
 
 export function Login() {
   const { login } = useAuth();
@@ -46,7 +47,7 @@ export function Login() {
 
         <form onSubmit={handleSubmit}>
           <div className="field">
-            <label htmlFor="username">Username or Email</label>
+            <label htmlFor="username">Username</label>
             <input
               id="username"
               value={username}

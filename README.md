@@ -10,7 +10,7 @@ Key principles carried through the whole design:
 - **Event log, not slots** — one row per movement, never `morning_entry`/`lunch_exit` columns.
 - **Server-authoritative timestamps** — the frontend never supplies the official time or user identity.
 - **Email is strictly on-demand** — never automatic, never triggered by recording a movement.
-- **No working-hours calculation** — the system records and displays movements only.
+- **Working hours displayed on the day view** — the employee details page shows total working hours (first entry → last exit) as a convenience summary; movements are still stored as individual events, not time-slots.
 - **Append-only corrections** — a correction never overwrites history; the original row is marked superseded and a new linked record is added.
 
 ## Features
@@ -40,7 +40,7 @@ Key principles carried through the whole design:
 | Report rendering | Puppeteer (HTML/CSS template → PNG/PDF), one pooled browser instance reused across requests |
 | Object storage | Supabase Storage (S3-compatible, via `@aws-sdk/client-s3`, bundled with the same project) — only for reports that were actually emailed |
 | Monorepo tooling | npm workspaces — one install, one `npm run dev` runs both apps |
-| Testing | Jest wired up (`npm test`/`npm run test:e2e`) — no test files written yet |
+| Testing | Jest unit tests in backend/frontend (`npm test`), an e2e command scaffold (`npm run test:e2e`), and CI on every push/PR |
 
 ## Architecture
 

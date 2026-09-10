@@ -44,7 +44,7 @@ backend/src/
 ├── permissions/     read-only permission listing
 ├── employees/       employee CRUD, search (active-only for guards, all for corrections)
 ├── movements/       the event log: create (with duplicate-confirm), list/filter, correct
-├── dashboard/       daily summary stats (counts only, no working-hours math)
+├── dashboard/       daily summary stats (counts only — no working-hours roll-up; a per-day span is shown on the frontend from existing movement data)
 ├── reports/         PNG/PDF generation (Puppeteer) + on-demand email orchestration
 ├── email/           Microsoft Graph API wrapper (OAuth2, via Adage's Microsoft 365 tenant) — the only place that sends email
 ├── audit-logs/      write-through audit trail, read endpoint for admins
@@ -70,8 +70,10 @@ Each module is self-contained: a `*.module.ts`, `*.controller.ts` (HTTP layer + 
 ```
 frontend/src/
 ├── api/client.ts        thin fetch wrapper, always sends cookies, throws ApiError
-├── auth/AuthContext.tsx React context: current user, login/logout, permission check
-├── offline/movementQueue.ts  IndexedDB-backed queue for offline ENTRY/EXIT taps
+├── auth/AuthContext.tsx React context provider: current user, login/logout, permission check; caches last-known user in localStorage for up to 12h so offline reloads can reopen the recording screen
+├── auth/auth-context.ts AuthContext and AuthContextValue type — separated from the provider to allow importing the context type without importing the provider's full dependency tree
+├── auth/useAuth.ts      `useAuth()` hook — separated from the provider for the same reason; all component imports now use this file rather than AuthContext.tsx directly
+├── offline/movementQueue.ts  IndexedDB-backed queue for offline ENTRY/EXIT taps; each entry is scoped to a userId; entries have a syncState ('pending' | 'conflict') — a duplicate that comes back requiresConfirmation on sync is marked conflict and surfaced to the guard for explicit resolution rather than auto-confirmed
 ├── components/           Header, ProtectedRoute, ErrorBoundary
 ├── pages/
 │   ├── Login.tsx
@@ -79,7 +81,7 @@ frontend/src/
 │   ├── ResetPassword.tsx   set a new password from the emailed link
 │   ├── SecurityHome.tsx   the core guard workflow: search → select → ENTRY/EXIT
 │   ├── Dashboard.tsx      date/employee/movement-type filters + summary + records
-│   ├── EmployeeDetails.tsx  one employee's day: view, EMAIL DETAILS
+│   ├── EmployeeDetails.tsx  one employee's day: movement list, total working hours (first entry → last exit), EMAIL DETAILS
 │   ├── Employees.tsx      admin: employee CRUD, deactivate/reactivate, search + pagination over the full roster
 │   ├── Users.tsx          admin: user CRUD, enable/disable
 │   ├── Corrections.tsx    admin: search a date + employee, append-only-correct or add a missing record
