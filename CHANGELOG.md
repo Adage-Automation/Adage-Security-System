@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-09-11 — Fixed HR's Dashboard access, broken by the recording-permission removal
+
+### Fixed
+
+- **HR's Dashboard employee filter silently returned nothing**: `GET /employees/search` was gated behind `RECORD_ENTRY`, which HR lost in Commit 15. Changed to `VIEW_DASHBOARD` — held by every role that needs this endpoint (SECURITY for the recording screen, HR for the Dashboard filter), with no extra access granted (`backend/src/employees/employees.controller.ts`).
+- **`AdminNav.tsx`'s "Record Movement" link had no permission check at all**, unlike every other link in that component — it kept showing for HR even after HR lost `RECORD_ENTRY`, dangling a link to a page that would just redirect away. Wrapped it in `hasPermission('RECORD_ENTRY')` to match the established pattern.
+- Verified live: HR now lands on `/dashboard` after login with only Dashboard/Employees in the nav, the employee filter dropdown returns real results, and Security's recording flow is unaffected.
+- **CI pipeline (`.github/workflows/ci.yml`) would have failed on every run**: `npm ci`'s `postinstall` hook runs `prisma generate`, which requires `DATABASE_URL` to resolve — with no `.env` on a fresh CI checkout and no env var set, it fails with "Environment variable not found" before lint/test/build ever run. Added `DATABASE_URL`/`SESSION_SECRET` to the workflow's `env:` block (dummy values — nothing in this workflow connects to a real database). Found by an audit fork; fixed directly.
+
 ## 2026-09-10 (cont. 4) — Total working hours, offline conflict surfacing, auth cache, edit-in-place for employees, accessibility improvements, stale-code/docs sweep
 
 ### Added

@@ -13,10 +13,12 @@ export function AdminNav() {
 
   return (
     <div className="nav-links">
-      <Link to="/">
-        <IconArrowLeft />
-        Record Movement
-      </Link>
+      {hasPermission('RECORD_ENTRY') && (
+        <Link to="/">
+          <IconArrowLeft />
+          Record Movement
+        </Link>
+      )}
       {hasPermission('VIEW_DASHBOARD') && (
         <Link to="/dashboard">
           <IconGrid />

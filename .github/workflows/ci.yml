@@ -7,6 +7,17 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    env:
+      # `npm ci`'s postinstall hook runs `prisma generate`, which requires
+      # DATABASE_URL to resolve from schema.prisma's env("DATABASE_URL") --
+      # even for `generate` (no live connection needed), Prisma's CLI
+      # fails with "Environment variable not found" if it's unset
+      # entirely. A syntactically valid dummy value is enough; nothing in
+      # this workflow (lint/unit tests/build) connects to a real database.
+      # E2E_TEST_DATABASE_URL is deliberately left unset, so the
+      # database-backed e2e suite stays skipped here, as intended.
+      DATABASE_URL: 'postgresql://ci:ci@localhost:5432/ci?schema=public'
+      SESSION_SECRET: 'ci-only-not-a-real-secret'
 
     steps:
       - name: Check out repository

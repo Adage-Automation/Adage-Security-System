@@ -12,8 +12,16 @@ import { CreateEmployeeDto, UpdateEmployeeDto } from './dto/employee.dto';
 export class EmployeesController {
   constructor(private employeesService: EmployeesService) {}
 
+  // VIEW_DASHBOARD, not RECORD_ENTRY — this active-employee search backs
+  // both the guard's ENTRY/EXIT selector AND the Dashboard's employee
+  // filter dropdown, which HR also needs. Gating it behind RECORD_ENTRY
+  // silently broke the Dashboard filter for HR the moment HR's recording
+  // permissions were removed (2026-09-10) — every role that can reach the
+  // Dashboard already holds VIEW_DASHBOARD, so this covers both use cases
+  // without granting anything extra. Same root-cause class as the
+  // MANAGE_EMPLOYEES/VIEW_EMPLOYEE_HISTORY fix from the 2026-09-04 audit.
   @Get('search')
-  @RequirePermissions('RECORD_ENTRY')
+  @RequirePermissions('VIEW_DASHBOARD')
   search(@Query('q') q: string) {
     return this.employeesService.search(q);
   }
