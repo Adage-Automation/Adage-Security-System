@@ -18,8 +18,11 @@ export function Login() {
     setError(null);
     setSubmitting(true);
     try {
-      await login(username, password);
-      navigate('/');
+      const loggedInUser = await login(username, password);
+      // HR doesn't have the Security recording screen — send them straight
+      // to the Dashboard. Everyone else (SECURITY, ADMIN) lands on the
+      // recording screen as before.
+      navigate(loggedInUser.role === 'HR' ? '/dashboard' : '/');
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         setError('Invalid username or password.');

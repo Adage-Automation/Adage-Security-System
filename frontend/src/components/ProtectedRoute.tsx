@@ -15,5 +15,10 @@ export function ProtectedRoute({ children, permission }: { children: ReactNode; 
   if (!user) return <Navigate to="/login" replace />;
   if (permission && !hasPermission(permission)) return <Navigate to="/" replace />;
 
+  // `/` (SecurityHome) is only for SECURITY/ADMIN. If a user without
+  // RECORD_ENTRY somehow lands there (e.g. stale bookmark), send them to
+  // the Dashboard rather than looping back to `/`.
+  if (!permission && !hasPermission('RECORD_ENTRY')) return <Navigate to="/dashboard" replace />;
+
   return <>{children}</>;
 }

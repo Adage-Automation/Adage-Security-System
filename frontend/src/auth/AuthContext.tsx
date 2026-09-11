@@ -38,10 +38,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setLoading(false));
   }, []);
 
-  async function login(username: string, password: string) {
+  async function login(username: string, password: string): Promise<AuthUser> {
     const res = await api.post<{ user: AuthUser }>('/auth/login', { username, password });
     setUser(res.user);
     cacheUser(res.user);
+    return res.user;
   }
 
   async function logout() {

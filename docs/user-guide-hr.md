@@ -4,11 +4,11 @@ This is the guide for HR staff viewing employee movement history and sending rec
 
 ## Logging in
 
-Same as any user: username + password on the login screen.
+Same as any user: username + password on the login screen. After login, you land directly on the **Dashboard** — HR does not have access to the Security recording screen.
 
 ## Dashboard
 
-Tap **DASHBOARD** from the main screen (or navigate to it directly). This is where you look up historical entry/exit records.
+This is your home screen. It shows historical entry/exit records for any date and employee.
 
 ### Today's summary
 
