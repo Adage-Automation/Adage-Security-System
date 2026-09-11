@@ -12,7 +12,9 @@ This is your home screen. It shows historical entry/exit records for any date an
 
 ### Today's summary
 
-At the top you'll see three numbers for the selected date: total employees who moved, total entries, total exits. This is a count only — the system does **not** calculate working hours or time spent inside.
+At the top you'll see three numbers for the selected date: total employees who moved, total entries, total exits. This is a count only — the system does **not** calculate working hours in the dashboard summary itself.
+
+If you want the day's total working hours, open **View Employee Day** for that employee; the details page shows a **Total working hours** banner calculated from the first ENTRY to the last EXIT of the day (e.g. "7h 45m").
 
 ### Filters
 

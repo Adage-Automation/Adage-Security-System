@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './auth/AuthContext';
 import { useAuth } from './auth/useAuth';
 import { ProtectedRoute } from './components/ProtectedRoute';
@@ -33,6 +33,7 @@ function Shell() {
         <Route path="/settings" element={<ProtectedRoute permission="MANAGE_SETTINGS"><Settings /></ProtectedRoute>} />
         <Route path="/corrections" element={<ProtectedRoute permission="CORRECT_RECORDS"><Corrections /></ProtectedRoute>} />
         <Route path="/audit-log" element={<ProtectedRoute permission="MANAGE_SETTINGS"><AuditLog /></ProtectedRoute>} />
+        <Route path="*" element={<Navigate to={user ? '/dashboard' : '/login'} replace />} />
       </Routes>
     </>
   );

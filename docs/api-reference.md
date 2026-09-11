@@ -26,7 +26,7 @@ Body: `{ token: string, newPassword: string }` (`newPassword` min 8 characters).
 
 | Method | Path | Permission | Notes |
 |---|---|---|---|
-| GET | `/employees/search?q=` | `RECORD_ENTRY` | Active employees only, top 10 matches, name/code/email/car number, case-insensitive |
+| GET | `/employees/search?q=` | `VIEW_DASHBOARD` | Active employees only, top 10 matches, name/code/email/car number, case-insensitive. Backs both the guard's ENTRY/EXIT selector and the Dashboard's employee filter — every role that reaches either already holds `VIEW_DASHBOARD` |
 | GET | `/employees/search-all?q=` | `CORRECT_RECORDS` | Includes inactive employees — for the admin correction flow; searches name/code/email/car number |
 | GET | `/employees?skip=&take=&q=` | `MANAGE_EMPLOYEES` | Admin management list. `q` (optional) filters name/code/email/car number, case-insensitive. Returns `{ rows: Employee[], total: number }` — `total` reflects the filtered count, so the frontend can page/search the full roster rather than being capped at one page. |
 | GET | `/employees/:id` | `VIEW_EMPLOYEE_HISTORY` | Single-employee lookup — intentionally not gated behind `MANAGE_EMPLOYEES`, since it backs the Employee Details page that Security/HR reach via the Dashboard even though they lack `MANAGE_EMPLOYEES` |
@@ -124,6 +124,6 @@ Same body shape as above. Adds a brand-new record (no `correctionOf` link) for a
 
 ## Error shape
 
-Non-2xx responses return `{ statusCode, message, error }` (Nest's default). The frontend's `api/client.ts` throws `ApiError` with `.status` and `.message` extracted from this. `401` → not authenticated (redirect to login). `403` → authenticated but missing permission. `429` → rate-limited (login only, currently). `400` → validation failure, including a malformed numeric route/query param (e.g. `GET /employees/abc`) — every `:id` and numeric query param is parsed with `ParseIntPipe` or the `parseOptionalInt` helper, never a raw `Number()` that could reach Prisma and surface as a 500.
+Non-2xx responses return `{ statusCode, message, error }` (Nest's default). The frontend's `api/client.ts` throws `ApiError` with `.status` and `.message` extracted from this. `401` → not authenticated (redirect to login). `403` → authenticated but missing permission. `429` → rate-limited (login, forgot-password, and reset-password). `400` → validation failure, including a malformed numeric route/query param (e.g. `GET /employees/abc`) — every `:id` and numeric query param is parsed with `ParseIntPipe` or the `parseOptionalInt` helper, never a raw `Number()` that could reach Prisma and surface as a 500.
 
 A client-side request that takes longer than 20s aborts and throws `ApiTimeoutError` (not an `ApiError`) — see `frontend/src/api/client.ts`.

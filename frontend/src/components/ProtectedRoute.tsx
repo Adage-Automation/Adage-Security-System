@@ -1,4 +1,4 @@
-import { Navigate } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { ReactNode } from 'react';
 import { useAuth } from '../auth/useAuth';
 
@@ -11,9 +11,31 @@ import { useAuth } from '../auth/useAuth';
 export function ProtectedRoute({ children, permission }: { children: ReactNode; permission?: string }) {
   const { user, loading, hasPermission } = useAuth();
 
-  if (loading) return null;
+  if (loading) {
+    return (
+      <div className="page">
+        <div className="empty-state" role="status" aria-live="polite">
+          <div className="empty-title">Loading…</div>
+        </div>
+      </div>
+    );
+  }
   if (!user) return <Navigate to="/login" replace />;
-  if (permission && !hasPermission(permission)) return <Navigate to="/" replace />;
+  if (permission && !hasPermission(permission)) {
+    return (
+      <div className="page">
+        <div className="empty-state" role="alert">
+          <div className="empty-title">Access denied</div>
+          <div className="empty-hint">You do not have permission to view this page.</div>
+          <div style={{ display: 'flex', justifyContent: 'center', marginTop: 16 }}>
+            <Link to="/dashboard" className="dashboard-button">
+              Go to Dashboard
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // `/` (SecurityHome) is only for SECURITY/ADMIN. If a user without
   // RECORD_ENTRY somehow lands there (e.g. stale bookmark), send them to

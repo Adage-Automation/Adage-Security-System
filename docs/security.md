@@ -29,6 +29,8 @@
 
 Every sensitive action writes to `audit_logs` (see [database-schema.md](./database-schema.md#audit_logs) for the full action list): logins/logouts, every ENTRY/EXIT, every correction, every employee/user create-update-deactivate, every settings change, every email send attempt (success or failure). Audit rows are never deleted or edited by application code.
 
+Audit payloads are now compact and sanitized before they are written: the app strips sensitive fields such as passwords, tokens, session material, and raw request bodies, and it keeps only compact summaries for employee/user-shaped records where a full object is unnecessary. Audit records are intended for admin review and incident response; no automated retention purge is currently implemented in the app itself.
+
 ## Self-service password reset
 
 - `POST /auth/forgot-password` / `POST /auth/reset-password` (2026-09-10) — a single-use, SHA-256-hashed, 1-hour-expiring token, generated server-side and never stored in plaintext. The request endpoint always returns the same generic response regardless of whether the email matched an account, so it can't be used to enumerate which addresses have accounts. See [decisions.md](./decisions.md#forgot-password-hashed-single-use-tokens-not-jwt-or-plaintext).

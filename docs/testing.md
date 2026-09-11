@@ -1,6 +1,6 @@
 # Testing
 
-Backend Jest tests cover username authentication, password reset, employee search/car-number behavior, movement creation/idempotency/corrections, dashboard queries, RBAC, Microsoft Graph failures, and storage failures. Frontend Jest tests cover the IndexedDB movement queue (including userId scoping and conflict state). This document defines the remaining coverage required, per the original spec, so tests can be expanded module-by-module without re-deriving requirements.
+The codebase now has real Jest coverage in both apps. Backend tests cover username authentication, password reset, employee search/car-number behavior, movement creation/idempotency/corrections, dashboard queries, RBAC, Microsoft Graph failures, storage/report generation failures, and the reports email-success path. Controller-level specs were recently added for the Employees and Reports HTTP surfaces as well. Frontend tests cover the IndexedDB movement queue (including userId scoping and conflict state) plus the employee day working-hours calculation. This document tracks the current implemented coverage and the remaining areas still worth expanding.
 
 ## Authentication
 
@@ -29,7 +29,7 @@ Backend Jest tests cover username authentication, password reset, employee searc
 - An employee can have unlimited ENTRY/EXIT rows on the same day — verify a sequence like ENTRY/EXIT/ENTRY/EXIT all persist as separate rows
 - Duplicate-movement warning: pressing the same movement type twice in a row returns `requiresConfirmation: true` and does **not** create a record; resubmitting with `confirmed: true` creates it
 - `clientRequestId` is generated once per tap and reused on retries; a duplicate key returns the existing record, not a new one
-- A queued movement that comes back `requiresConfirmation` during sync is marked `syncState: 'conflict'` and is **not** auto-confirmed; the guard sees a "Record anyway" prompt and can either confirm or leave it pending
+- A queued movement that comes back `requiresConfirmation` during sync is marked `syncState: 'conflict'` and is **not** auto-confirmed; the guard sees a red review banner with a conflict reason, can choose **Record anyway**, or **Dismiss** it if the queued record is no longer needed
 - Correcting a record marks the original `isSuperseded: true` and creates a new linked record — the original is never deleted or mutated in place
 - "Current" queries (dashboard, employee history) exclude superseded records
 

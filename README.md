@@ -15,12 +15,12 @@ Key principles carried through the whole design:
 
 ## Features
 
-- Session-based authentication with role-based access: SECURITY (record movements + Dashboard), HR (same, plus Employees), ADMIN (everything, plus Users/Corrections/Audit Log/Settings) — see [docs/decisions.md](./docs/decisions.md)
+- Session-based authentication with role-based access: SECURITY (record movements + Dashboard), HR (Dashboard + Employees — no recording, lands on the Dashboard after login), ADMIN (everything, plus Users/Corrections/Audit Log/Settings) — see [docs/decisions.md](./docs/decisions.md)
 - Fast, touch-friendly Security screen: search → select → ENTRY/EXIT → done
 - Duplicate-movement confirmation (e.g. pressing ENTRY when already marked inside)
 - Dashboard with date / employee / movement-type filters, daily summary stats, responsive table→card layout on mobile
 - Employee daily movement details, with on-demand **EMAIL DETAILS**; PNG/PDF report downloads remain authenticated API endpoints and are not exposed as UI buttons
-- Employee & user management, with employee deactivation (soft, not delete) and admin-only access to inactive employees for record corrections
+- Employee & user management, with inline edit, employee deactivation (soft, not delete), an optional car number field (searchable alongside name/code/email), and admin-only access to inactive employees for record corrections
 - Configurable system settings (company name, timezone, security email, sender name)
 - Full audit logging of logins, movements, corrections, emails, and admin actions
 - Offline queueing: a movement tapped while offline is queued client-side and synced automatically once connectivity returns, always shown distinctly as "pending sync"
@@ -70,7 +70,7 @@ The seed script creates one ADMIN, one HR, and one SECURITY user (all with passw
 
 ## Environment Variables
 
-See `backend/.env.example` for the full list: `DATABASE_URL`, `SESSION_SECRET`, `APP_TIMEZONE`, `AZURE_TENANT_ID`/`AZURE_CLIENT_ID`/`AZURE_CLIENT_SECRET`/`MAIL_FROM_ADDRESS`/`SECURITY_EMAIL`, and `STORAGE_*` for the S3-compatible bucket used to persist emailed reports. Never commit a real `.env` file.
+See `backend/.env.example` for the full list: `DATABASE_URL`, `SESSION_SECRET`, `APP_TIMEZONE`, `TZ` (set to `Asia/Kolkata` in the host/container runtime), `AZURE_TENANT_ID`/`AZURE_CLIENT_ID`/`AZURE_CLIENT_SECRET`/`MAIL_FROM_ADDRESS`/`SECURITY_EMAIL`, and `STORAGE_*` for the S3-compatible bucket used to persist emailed reports. Never commit a real `.env` file.
 
 ## Local Development
 
@@ -86,9 +86,9 @@ Open `http://localhost:5173` — `/api` requests are proxied to the backend auto
 ## Testing
 
 ```
-npm test -w backend
+npm test    # from the repo root — runs backend and frontend Jest suites
 ```
-See spec section on testing for the full checklist (auth, employee CRUD, movement recording including duplicate-warning and multi-entry/exit, dashboard filters, on-demand email, and backend-enforced authorization) — test suites should be filled in per module as they're implemented.
+See [docs/testing.md](./docs/testing.md) for the current coverage map and the load-test command. The codebase now includes backend Jest coverage for authentication/password reset, employee search including car number, movements/idempotency/corrections, dashboard queries, RBAC, reports/email failure handling, and storage/report generation paths; the backend also has controller-level specs for Employees and Reports, and the frontend adds coverage for the offline movement queue plus the employee day working-hours calculation. CI (`.github/workflows/ci.yml`) runs lint, tests, and build on every push/PR.
 
 ## Build
 

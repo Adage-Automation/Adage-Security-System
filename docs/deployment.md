@@ -38,8 +38,9 @@ See `backend/.env.example` for the full list. At minimum, production needs its o
 - [ ] Storage bucket exists, is **not** publicly readable, and its credentials are set
 - [ ] Microsoft Graph email configuration uses the real Azure app credentials (`AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`), and `MAIL_FROM_ADDRESS` is the mailbox covered by the Exchange application access policy
 - [ ] Database has automated backups configured at the provider level
-- [ ] Backend server's OS timezone (`TZ`) is set to `Asia/Kolkata`, matching `APP_TIMEZONE` — see the timezone note in `docs/architecture.md`
+- [ ] Backend server's OS timezone (`TZ`) is set to `Asia/Kolkata`, matching `APP_TIMEZONE`; this must be configured in the container/host runtime environment before the backend starts, not only in app code — see the timezone note in `docs/architecture.md`
 - [ ] Puppeteer's Chromium dependency is available in the deploy target (some serverless/container platforms need extra config or a Puppeteer-compatible buildpack — verify report generation works in a staging deploy before going live)
+- [ ] CI (`.github/workflows/ci.yml`) is green on the commit being deployed — it runs lint, backend/frontend tests, and the full build
 
 ## Build & run
 

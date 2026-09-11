@@ -15,6 +15,7 @@ export interface PendingMovement {
   confirmed?: boolean;
   queuedAt: string;
   syncState?: 'pending' | 'conflict';
+  conflictReason?: string;
 }
 
 function openDb(): Promise<IDBDatabase> {

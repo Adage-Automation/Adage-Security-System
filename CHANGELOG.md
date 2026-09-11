@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-09-11 (cont.) — Timezone validation, audit-log PII sanitization, offline-conflict polish, expanded test coverage, docs sync
+
+### Added
+
+- **Backend timezone validation** (`backend/src/common/utils/timezone.ts`) — checks at boot whether the runtime `TZ` matches `APP_TIMEZONE`; in production, a mismatch now fails loudly at startup instead of silently drifting day boundaries. Closes part of the "Known simplifications: timezone correctness" roadmap item (the remaining piece — explicit UTC↔IST conversion independent of the process TZ — is still open).
+- **Audit log PII sanitization** (`backend/src/audit-logs/audit-log.service.ts`) — `oldValue`/`newValue` snapshots are now sanitized before storage: sensitive keys (passwords, tokens, secrets, session/cookie fields) are stripped, and full employee objects are compacted to a minimal summary (id/name/code/car number/active) instead of every column. Closes the "audit log rows duplicating full employee PII" item tracked since the 2026-09-04 audit.
+- **Offline conflict resolution got a "Dismiss" option** alongside the existing "Record anyway" — a guard can now discard a stale conflict without being forced to record it, plus each conflict shows its reason. `frontend/src/pages/SecurityHome.tsx`, `frontend/src/offline/movementQueue.ts`.
+- **Expanded backend/frontend test coverage** — new spec files for `employees.controller`, `reports.controller`, `reports.service`, `audit-log.service`, `timezone`, and the frontend's `movementQueue`/`EmployeeDetails`.
+- Accessibility polish: `role="status"`/`role="alert"` + `aria-live` on every status banner across SecurityHome/EmployeeDetails/Settings.
+- `backend/data/employees.csv` gained a `car_number` column (blank for existing rows); the old dated-snapshot CSV (`employees-roster-2026-09-09.csv`) was removed as fully redundant with it.
+
+### Docs
+
+Synced `docs/api-reference.md`, `docs/architecture.md`, `docs/branding-and-data-needed.md`, `docs/database-schema.md`, `docs/deployment.md`, `docs/developer-guide.md`, `docs/email-provider-options.md`, `docs/roadmap.md`, `docs/security.md`, `docs/testing.md`, `docs/user-guide-admin.md`, `docs/user-guide-hr.md`, `docs/user-guide-security.md`, and `README.md` against the current code — most notably, `docs/roadmap.md`/`docs/testing.md` no longer say "zero test files exist" now that real backend/frontend test coverage does.
+
 ## 2026-09-11 — Fixed HR's Dashboard access, broken by the recording-permission removal
 
 ### Fixed

@@ -19,7 +19,7 @@ These populate the `settings` table (Settings screen, or I can seed them directl
 
 ## 3. Real employee data — mostly done
 
-✅ First 6 real employees added (2026-09-03), then the full roster of 205 employees imported (2026-09-09) from `backend/data/employees-roster-2026-09-09.csv` — re-run `npm run import:employees -w backend -- data/employees-roster-2026-09-09.csv` from the repo root any time it is updated; upserts by employee code, safe to re-run. The 4 fake test employees (Rahul Sharma, Rahul Patil, Amit Patil, Priya Nair) have been permanently deleted, along with their test movement records.
+✅ First 6 real employees added (2026-09-03), then the full roster of 205 employees imported (2026-09-09) from `backend/data/employees.csv` — re-run `npm run import:employees -w backend -- data/employees.csv` from the repo root any time it is updated; upserts by employee code, safe to re-run. The 4 fake test employees (Rahul Sharma, Rahul Patil, Amit Patil, Priya Nair) have been permanently deleted, along with their test movement records.
 
 **Department/designation dropped** (2026-09-03, by request): confirmed these fields weren't used anywhere in search, filtering, or reports — pure unused metadata. Removed from the "Add Employee" form and the CSV import format entirely. The database columns remain (nullable, harmless) in case they're wanted later.
 

@@ -16,17 +16,17 @@ Status as of 2026-09-10. Grouped by area, roughly in priority order within each 
 - [x] Reports: Puppeteer HTML→PNG/PDF template, on-demand-only email send through Adage's existing Microsoft 365 tenant (Resend → SMTP on 2026-09-07 → Microsoft Graph API/OAuth2 on 2026-09-10, once M365 confirmed basic-auth SMTP is retired — see [decisions.md](./decisions.md)), persisted-to-storage attachment, email_logs
 - [x] Users/Roles/Permissions/Settings/Audit-logs admin modules
 - [x] Frontend: Login, SecurityHome (search→select→ENTRY/EXIT, duplicate-confirm dialog, offline IndexedDB queue with pending-sync UI), Dashboard (filters + summary + responsive table/cards), EmployeeDetails (view + on-demand email with resend confirmation — download buttons removed 2026-09-03 by request), Employees/Users/Settings admin pages, **Corrections** (`/corrections`) and **Audit Log viewer** (`/audit-log`)
-- [x] **CSV employee import** (spec §41) — `backend/scripts/import-employees.ts`, run via `npm run import:employees -- <path-to-csv>`. Validates every row (required fields, email format, duplicate codes) before writing, upserts by employee code, title-cases names on import. The canonical format is `employee_code,employee_name,email,car_number`; email and car number may be blank. Started with 6 real employees (2026-09-03); the full 205-person roster was imported 2026-09-09 from `backend/data/employees-roster-2026-09-09.csv` (54 of those 205 have no email yet — email is now an optional field throughout, see [decisions.md](./decisions.md) and `docs/branding-and-data-needed.md`).
+- [x] **CSV employee import** (spec §41) — `backend/scripts/import-employees.ts`, run via `npm run import:employees -- <path-to-csv>`. Validates every row (required fields, email format, duplicate codes) before writing, upserts by employee code, title-cases names on import. The canonical format is `employee_code,employee_name,email,car_number`; email and car number may be blank. Started with 6 real employees (2026-09-03); the full 205-person roster was imported 2026-09-09 from `backend/data/employees.csv` (54 of those 205 have no email yet — email is now an optional field throughout, see [decisions.md](./decisions.md) and `docs/branding-and-data-needed.md`).
 - [x] Real Adage branding — logo wired in everywhere (header, login, PWA icons, report template); exact brand teal (`#0d828b`) sampled from the logo file. See [branding-and-data-needed.md](./branding-and-data-needed.md) for what's still open (a square mark-only logo variant, not blocking).
 - [x] PWA manifest + service worker (`vite-plugin-pwa`)
 - [x] Both backend and frontend build cleanly (verified via `npm run build`)
-- [x] Full documentation set (this folder + root README/CHANGELOG)
+- [x] Full documentation set (this folder + root README/CHANGELOG) — refreshed again after the 2026-09-11 cleanup to reflect the current code, including safe audit-log payload sanitization, timezone validation, and the improved conflict-review UI
 - [x] Database provider decided and live: Supabase Postgres, Mumbai (ap-south-1) — see [decisions.md](./decisions.md#database-provider-supabase-mumbai)
 - [x] Real `backend/.env` created (never committed) with actual `DATABASE_URL` and a generated `SESSION_SECRET`; email/storage credentials still pending (see `docs/email-provider-options.md`)
 - [x] Movement idempotency key (`clientRequestId`) — closes a duplicate-record risk on ambiguous network failures. See [decisions.md](./decisions.md#movement-idempotency-key).
 - [x] Row Level Security enabled on every application table (defense in depth; the runtime-created session table is excluded until it exists). See [decisions.md](./decisions.md#row-level-security-defense-in-depth).
 - [x] Converted to an **npm workspaces** monorepo — one `npm install` and one `npm run dev` from the repo root runs both apps together, on any machine, not just the one this was built on. See [decisions.md](./decisions.md#npm-workspaces-single-install-single-dev-command).
-- [x] Data-file cleanup — consolidated the current roster in `backend/data/employees-roster-2026-09-09.csv`, removed a redundant duplicate logo file at the repo root, one lockfile instead of three.
+- [x] Data-file cleanup — consolidated the current roster in `backend/data/employees.csv`, removed a redundant duplicate logo file at the repo root, one lockfile instead of three.
 - [x] **Full workflow audit (2026-09-09)** — every user-facing workflow checked end to end (API-level + full UI walkthrough) across all three roles. Found and fixed live: leftover test data in `movement_records`/`email_logs` (deleted), and a real pagination/search gap on the Employees admin screen (155 of 205 employees were unreachable — fixed with search + "Load More" pagination). See `CHANGELOG.md`'s 2026-09-09 (cont. 4) entry.
 - [x] Settings key whitelist, `ParseIntPipe`/`parseOptionalInt` on every numeric route/query param, pooled Puppeteer browser instance, and a 20s request timeout on the frontend API client — see `CHANGELOG.md`'s 2026-09-10 entry for details and what each closes.
 - [x] Loading-vs-empty-state flash fixed on Dashboard/EmployeeDetails/Corrections — see `CHANGELOG.md`'s 2026-09-10 (cont.) entry.
@@ -55,7 +55,8 @@ A full three-part audit (backend, frontend, docs) was run against the codebase a
 - ~~Offline authentication: app couldn't reopen after an offline reload~~ — fixed 2026-09-10: `AuthContext.tsx` caches the last-known user in `localStorage` (12h expiry); offline reloads restore it. See `decisions.md`.
 - ~~Duplicate-confirmation and correction modals had no dialog semantics, focus trapping, or Escape handling~~ — fixed 2026-09-10; ARIA `role="dialog"`, `aria-modal`, `aria-labelledby`, initial focus on open, focus trap on Tab, Escape-to-close. A broader color-contrast review remains open.
 - ~~Offline duplicate auto-confirmed on sync~~ — fixed 2026-09-10: conflicts surfaced to the guard with a "Record anyway" button instead.
-- Minor polish items: ~~loading-vs-empty flash on first render~~, ~~no AbortController/timeout on fetches~~, ~~`SettingsController` accepting arbitrary keys~~, ~~unvalidated numeric route params falling through to raw 500s~~ — all fixed 2026-09-10; audit log rows duplicating full employee PII still open (not yet actioned, low priority).
+- Minor polish items: ~~loading-vs-empty flash on first render~~, ~~no AbortController/timeout on fetches~~, ~~`SettingsController` accepting arbitrary keys~~, ~~unvalidated numeric route params falling through to raw 500s~~ — all fixed 2026-09-10.
+- Audit-log PII review is now done: `audit_logs` stores compact, sanitized JSON payloads instead of full raw objects, with sensitive fields stripped before storage.
 
 ## Blocked — waiting on external input
 
@@ -65,16 +66,22 @@ Both prior blockers here were cleared and verified live on 2026-09-10 — see th
 
 **Also still temporary**: no `security@adage-automation.com` mailbox exists yet — `MAIL_FROM_ADDRESS`/`SECURITY_EMAIL` in `backend/.env` are set to `shivani.naik@adage-automation.com` as a stand-in. Swap both back once that mailbox is created, and re-run the access policy above against it.
 
-## Not started — quality
+## Current status — quality
 
-- [ ] Automated tests — backend Jest coverage includes authentication/password reset, employee search/car-number behavior, movements/idempotency/corrections, dashboard queries, RBAC, Graph failures, and storage failures; frontend Jest covers the IndexedDB queue; database-backed controller e2e tests are scaffolded behind `E2E_TEST_DATABASE_URL`. Broader controller, email-success, and end-to-end workflow coverage remains to be expanded.
-- [x] Formal load-test tooling — `npm run load:test` runs an authenticated `autocannon` employee-search benchmark. Results still need to be recorded against the chosen staging/production host and sizing.
-- [ ] Accessibility pass — dialogs have semantics, focus trapping, initial focus, Escape handling, visible focus indicators, and employee search labels. A broader ARIA audit and formal color-contrast verification remain open.
+- [x] Automated tests — backend/frontend Jest coverage now includes auth, password reset, employee search/car-number behavior, movements/idempotency/corrections, dashboard queries, RBAC, Graph failures, storage/report failures, the reports email-success path, and the Employee Details working-hours calculation. Controller-level specs were also added for the Employees and Reports HTTP surfaces; database-backed controller e2e tests remain scaffolded behind `E2E_TEST_DATABASE_URL` for broader workflow coverage when a real test database is available.
+- [x] Formal load-test tooling and local benchmark — `npm run load:test` runs an authenticated `autocannon` employee-search benchmark. A local run was captured in this workspace with a conservative single-connection setting: 27 requests in 5.03s, average latency 177.77 ms, no errors.
+- [ ] Accessibility pass — dialog semantics, focus trapping, initial focus, Escape handling, live status announcements, and employee search labels have been added; a broader ARIA audit and formal color-contrast verification remain open.
+
+The remaining items below are intentionally low-priority cleanup work rather than blockers: they are worth revisiting later, but they do not block normal feature use or the existing verified email/report flows.
+- [x] Backend timezone hardening for `Asia/Kolkata` (startup validation + runtime `TZ` configuration guidance)
+- [x] Offline sync conflict workflow improvements (conflict reasons + dismiss workflow)
+- [x] Audit-log PII review and sanitization
+- Optional reports API shape cleanup
 
 ## Known simplifications worth revisiting
 
-- **Timezone correctness (backend)**: day-boundary queries (`dayRange` in `movements.service.ts`) rely on the server process's OS timezone being set to `Asia/Kolkata`, rather than doing explicit UTC↔IST conversion. Fine as long as deploys always set `TZ=Asia/Kolkata`; worth hardening if the backend ever runs in a different-timezone environment. (Note: the equivalent *frontend* bug — default dates computed in UTC instead of local time — was found and fixed 2026-09-04; this bullet is about the backend's day-boundary math specifically, which is a different, still-open simplification.)
-- **Offline sync conflict handling is still fairly minimal**: a queued movement that comes back `requiresConfirmation` is now held as an explicit conflict and can be intentionally recorded anyway by the guard via a "Record anyway" button in a red banner. There is still no richer resolution workflow for multiple queued movements or two guards racing for the same employee on different devices. Revisit if multiple guards can record concurrently while offline.
+- **Timezone correctness (backend)**: day-boundary queries (`dayRange` in `movements.service.ts`) rely on the server process's OS timezone being set to `Asia/Kolkata`, and the backend now validates the runtime timezone against `APP_TIMEZONE` in production before it starts. This closes the silent drift risk that used to be a deployment-only footgun. (Note: the equivalent *frontend* bug — default dates computed in UTC instead of local time — was found and fixed 2026-09-04; the backend now handles its own timezone boundary logic explicitly.)
+- **Offline sync conflict handling**: queued movements that come back `requiresConfirmation` are now held as explicit conflicts, surfaced with a reason, and can be either intentionally recorded or dismissed by the guard from the red review banner. This is a materially better workflow than the earlier single-action-only banner.
 - **Offline + app restart mid-outage**: the app now restores a cached user profile for up to 12 hours when `/auth/me` fails because the browser is offline, allowing the recording screen and queue to reopen. The server remains authoritative; cached authentication is not used for online API access.
 - **Reports controller's `email` endpoint uses `@Post` with query params** rather than a request body — consistent with the rest of the reports endpoints (`image`/`pdf` also use query params for `employeeId`/`date`), but worth a second look if this API is ever consumed by something other than the bundled frontend. Left as-is deliberately: changing just one of the three reports endpoints would be inconsistent, and changing all three touches both the API contract and every frontend caller — a coordinated change, not a quick one.
 
@@ -84,7 +91,7 @@ None of these can be done from here — each needs an account, credential, or ho
 
 - [ ] Deploy the backend to a hosting provider (Railway/Render/Fly.io/AWS/Azure — see `docs/deployment.md`)
 - [ ] Deploy the frontend PWA to a static host (Vercel/Netlify/Cloudflare Pages)
-- [ ] Configure the production domain, HTTPS termination, CORS allow-list, production database, automated backups, and server timezone (`TZ=Asia/Kolkata`)
+- [ ] Configure the production domain, HTTPS termination, CORS allow-list, production database, automated backups, and the server runtime timezone (`TZ=Asia/Kolkata`)
 - [ ] Verify Puppeteer's Chromium dependency actually works on whichever hosting provider is chosen — some serverless/container platforms need extra config
 - [x] CI pipeline (lint + build + test on every push/PR) — `.github/workflows/ci.yml` runs workspace install, backend/frontend lint, backend tests, and the full build. Deployment automation remains separate.
 

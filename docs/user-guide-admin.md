@@ -18,7 +18,7 @@ Deactivated employees still appear when correcting historical records (see below
 
 Navigate to **Users**.
 
-- **Add user**: Name, Email, Username, temporary Password, and Role (SECURITY / HR / ADMIN). The role determines what they can access: Security gets the recording workflow plus Dashboard; HR additionally gets Employees; only Admin gets Users, Corrections, Audit Log, and Settings. Choose carefully — it's not just a label.
+- **Add user**: Name, Email, Username, temporary Password, and Role (SECURITY / HR / ADMIN). The role determines what they can access: Security gets the recording workflow plus Dashboard; HR gets Dashboard plus Employees (no recording — HR lands on the Dashboard after login, not the recording screen); only Admin gets Users, Corrections, Audit Log, and Settings. Choose carefully — it's not just a label.
 - **Disable / Enable**: disabling a user immediately blocks login (even an existing open session is re-checked on the next request and will be logged out) — use this rather than deleting a user, since audit history references them.
 - **Reset password**: sets a new password for a user who's lost theirs. Users can also use the self-service **Forgot password?** link on the login screen; it sends a single-use reset link to the registered email address.
 

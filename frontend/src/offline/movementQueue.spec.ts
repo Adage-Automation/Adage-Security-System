@@ -3,6 +3,7 @@ import {
   enqueueMovement,
   listPendingMovements,
   removePendingMovement,
+  updatePendingMovement,
 } from './movementQueue';
 
 describe('movementQueue', () => {
@@ -37,5 +38,29 @@ describe('movementQueue', () => {
 
     expect(pending.clientRequestId).toBe('same-tap');
     expect(pending.queuedAt).toEqual(expect.any(String));
+  });
+
+  it('stores conflict metadata for queued records that need review', async () => {
+    const pending = await enqueueMovement({
+      clientRequestId: 'conflict-tap',
+      userId: 3,
+      employeeId: 7,
+      employeeName: 'Test Employee',
+      movementType: 'ENTRY',
+      confirmed: false,
+    });
+
+    await updatePendingMovement(pending.localId, {
+      syncState: 'conflict',
+      conflictReason: 'A newer movement already exists for this employee.',
+    });
+
+    await expect(listPendingMovements()).resolves.toEqual([
+      expect.objectContaining({
+        localId: pending.localId,
+        syncState: 'conflict',
+        conflictReason: 'A newer movement already exists for this employee.',
+      }),
+    ]);
   });
 });

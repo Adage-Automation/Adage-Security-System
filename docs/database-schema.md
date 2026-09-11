@@ -40,7 +40,7 @@ MANAGE_SETTINGS
 CORRECT_RECORDS
 ```
 
-`role_permissions` started as "every permission to every role" (v1 default), but was narrowed on 2026-09-04 by explicit request: SECURITY = `RECORD_ENTRY`, `RECORD_EXIT`, `VIEW_DASHBOARD`, `VIEW_EMPLOYEE_HISTORY`, `SEND_EMAIL`, `DOWNLOAD_REPORT`; HR = the same plus `MANAGE_EMPLOYEES`; ADMIN = every permission. See `docs/decisions.md` for the mapping and rationale. Restricting a role further is still just a data change — delete rows from `role_permissions` (and update `backend/src/common/constants/permissions.ts` `DEFAULT_ROLE_PERMISSIONS` so a fresh `npm run seed` matches) — nothing in endpoint code changes.
+`role_permissions` started as "every permission to every role" (v1 default), but was narrowed on 2026-09-04 by explicit request, then narrowed again on 2026-09-10 (HR's recording permissions removed): SECURITY = `RECORD_ENTRY`, `RECORD_EXIT`, `VIEW_DASHBOARD`, `VIEW_EMPLOYEE_HISTORY`, `SEND_EMAIL`, `DOWNLOAD_REPORT`; HR = `VIEW_DASHBOARD`, `VIEW_EMPLOYEE_HISTORY`, `SEND_EMAIL`, `DOWNLOAD_REPORT`, `MANAGE_EMPLOYEES` (no recording); ADMIN = every permission. See `docs/decisions.md` for the mapping and rationale. Restricting a role further is still just a data change — delete rows from `role_permissions` (and update `backend/src/common/constants/permissions.ts` `DEFAULT_ROLE_PERMISSIONS` so a fresh `npm run seed` matches) — nothing in endpoint code changes.
 
 ## `users`
 
@@ -68,7 +68,7 @@ One row per **on-demand** email send attempt (never per movement — email is st
 
 ## `audit_logs`
 
-Append-only trail of every sensitive action: `USER_LOGIN`, `USER_LOGOUT`, `ENTRY_RECORDED`, `EXIT_RECORDED`, `RECORD_CORRECTED`, `MISSING_RECORD_ADDED`, `EMPLOYEE_CREATED/UPDATED/DEACTIVATED/REACTIVATED`, `USER_CREATED/UPDATED/ENABLED/DISABLED/PASSWORD_RESET`, `PASSWORD_RESET_REQUESTED` (self-service forgot-password request — logged only when the email matched a real account, to avoid audit-log noise from arbitrary addresses), `EMAIL_SENT`, `EMAIL_FAILED`, `REPORT_DOWNLOADED`, `SETTING_UPDATED`. `oldValue`/`newValue` are JSON snapshots for before/after diffing. `userId` is nullable so system-triggered events (if any are added later) don't require a synthetic user.
+Append-only trail of every sensitive action: `USER_LOGIN`, `USER_LOGOUT`, `ENTRY_RECORDED`, `EXIT_RECORDED`, `RECORD_CORRECTED`, `MISSING_RECORD_ADDED`, `EMPLOYEE_CREATED/UPDATED/DEACTIVATED/REACTIVATED`, `USER_CREATED/UPDATED/ENABLED/DISABLED/PASSWORD_RESET`, `PASSWORD_RESET_REQUESTED` (self-service forgot-password request — logged only when the email matched a real account, to avoid audit-log noise from arbitrary addresses), `EMAIL_SENT`, `EMAIL_FAILED`, `REPORT_DOWNLOADED`, `SETTING_UPDATED`. `oldValue`/`newValue` are compact, sanitized JSON snapshots for before/after diffing; the backend strips sensitive keys (passwords, tokens, session material, raw request bodies) and keeps employee/user summaries intentionally small instead of storing full nested objects. `userId` is nullable so system-triggered events (if any are added later) don't require a synthetic user.
 
 ## `settings`
 

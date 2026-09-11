@@ -22,7 +22,7 @@ const VALID_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
  * Returns a human-readable string like "7h 45m", or null if there isn't at
  * least one ENTRY and one EXIT to work with.
  */
-function calcWorkingHours(records: import('../types').MovementRecord[]): string | null {
+export function calcWorkingHours(records: import('../types').MovementRecord[]): string | null {
   const firstEntry = records.find((r) => r.movementType === 'ENTRY');
   const lastExit = [...records].reverse().find((r) => r.movementType === 'EXIT');
   if (!firstEntry || !lastExit) return null;
@@ -102,7 +102,22 @@ export function EmployeeDetails() {
   }
 
   if (!employeeId) {
-    return <div className="page">No employee selected.</div>;
+    return (
+      <div className="page">
+        <div className="nav-links">
+          <Link to="/dashboard">
+            <IconArrowLeft />
+            Dashboard
+          </Link>
+        </div>
+
+        <div className="empty-state">
+          <IconInbox />
+          <div className="empty-title">No employee selected</div>
+          <div className="empty-hint">Pick an employee from the dashboard to view their movement details.</div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -168,7 +183,7 @@ export function EmployeeDetails() {
       )}
 
       {workingHours && (
-        <div className="working-hours-banner">
+        <div className="working-hours-banner" role="status" aria-live="polite">
           <IconClock />
           <span>
             Total working hours: <strong>{workingHours}</strong>
@@ -186,20 +201,20 @@ export function EmployeeDetails() {
       )}
 
       {employee && !employee.email && records.length > 0 && (
-        <div className="status-banner pending">
+        <div className="status-banner pending" role="status" aria-live="polite">
           <IconMail />
           No email on file for {employee.employeeName} — add one via Employees before details can be sent.
         </div>
       )}
 
       {emailState === 'sent' && (
-        <div className="status-banner success">
+        <div className="status-banner success" role="status" aria-live="polite">
           <IconCheckCircle />
           Details emailed successfully
         </div>
       )}
       {emailState === 'error' && (
-        <div className="status-banner error">
+        <div className="status-banner error" role="alert" aria-live="assertive">
           <IconXCircle />
           {emailError}
         </div>

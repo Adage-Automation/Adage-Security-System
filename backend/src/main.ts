@@ -8,6 +8,7 @@ import connectPgSimple from 'connect-pg-simple';
 import { Pool } from 'pg';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { validateTimezoneConfiguration } from './common/utils/timezone';
 
 async function bootstrap() {
   // Nest's default logger prints every module's dependency init
@@ -18,6 +19,19 @@ async function bootstrap() {
   if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) {
     throw new Error('SESSION_SECRET must be configured in production.');
   }
+
+  const timezoneCheck = validateTimezoneConfiguration();
+  console.log(
+    `Runtime timezone: ${timezoneCheck.actual}; APP_TIMEZONE=${timezoneCheck.expected}; ` +
+      `production timezone check ${timezoneCheck.isValid ? 'passed' : 'failed'}`,
+  );
+
+  if (process.env.NODE_ENV === 'production' && !timezoneCheck.isValid) {
+    throw new Error(
+      `Production requires TZ=${timezoneCheck.expected} to match APP_TIMEZONE. Detected TZ=${timezoneCheck.actual}.`,
+    );
+  }
+
   const app = await NestFactory.create(AppModule, { logger: ['warn', 'error'] });
 
   // Without this, req.ip returns the reverse proxy's own address on every

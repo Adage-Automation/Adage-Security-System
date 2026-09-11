@@ -43,12 +43,12 @@ export function Login() {
         <div className="subtitle">Security System</div>
 
         {passwordResetSuccess && (
-          <div className="status-banner success" style={{ marginBottom: 16 }}>
+          <div className="status-banner success" style={{ marginBottom: 16 }} aria-live="polite">
             Password updated. You can now log in with your new password.
           </div>
         )}
 
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} noValidate>
           <div className="field">
             <label htmlFor="username">Username</label>
             <input
@@ -57,6 +57,8 @@ export function Login() {
               onChange={(e) => setUsername(e.target.value)}
               autoComplete="username"
               required
+              aria-invalid={Boolean(error)}
+              aria-describedby={error ? 'login-error' : undefined}
             />
           </div>
           <div className="field">
@@ -68,10 +70,12 @@ export function Login() {
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
               required
+              aria-invalid={Boolean(error)}
+              aria-describedby={error ? 'login-error' : undefined}
             />
           </div>
           {error && (
-            <div className="error-text" role="alert">
+            <div id="login-error" className="error-text" role="alert" aria-live="assertive">
               {error}
             </div>
           )}

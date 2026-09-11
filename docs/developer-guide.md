@@ -128,6 +128,7 @@ Full reference lives in `backend/.env.example`. Never commit a real `.env`. Key 
 | `DATABASE_URL` | Postgres connection string |
 | `SESSION_SECRET` | Signs the session cookie — long random string, unique per environment |
 | `APP_TIMEZONE` | Should stay `Asia/Kolkata`; also set the OS-level `TZ` on the backend process (see architecture doc's timezone note) |
+| `TZ` | Runtime environment variable for the backend process; set it to `Asia/Kolkata` in the container/host environment, not just in the app config |
 | `AZURE_TENANT_ID` / `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` | OAuth2 app registration for the Microsoft Graph API — Adage's Microsoft 365 tenant, see `docs/email-m365-admin-handoff.md` |
 | `MAIL_FROM_ADDRESS` / `SECURITY_EMAIL` | Sending mailbox and CC address |
 | `STORAGE_*` | S3-compatible bucket for persisted emailed reports |

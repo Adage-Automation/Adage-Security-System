@@ -33,7 +33,7 @@ export function Settings() {
         System Settings
       </div>
       {saved && (
-        <div className="status-banner success">
+        <div className="status-banner success" role="status" aria-live="polite">
           <IconCheckCircle />
           Saved
         </div>

@@ -962,12 +962,61 @@ table.records-table th {
 }
 
 @media (max-width: 640px) {
+  .page,
+  .page-wide {
+    padding-left: 12px;
+    padding-right: 12px;
+    padding-bottom: 56px;
+  }
+
+  .app-header {
+    padding: 10px 14px;
+  }
+
+  .app-header .brand-group {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .app-header .user-info {
+    width: 100%;
+    justify-content: space-between;
+    text-align: left;
+  }
+
+  .page-heading {
+    font-size: 18px;
+    margin-bottom: 16px;
+  }
+
+  .date-heading {
+    margin-bottom: 18px;
+  }
+
+  .login-page {
+    padding: 16px;
+  }
+
+  .login-card {
+    padding: 24px 18px;
+  }
+
+  .filters-bar {
+    padding: 12px;
+  }
+
+  .summary-cards {
+    grid-template-columns: 1fr 1fr;
+  }
+
   .records-table {
     display: none;
   }
+
   .record-cards {
     display: block;
   }
+
   .record-card {
     background: var(--card-bg);
     border: 1px solid var(--border);
@@ -978,9 +1027,46 @@ table.records-table th {
     justify-content: space-between;
     align-items: center;
     box-shadow: var(--shadow-sm);
+    gap: 8px;
   }
-  .summary-cards {
-    grid-template-columns: 1fr 1fr;
+
+  .nav-links {
+    gap: 8px;
+  }
+
+  .nav-links a {
+    flex: 1 1 calc(50% - 8px);
+    justify-content: center;
+  }
+
+  .action-row {
+    flex-direction: column;
+  }
+
+  .action-row button,
+  .action-row a {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .big-button {
+    min-height: 78px;
+    font-size: 17px;
+  }
+
+  .modal-card {
+    padding: 20px 18px;
+  }
+
+  .modal-card .modal-actions {
+    flex-direction: column;
+  }
+
+  .status-banner {
+    padding-left: 12px;
+    padding-right: 12px;
+    text-align: left;
+    justify-content: flex-start;
   }
 }
 

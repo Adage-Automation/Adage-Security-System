@@ -97,7 +97,9 @@ export function SecurityHome() {
     if (!user) return;
     const pending = await listPendingMovements(user.id);
     setPendingCount(pending.length);
-    const conflictItems = pending.filter((item) => item.syncState === 'conflict');
+    const conflictItems = pending
+      .filter((item) => item.syncState === 'conflict')
+      .sort((a, b) => new Date(b.queuedAt).getTime() - new Date(a.queuedAt).getTime());
     setConflicts(conflictItems);
     setConflictCount(conflictItems.length);
   }, [user]);
@@ -125,7 +127,10 @@ export function SecurityHome() {
           clientRequestId: item.clientRequestId,
         });
         if (res.requiresConfirmation) {
-          await updatePendingMovement(item.localId, { syncState: 'conflict' });
+          await updatePendingMovement(item.localId, {
+            syncState: 'conflict',
+            conflictReason: 'A newer movement already exists for this employee.',
+          });
           continue;
         }
         if (res.created) {
@@ -140,7 +145,8 @@ export function SecurityHome() {
 
   async function resolveConflict(localId: string) {
     const item = conflicts.find((candidate) => candidate.localId === localId);
-    if (!item || !window.confirm(`Record this ${item.movementType} for ${item.employeeName} anyway?`)) return;
+    if (!item) return;
+
     try {
       const result = await api.post<CreateMovementResponse>('/movements', {
         employeeId: item.employeeId,
@@ -152,6 +158,15 @@ export function SecurityHome() {
       await refreshPendingCount();
     } catch {
       setStatus({ kind: 'error', message: 'Unable to resolve this offline conflict. It remains queued.' });
+    }
+  }
+
+  async function dismissConflict(localId: string) {
+    try {
+      await removePendingMovement(localId);
+      await refreshPendingCount();
+    } catch {
+      setStatus({ kind: 'error', message: 'Unable to dismiss this offline conflict. Please try again.' });
     }
   }
 
@@ -279,34 +294,40 @@ export function SecurityHome() {
       </div>
 
       {!isOnline && (
-        <div className="status-banner pending">
+        <div className="status-banner pending" role="status" aria-live="polite">
           <IconWifiOff />
           You are offline. Records will be saved once connection returns.
         </div>
       )}
 
       {conflictCount > 0 && (
-        <div className="status-banner error" role="alert">
+        <div className="status-banner error" role="alert" aria-live="assertive">
           {conflictCount} offline movement{conflictCount === 1 ? '' : 's'} need review because a newer record exists.
           {conflicts.map((item) => (
-            <div key={item.localId} style={{ marginTop: 8 }}>
-              {item.employeeName} · {item.movementType}{' '}
+            <div key={item.localId} style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+              <span>
+                {item.employeeName} · {item.movementType}
+                {item.conflictReason ? ` — ${item.conflictReason}` : ''}
+              </span>
               <button type="button" className="table-action-btn" onClick={() => void resolveConflict(item.localId)}>
                 Record anyway
+              </button>
+              <button type="button" className="table-action-btn" onClick={() => void dismissConflict(item.localId)}>
+                Dismiss
               </button>
             </div>
           ))}
         </div>
       )}
       {pendingCount > 0 && (
-        <div className="status-banner pending">
+        <div className="status-banner pending" role="status" aria-live="polite">
           <IconClock />
           {pendingCount} record{pendingCount === 1 ? '' : 's'} pending sync.
         </div>
       )}
 
       {status.kind === 'success' && (
-        <div className="status-banner success">
+        <div className="status-banner success" role="status" aria-live="polite">
           <IconCheckCircle />
           <span>
             {status.movementType === 'ENTRY' ? 'Entry' : 'Exit'} Recorded
@@ -315,7 +336,7 @@ export function SecurityHome() {
         </div>
       )}
       {status.kind === 'pending-sync' && (
-        <div className="status-banner pending">
+        <div className="status-banner pending" role="status" aria-live="polite">
           <IconClock />
           <span>
             Queued: {status.movementType === 'ENTRY' ? 'Entry' : 'Exit'}
@@ -324,7 +345,7 @@ export function SecurityHome() {
         </div>
       )}
       {status.kind === 'error' && (
-        <div className="status-banner error">
+        <div className="status-banner error" role="alert" aria-live="assertive">
           <IconXCircle />
           {status.message}
         </div>
