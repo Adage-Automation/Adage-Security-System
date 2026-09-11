@@ -4,7 +4,7 @@ import { api } from '../api/client';
 import { Employee, MovementRecord, MovementType } from '../types';
 import { IconGrid, IconUsers, IconEntry, IconExit, IconInbox, IconChevronRight, IconDoorOpen, IconX } from '../components/icons';
 import { AdminNav } from '../components/AdminNav';
-import { todayIso, isoDaysAgo } from '../utils/date';
+import { todayIso, isoDaysAgo, formatTime } from '../utils/date';
 
 export function Dashboard() {
   const [date, setDate] = useState(todayIso());
@@ -88,16 +88,18 @@ export function Dashboard() {
 
       <div className="filters-bar">
         <div className="field">
-          <label>Date</label>
-          <div className="date-quick-row">
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-            <button type="button" className={`quick-date-btn ${date === todayIso() ? 'active' : ''}`} onClick={() => setDate(todayIso())}>
-              Today
-            </button>
-            <button type="button" className={`quick-date-btn ${date === isoDaysAgo(1) ? 'active' : ''}`} onClick={() => setDate(isoDaysAgo(1))}>
-              Yesterday
-            </button>
-          </div>
+          <label>
+            Date
+            <div className="date-quick-row">
+              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+              <button type="button" className={`quick-date-btn ${date === todayIso() ? 'active' : ''}`} onClick={() => setDate(todayIso())}>
+                Today
+              </button>
+              <button type="button" className={`quick-date-btn ${date === isoDaysAgo(1) ? 'active' : ''}`} onClick={() => setDate(isoDaysAgo(1))}>
+                Yesterday
+              </button>
+            </div>
+          </label>
         </div>
         <div className="field" style={{ position: 'relative' }}>
           <label>Employee</label>
@@ -141,12 +143,14 @@ export function Dashboard() {
           )}
         </div>
         <div className="field">
-          <label>Movement</label>
-          <select value={movementType} onChange={(e) => setMovementType(e.target.value as any)}>
-            <option value="">All</option>
-            <option value="ENTRY">ENTRY</option>
-            <option value="EXIT">EXIT</option>
-          </select>
+          <label>
+            Movement
+            <select value={movementType} onChange={(e) => setMovementType(e.target.value as any)}>
+              <option value="">All</option>
+              <option value="ENTRY">ENTRY</option>
+              <option value="EXIT">EXIT</option>
+            </select>
+          </label>
         </div>
         {selectedEmployee && (
           <div style={{ display: 'flex', alignItems: 'flex-end' }}>
@@ -178,7 +182,7 @@ export function Dashboard() {
                 <tr key={r.id}>
                   <td>{r.employee?.employeeName}</td>
                   <td>{new Date(r.movementAt).toLocaleDateString('en-IN')}</td>
-                  <td>{new Date(r.movementAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</td>
+                  <td>{formatTime(r.movementAt)}</td>
                   <td><span className={`movement-badge ${r.movementType}`}>{r.movementType}</span></td>
                   <td>{r.recordedBy?.name}</td>
                 </tr>

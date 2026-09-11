@@ -42,7 +42,7 @@ Seeded dev logins (never reuse these credentials outside local development):
 | Username | Password | Role | Access |
 |---|---|---|---|
 | `admin` | `ChangeMe123!` | ADMIN | Everything |
-| `hr` | `ChangeMe123!` | HR | Record Movement, Dashboard, Employees |
+| `hr` | `ChangeMe123!` | HR | Dashboard, Employees — **no** Record Movement (removed 2026-09-10, see `docs/decisions.md`) |
 | `security` | `ChangeMe123!` | SECURITY | Record Movement, Dashboard |
 
 (Roles have differentiated access — see `docs/decisions.md`.)

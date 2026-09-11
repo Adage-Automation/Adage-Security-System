@@ -3,7 +3,7 @@ import { api } from '../api/client';
 import { Employee, MovementRecord, MovementType } from '../types';
 import { IconEdit, IconPlus, IconInbox, IconX, IconCheckCircle } from '../components/icons';
 import { AdminNav } from '../components/AdminNav';
-import { todayIso } from '../utils/date';
+import { todayIso, formatTime } from '../utils/date';
 
 function initials(name: string): string {
   return name
@@ -171,8 +171,10 @@ export function Corrections() {
 
       <div className="filters-bar">
         <div className="field">
-          <label>Date</label>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          <label>
+            Date
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          </label>
         </div>
         <div className="field" style={{ position: 'relative' }}>
           <label>Employee</label>
@@ -232,7 +234,7 @@ export function Corrections() {
             <tbody>
               {records.map((r) => (
                 <tr key={r.id}>
-                  <td>{new Date(r.movementAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</td>
+                  <td>{formatTime(r.movementAt)}</td>
                   <td><span className={`movement-badge ${r.movementType}`}>{r.movementType}</span></td>
                   <td>
                     <button className="table-action-btn" onClick={() => openCorrect(r)}>
@@ -278,19 +280,25 @@ export function Corrections() {
               </span>
             </h3>
             <div className="field">
-              <label>Movement Type</label>
-              <select value={edit.movementType} onChange={(e) => setEdit({ ...edit, movementType: e.target.value as MovementType })}>
-                <option value="ENTRY">ENTRY</option>
-                <option value="EXIT">EXIT</option>
-              </select>
+              <label>
+                Movement Type
+                <select value={edit.movementType} onChange={(e) => setEdit({ ...edit, movementType: e.target.value as MovementType })}>
+                  <option value="ENTRY">ENTRY</option>
+                  <option value="EXIT">EXIT</option>
+                </select>
+              </label>
             </div>
             <div className="field">
-              <label>Time (on {date})</label>
-              <input type="time" value={edit.time} onChange={(e) => setEdit({ ...edit, time: e.target.value })} />
+              <label>
+                Time (on {date})
+                <input type="time" value={edit.time} onChange={(e) => setEdit({ ...edit, time: e.target.value })} />
+              </label>
             </div>
             <div className="field">
-              <label>Reason for correction (required, kept in audit log)</label>
-              <input value={edit.reason} onChange={(e) => setEdit({ ...edit, reason: e.target.value })} placeholder="e.g. Guard recorded wrong type by mistake" />
+              <label>
+                Reason for correction (required, kept in audit log)
+                <input value={edit.reason} onChange={(e) => setEdit({ ...edit, reason: e.target.value })} placeholder="e.g. Guard recorded wrong type by mistake" />
+              </label>
             </div>
             {error && <div className="error-text">{error}</div>}
             <div className="modal-actions">

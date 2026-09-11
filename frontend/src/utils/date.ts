@@ -22,3 +22,10 @@ export function isoDaysAgo(n: number): string {
   d.setDate(d.getDate() - n);
   return localIso(d);
 }
+
+// Shared so every movement time in the app (Corrections, Dashboard,
+// EmployeeDetails) renders identically — was duplicated inline in each
+// page before this. Found in the 2026-09-11 dead-code/duplication audit.
+export function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+}

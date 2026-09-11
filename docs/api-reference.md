@@ -72,6 +72,7 @@ Marks the record at `:id` as `isSuperseded`, creates a new linked record with th
 
 Same body shape as above. Adds a brand-new record (no `correctionOf` link) for a movement that was never captured at all.
 
+
 ## Dashboard
 
 | Method | Path | Permission | Notes |

@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { Employee, MovementRecord } from '../types';
 import { IconArrowLeft, IconMail, IconCheckCircle, IconXCircle, IconInbox, IconClock } from '../components/icons';
-import { todayIso } from '../utils/date';
+import { todayIso, formatTime } from '../utils/date';
 
 function initials(name: string): string {
   return name
@@ -156,7 +156,7 @@ export function EmployeeDetails() {
             <tbody>
               {records.map((r) => (
                 <tr key={r.id}>
-                  <td>{new Date(r.movementAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</td>
+                  <td>{formatTime(r.movementAt)}</td>
                   <td><span className={`movement-badge ${r.movementType}`}>{r.movementType}</span></td>
                 </tr>
               ))}
@@ -166,7 +166,7 @@ export function EmployeeDetails() {
           <div className="record-cards">
             {records.map((r) => (
               <div className="record-card" key={r.id}>
-                <span>{new Date(r.movementAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+                <span>{formatTime(r.movementAt)}</span>
                 <span className={`movement-badge ${r.movementType}`}>{r.movementType}</span>
               </div>
             ))}

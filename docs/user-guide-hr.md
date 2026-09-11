@@ -2,6 +2,10 @@
 
 This is the guide for HR staff viewing employee movement history and sending records on request.
 
+## What this system is for
+
+This is a **backup/reconciliation record, not your primary attendance source.** Employees already punch their own attendance in FactoHR — that stays the system of record for payroll and attendance. This app exists because the security guard at the gate independently notes everyone's entry/exit times anyway. When an employee forgets to punch in FactoHR, or a punch looks wrong, you can look up the guard-recorded time here to resolve the discrepancy — not as a routine daily task, but as a fallback when FactoHR's own record is missing or disputed.
+
 ## Logging in
 
 Same as any user: username + password on the login screen. After login, you land directly on the **Dashboard** — HR does not have access to the Security recording screen.

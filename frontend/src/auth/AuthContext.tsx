@@ -20,6 +20,15 @@ function readCachedUser(): AuthUser | null {
   }
 }
 
+// ApiError means the server actually answered (e.g. 401) — that's a real
+// "you are logged out" signal, so don't fall back to the cache. Anything
+// else (network failure, timeout, or genuinely offline) means we couldn't
+// ask the server at all, so a cached session should still be trusted.
+// Exported so the decision can be unit-tested without rendering React.
+export function shouldUseCachedUser(err: unknown): boolean {
+  return !(err instanceof ApiError);
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -32,8 +41,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         cacheUser(res.user);
       })
       .catch((err) => {
-        if (!(err instanceof ApiError) && !navigator.onLine) setUser(readCachedUser());
-        else setUser(null);
+        // The original check required `!navigator.onLine`, so a
+        // reachable-WiFi-but-unreachable-server case (dead backend, DNS
+        // hiccup, VPN drop) fell through to setUser(null) and logged out a
+        // device with a perfectly valid cached session. Found in the
+        // 2026-09-11 audit — see shouldUseCachedUser above.
+        setUser(shouldUseCachedUser(err) ? readCachedUser() : null);
       })
       .finally(() => setLoading(false));
   }, []);

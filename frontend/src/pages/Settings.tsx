@@ -25,7 +25,7 @@ export function Settings() {
   ];
 
   return (
-    <div className="page">
+    <div className="page-wide">
       <AdminNav />
 
       <div className="page-heading">
@@ -42,17 +42,19 @@ export function Settings() {
       <div className="section-card">
         {fields.map((f) => (
           <div className="field" key={f.key}>
-            <label>{f.label}</label>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input
-                value={settings[f.key] ?? ''}
-                onChange={(e) => setSettings({ ...settings, [f.key]: e.target.value })}
-                style={{ flex: 1 }}
-              />
-              <button className="table-action-btn" style={{ padding: '0 16px' }} onClick={() => save(f.key)}>
-                Save
-              </button>
-            </div>
+            <label>
+              {f.label}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  value={settings[f.key] ?? ''}
+                  onChange={(e) => setSettings({ ...settings, [f.key]: e.target.value })}
+                  style={{ flex: 1 }}
+                />
+                <button className="table-action-btn" style={{ padding: '0 16px' }} onClick={() => save(f.key)}>
+                  Save
+                </button>
+              </div>
+            </label>
           </div>
         ))}
       </div>

@@ -626,6 +626,17 @@ svg {
   box-shadow: 0 0 0 4px var(--brand-tint);
 }
 
+/* Some fields wrap their control in <label> instead of pairing it via
+   htmlFor/id (implicit label association — see the 2026-09-11 ARIA audit).
+   `.field label`'s own margin-bottom only spaces siblings, so nested
+   controls need their own top margin to keep the same label-to-control
+   gap as the htmlFor/id fields. */
+.field label > input,
+.field label > select,
+.field label > div {
+  margin-top: 6px;
+}
+
 .primary-button {
   width: 100%;
   padding: 14px;
@@ -922,6 +933,20 @@ table.records-table th {
   color: var(--text-muted);
 }
 
+.missing-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: var(--pending-tint);
+  color: var(--pending-amber);
+  white-space: nowrap;
+}
+
 .table-action-btn {
   padding: 6px 12px;
   border-radius: 8px;
@@ -1028,6 +1053,10 @@ table.records-table th {
     align-items: center;
     box-shadow: var(--shadow-sm);
     gap: 8px;
+  }
+
+  .form-actions {
+    width: 100%;
   }
 
   .nav-links {

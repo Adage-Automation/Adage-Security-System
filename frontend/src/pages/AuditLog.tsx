@@ -79,22 +79,26 @@ export function AuditLog() {
 
       <div className="filters-bar">
         <div className="field">
-          <label>Entity Type</label>
-          <select value={entityType} onChange={(e) => setEntityType(e.target.value)}>
-            <option value="">All</option>
-            {ENTITY_TYPES.map((t) => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
+          <label>
+            Entity Type
+            <select value={entityType} onChange={(e) => setEntityType(e.target.value)}>
+              <option value="">All</option>
+              {ENTITY_TYPES.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </label>
         </div>
         <div className="field">
-          <label>Performed By</label>
-          <select value={userId} onChange={(e) => setUserId(e.target.value)}>
-            <option value="">All Users</option>
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>{u.name}</option>
-            ))}
-          </select>
+          <label>
+            Performed By
+            <select value={userId} onChange={(e) => setUserId(e.target.value)}>
+              <option value="">All Users</option>
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>{u.name}</option>
+              ))}
+            </select>
+          </label>
         </div>
       </div>
 

@@ -2,6 +2,8 @@
 
 Status as of 2026-09-10. Grouped by area, roughly in priority order within each group. See [Audit findings](#audit-findings-2026-09-04) below for the historical 2026-09-04 audit, and `CHANGELOG.md` for the full dated history of everything since.
 
+**Context**: this system is a secondary/backup attendance record, not the primary one — employees punch their own attendance in a separate app, FactoHR, which stays the system of record. This app exists because security guards independently log entry/exit times at the gate; HR uses it to reconcile a missed FactoHR punch or a disputed time. See `docs/architecture.md`. This framing is why an attendance/payroll roll-up is deliberately out of scope here (see "Working hours" in the Done list below) and why no FactoHR integration is planned.
+
 ## Done
 
 - [x] Role-based access control — Security/HR/Admin now hold different permissions (narrowed from the original flat v1 default), enforced server-side and reflected in the nav/route guards client-side. See [decisions.md](./decisions.md#rbac-narrowed-from-v1-flat-2026-09-04).
@@ -70,19 +72,22 @@ Both prior blockers here were cleared and verified live on 2026-09-10 — see th
 
 - [x] Automated tests — backend/frontend Jest coverage now includes auth, password reset, employee search/car-number behavior, movements/idempotency/corrections, dashboard queries, RBAC, Graph failures, storage/report failures, the reports email-success path, and the Employee Details working-hours calculation. Controller-level specs were also added for the Employees and Reports HTTP surfaces; database-backed controller e2e tests remain scaffolded behind `E2E_TEST_DATABASE_URL` for broader workflow coverage when a real test database is available.
 - [x] Formal load-test tooling and local benchmark — `npm run load:test` runs an authenticated `autocannon` employee-search benchmark. A local run was captured in this workspace with a conservative single-connection setting: 27 requests in 5.03s, average latency 177.77 ms, no errors.
-- [ ] Accessibility pass — dialog semantics, focus trapping, initial focus, Escape handling, live status announcements, and employee search labels have been added; a broader ARIA audit and formal color-contrast verification remain open.
+- [x] Accessibility pass — dialog semantics, focus trapping, initial focus, Escape handling, live status announcements, employee search labels, and now a full ARIA label-association fix (24 fields across 6 pages) plus a formal color-contrast verification (all status/muted text ≥4.6:1, passing WCAG AA) — see `docs/decisions.md`, 2026-09-11.
+- [x] Offline auth-cache gap — the cached-user fallback only triggered when `navigator.onLine` was `false`, missing the "online but server unreachable" case (dead backend, DNS hiccup, VPN drop); fixed 2026-09-11, see `docs/decisions.md`.
+- [x] `frontend/package.json` declaring its own test dependencies instead of relying on hoisting from `backend` — fixed 2026-09-11.
 
 The remaining items below are intentionally low-priority cleanup work rather than blockers: they are worth revisiting later, but they do not block normal feature use or the existing verified email/report flows.
 - [x] Backend timezone hardening for `Asia/Kolkata` (startup validation + runtime `TZ` configuration guidance)
 - [x] Offline sync conflict workflow improvements (conflict reasons + dismiss workflow)
 - [x] Audit-log PII review and sanitization
+- Broader controller/e2e test coverage — database-backed controller e2e tests remain scaffolded behind `E2E_TEST_DATABASE_URL` for when a real test database is available; unit/service-level coverage is already comprehensive (see "Current status — quality" above)
 - Optional reports API shape cleanup
 
 ## Known simplifications worth revisiting
 
 - **Timezone correctness (backend)**: day-boundary queries (`dayRange` in `movements.service.ts`) rely on the server process's OS timezone being set to `Asia/Kolkata`, and the backend now validates the runtime timezone against `APP_TIMEZONE` in production before it starts. This closes the silent drift risk that used to be a deployment-only footgun. (Note: the equivalent *frontend* bug — default dates computed in UTC instead of local time — was found and fixed 2026-09-04; the backend now handles its own timezone boundary logic explicitly.)
 - **Offline sync conflict handling**: queued movements that come back `requiresConfirmation` are now held as explicit conflicts, surfaced with a reason, and can be either intentionally recorded or dismissed by the guard from the red review banner. This is a materially better workflow than the earlier single-action-only banner.
-- **Offline + app restart mid-outage**: the app now restores a cached user profile for up to 12 hours when `/auth/me` fails because the browser is offline, allowing the recording screen and queue to reopen. The server remains authoritative; cached authentication is not used for online API access.
+- **Offline + app restart mid-outage**: the app now restores a cached user profile for up to 12 hours whenever `/auth/me` can't be answered — offline, a network failure, or a timeout — rather than only when `navigator.onLine` is `false` (that narrower check missed "online but server unreachable"; fixed 2026-09-11, see `docs/decisions.md`). This allows the recording screen and queue to reopen. The server remains authoritative; cached authentication is not used for online API access, and a real server-issued rejection (401/403) still logs the user out immediately.
 - **Reports controller's `email` endpoint uses `@Post` with query params** rather than a request body — consistent with the rest of the reports endpoints (`image`/`pdf` also use query params for `employeeId`/`date`), but worth a second look if this API is ever consumed by something other than the bundled frontend. Left as-is deliberately: changing just one of the three reports endpoints would be inconsistent, and changing all three touches both the API contract and every frontend caller — a coordinated change, not a quick one.
 
 ## Not started — infrastructure (deployment)

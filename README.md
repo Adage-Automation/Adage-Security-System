@@ -6,6 +6,8 @@ A responsive web application (installable as a PWA) for recording and managing e
 
 Security personnel search for an employee, then record an **ENTRY** or **EXIT** with one tap. Every movement is stored as an individual event — an employee can have any number of entries/exits per day. Authorized users (Security/HR/Admin, with role-based access — see below) can browse historical records on a dashboard and, only on explicit request, email an employee their movement record for a given day as a PNG attachment.
 
+**This is a secondary/backup attendance record, not the primary one.** Employees already punch their own attendance in a separate app, FactoHR. This system exists because security guards independently note entry/exit times at the gate — if an employee forgets to punch in FactoHR, HR can pull the guard-recorded time here as a fallback/reconciliation source for that dispute or gap. It is not meant to replace FactoHR as the attendance system of record.
+
 Key principles carried through the whole design:
 - **Event log, not slots** — one row per movement, never `morning_entry`/`lunch_exit` columns.
 - **Server-authoritative timestamps** — the frontend never supplies the official time or user identity.

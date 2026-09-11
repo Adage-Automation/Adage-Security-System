@@ -1,5 +1,28 @@
 # Changelog
 
+## 2026-09-11 (cont. 3) — Full mobile/desktop responsive audit, two real layout bugs fixed
+
+### Fixed
+
+- **Settings page's nav bar wrapped to two rows on desktop** while every other admin page's nav stayed on one — `Settings.tsx` was the only screen rendering `AdminNav` inside the narrow `.page` container (meant for single-column screens like Login/EmployeeDetails) instead of `.page-wide` (used by every other AdminNav-bearing page: Dashboard, Employees, Users, Corrections, Audit Log). Switched to `.page-wide` to match; verified all 7 nav links now render on one row at 1440px, content still well-proportioned, no change on mobile.
+- **Employees/Users "Add" forms cut off the last field's text on mobile**: the submit button's wrapper `<div>` had no width/basis, so on a 390px viewport it barely still fit on the same flex row as the "Car Number"/last field, squeezing that input's placeholder to a few visible characters instead of wrapping to its own row like the rest of the form did. Added a `.form-actions` class + a mobile-only `width: 100%` rule so the button always gets its own row under 640px; desktop screenshot confirmed pixel-identical to before.
+
+### Verified
+
+Full pass across every route, all three roles (Security/HR/Admin), at both 390px (mobile) and 1440px (desktop): zero horizontal overflow, zero console/page errors anywhere. Also found and fixed a stale credential: the seeded `security` dev login's password had been changed to something undocumented by an earlier live forgot-password test (confirmed via its audit log — a genuine `USER_PASSWORD_RESET` on 2026-09-10) — reset back to the documented `ChangeMe123!` dev default directly in the database (not a code/migration change, so nothing to commit for this part).
+
+## 2026-09-11 (cont. 2) — Offline-auth-cache gap closed, ARIA label associations fixed, frontend test deps self-declared
+
+### Fixed
+
+- **Offline auth cache didn't cover "online but server unreachable"**: `AuthContext.tsx`'s fallback to a cached logged-in user required `!navigator.onLine`, but a dead backend/DNS hiccup/dropped VPN leaves `navigator.onLine` at `true` while the request still fails — that whole case silently logged the user out instead of trusting a valid cached session. Now falls back to the cache on any failure that isn't a real `ApiError` (a server-issued 401/403). The decision is factored into an exported, unit-tested `shouldUseCachedUser()` (`frontend/src/auth/AuthContext.spec.ts`, 3 new tests). Found by the 2026-09-11 audit; see `docs/decisions.md`.
+- **24 form fields across 6 pages had visually-present but programmatically unassociated `<label>`s** (Employees, Users, AuditLog, Dashboard, Corrections, Settings) — a screen reader announced these inputs/selects with no name at all. Fixed by nesting each control inside its `<label>` (implicit association); `Login.tsx`'s existing `htmlFor`/`id` fields were already correct and untouched. Added a small CSS rule to keep the label-to-control spacing identical to before. Verified visually via Puppeteer screenshots of all six pages — no layout regressions — and the new nesting was confirmed programmatically (every Employees-page input now resolves an accessible name via its enclosing label).
+- **`frontend/package.json` was missing its own test dependencies** (`jest`, `ts-jest`, `@types/jest`) despite having a `test` script and spec files — it only worked because npm workspaces hoisted them from `backend`'s devDependencies. Declared them directly in `frontend/package.json` (versions matched to backend's) so `frontend`'s tests don't silently depend on another workspace's dependency tree. Found by the 2026-09-11 audit.
+
+### Checked, found already correct
+
+Color contrast across the app's status/muted text colors (all ≥4.6:1 against their backgrounds, passing WCAG AA); icon-only buttons (none exist — every button already pairs an icon with visible text).
+
 ## 2026-09-11 (cont.) — Timezone validation, audit-log PII sanitization, offline-conflict polish, expanded test coverage, docs sync
 
 ### Added

@@ -114,22 +114,30 @@ export function Employees() {
         <h3>Add Employee</h3>
         <form onSubmit={handleCreate} style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
           <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
-            <label>Employee Code</label>
-            <input value={form.employeeCode} onChange={(e) => setForm({ ...form, employeeCode: e.target.value })} required />
+            <label>
+              Employee Code
+              <input value={form.employeeCode} onChange={(e) => setForm({ ...form, employeeCode: e.target.value })} required />
+            </label>
           </div>
           <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
-            <label>Name</label>
-            <input value={form.employeeName} onChange={(e) => setForm({ ...form, employeeName: e.target.value })} required />
+            <label>
+              Name
+              <input value={form.employeeName} onChange={(e) => setForm({ ...form, employeeName: e.target.value })} required />
+            </label>
           </div>
           <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
-            <label>Email (optional)</label>
-            <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Leave blank if not known yet" />
+            <label>
+              Email (optional)
+              <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Leave blank if not known yet" />
+            </label>
           </div>
           <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
-            <label>Car Number (optional)</label>
-            <input value={form.carNumber} onChange={(e) => setForm({ ...form, carNumber: e.target.value })} placeholder="Leave blank if not known yet" />
+            <label>
+              Car Number (optional)
+              <input value={form.carNumber} onChange={(e) => setForm({ ...form, carNumber: e.target.value })} placeholder="Leave blank if not known yet" />
+            </label>
           </div>
-          <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+          <div className="form-actions" style={{ display: 'flex', alignItems: 'flex-end' }}>
             <button type="submit" className="primary-button" style={{ width: 'auto', padding: '12px 20px' }}>
               Add Employee
             </button>
@@ -143,18 +151,24 @@ export function Employees() {
           <h3>Edit Employee: {editing.employeeCode}</h3>
           <form onSubmit={saveEdit} style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
             <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
-              <label>Name</label>
-              <input value={editForm.employeeName} onChange={(e) => setEditForm({ ...editForm, employeeName: e.target.value })} required />
+              <label>
+                Name
+                <input value={editForm.employeeName} onChange={(e) => setEditForm({ ...editForm, employeeName: e.target.value })} required />
+              </label>
             </div>
             <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
-              <label>Email (optional)</label>
-              <input type="email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
+              <label>
+                Email (optional)
+                <input type="email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
+              </label>
             </div>
             <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
-              <label>Car Number (optional)</label>
-              <input value={editForm.carNumber} onChange={(e) => setEditForm({ ...editForm, carNumber: e.target.value })} />
+              <label>
+                Car Number (optional)
+                <input value={editForm.carNumber} onChange={(e) => setEditForm({ ...editForm, carNumber: e.target.value })} />
+              </label>
             </div>
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
+            <div className="form-actions" style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
               <button type="submit" className="primary-button" style={{ width: 'auto', padding: '12px 20px' }}>Save</button>
               <button type="button" className="table-action-btn" onClick={() => setEditing(null)}>Cancel</button>
             </div>
@@ -164,16 +178,18 @@ export function Employees() {
 
       <div className="filters-bar">
         <div className="field" style={{ position: 'relative', marginBottom: 0 }}>
-          <label>Search (name, code, email, or car number)</label>
-          <div style={{ position: 'relative' }}>
-            <IconSearch className="search-icon" style={{ left: 12, width: 16, height: 16 }} />
-            <input
-              style={{ paddingLeft: 36 }}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={`All ${total || ''} employees`}
-            />
-          </div>
+          <label>
+            Search (name, code, email, or car number)
+            <div style={{ position: 'relative' }}>
+              <IconSearch className="search-icon" style={{ left: 12, width: 16, height: 16 }} />
+              <input
+                style={{ paddingLeft: 36 }}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={`All ${total || ''} employees`}
+              />
+            </div>
+          </label>
         </div>
       </div>
 

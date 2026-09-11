@@ -1,5 +1,9 @@
 # Architecture
 
+## What this system is
+
+A **secondary/backup attendance record**, not the primary one. Employees punch their own attendance in a separate app, FactoHR — that remains the system of record. This system exists because security guards independently log entry/exit times at the gate regardless, so HR has a fallback source to reconcile a missed FactoHR punch or a disputed time, rather than this app tracking attendance in its own right. This shapes the design in a few concrete ways: no attendance/payroll roll-ups are built here (see "Working hours" below — it's a narrow per-day convenience, not a timesheet), and there's no integration with FactoHR in either direction — the two systems are independent, and reconciliation is a manual HR lookup (via the Dashboard, or emailing an employee's day), not an automated sync.
+
 ## System overview
 
 ```

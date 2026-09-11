@@ -75,31 +75,41 @@ export function Users() {
         <h3>Add User</h3>
         <form onSubmit={handleCreate} style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
           <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
-            <label>Name</label>
-            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+            <label>
+              Name
+              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+            </label>
           </div>
           <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
-            <label>Email</label>
-            <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
+            <label>
+              Email
+              <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
+            </label>
           </div>
           <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
-            <label>Username</label>
-            <input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} required />
+            <label>
+              Username
+              <input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} required />
+            </label>
           </div>
           <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
-            <label>Password</label>
-            <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required />
+            <label>
+              Password
+              <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required />
+            </label>
           </div>
           <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
-            <label>Role</label>
-            <select value={form.roleId} onChange={(e) => setForm({ ...form, roleId: e.target.value })} required>
-              <option value="">Select role</option>
-              {roles.map((r) => (
-                <option key={r.id} value={r.id}>{r.name}</option>
-              ))}
-            </select>
+            <label>
+              Role
+              <select value={form.roleId} onChange={(e) => setForm({ ...form, roleId: e.target.value })} required>
+                <option value="">Select role</option>
+                {roles.map((r) => (
+                  <option key={r.id} value={r.id}>{r.name}</option>
+                ))}
+              </select>
+            </label>
           </div>
-          <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+          <div className="form-actions" style={{ display: 'flex', alignItems: 'flex-end' }}>
             <button type="submit" className="primary-button" style={{ width: 'auto', padding: '12px 20px' }}>
               Add User
             </button>

@@ -1,6 +1,6 @@
 # Testing
 
-The codebase now has real Jest coverage in both apps. Backend tests cover username authentication, password reset, employee search/car-number behavior, movement creation/idempotency/corrections, dashboard queries, RBAC, Microsoft Graph failures, storage/report generation failures, and the reports email-success path. Controller-level specs were recently added for the Employees and Reports HTTP surfaces as well. Frontend tests cover the IndexedDB movement queue (including userId scoping and conflict state) plus the employee day working-hours calculation. This document tracks the current implemented coverage and the remaining areas still worth expanding.
+The codebase now has real Jest coverage in both apps. Backend tests cover username authentication, password reset, employee search/car-number behavior, movement creation/idempotency/corrections, dashboard queries, RBAC, Microsoft Graph failures, storage/report generation failures, and the reports email-success path. Controller-level specs were recently added for the Employees and Reports HTTP surfaces as well. Frontend tests cover the IndexedDB movement queue (including userId scoping and conflict state), the offline auth-cache fallback decision, and the employee day working-hours calculation. This document tracks the current implemented coverage and the remaining areas still worth expanding.
 
 ## Authentication
 
