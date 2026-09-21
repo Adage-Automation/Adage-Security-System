@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-09-21 — Full code audit fixes: admin-lockout guard, duplicate-tap guard, IST date bug, uniqueness checks, reachability detection, storage fail-fast
+
+### Fixed
+
+- **Backend `/dashboard/summary` returned yesterday's data for the first 5.5 hours of every IST day** when called with no `date` param — its own default-date fallback still used `new Date().toISOString().slice(0, 10)` (UTC calendar date), the exact bug already fixed in the frontend's `todayIso()`. Added `todayInAppTimezone()` (`backend/src/common/utils/day-range.ts`) and switched the fallback to it.
+- **Changing a user's email to one already in use 500'd** with a raw Prisma P2002 instead of a clean error. `UsersService.update()` now checks for a case-sensitive clash first and throws a proper 409 ("That email address is already in use by another user.").
+- **No protection against locking every Admin out.** `UsersService` now blocks disabling the last remaining active user who holds `MANAGE_USERS`, and blocks reassigning that user's role away from one that holds it, either way returning a clean 400 instead of allowing a silent total lockout recoverable only via direct DB access.
+- **Duplicate ENTRY/EXIT records possible on a slow connection** — the guard's big ENTRY/EXIT buttons had no in-flight guard, so a double-tap could fire two concurrent requests each with their own idempotency key. `SecurityHome.tsx` now tracks a `submitting` flag, disables both buttons (and the confirm-dialog's buttons) while a request is in flight, and shows a spinner.
+- **Employee search failures were indistinguishable from "no such employee"** — a network blip during search silently rendered an empty result list. `SecurityHome.tsx` now shows an explicit "Search failed — check your connection and try again." message instead of a false-empty state.
+- **`employeeCode` uniqueness was case-sensitive while every search is case-insensitive**, and employee `email` had no uniqueness constraint at all. `EmployeesService` now checks both case-insensitively on create/update and returns a clear 409 (naming the existing employee, for the email case) instead of allowing silent collisions.
+- **`StorageService` built an S3 client with empty-string defaults** when `STORAGE_BUCKET`/`STORAGE_ACCESS_KEY`/`STORAGE_SECRET_KEY` were unset, failing deep inside the AWS SDK with an opaque error. Added a `requireConfig()` fail-fast check matching `EmailService`'s existing pattern, and made the S3 client itself lazy (only constructed once config is confirmed present).
+- **Correction/missing-record modal crashed into a raw "Invalid time value" error** if the native time field was cleared before saving — `edit.time`'s unguarded `Number()` parse produced `NaN`, which flowed into `setHours(NaN, ...)` and then threw out of `.toISOString()`. `Corrections.tsx` now validates the parsed hours/minutes before use and shows a friendly message instead.
+
+### Added
+
+- **`GET /api/health`** (`backend/src/health/health.controller.ts`) — public, unauthenticated, does a real `SELECT 1` round trip. Serves two purposes: (1) the frontend's new real server-reachability check (below), and (2) an external keep-alive target — see `.github/workflows/keep-alive.yml`, a scheduled GitHub Actions job pinging it every 10 minutes to stop Render's free tier from sleeping and Supabase's free tier from auto-pausing.
+- **Real server-reachability detection on the recording screen** (`frontend/src/api/health.ts`, wired into `SecurityHome.tsx`) — `navigator.onLine` only reflects the network link, not whether the backend is actually reachable (dead backend, DNS hiccup, captive portal all still report "online"). The recording screen now polls `/api/health` every 20s while the link is up and shows a distinct "server unreachable" banner instead of no warning at all. Mirrors the same class of fix already made for auth (`AuthContext.tsx`'s `shouldUseCachedUser`).
+- **Offline sync now retries on a timer, not just on browser online/offline events** — previously a movement queued during a transient server-side blip (not a real link drop) could sit unsynced indefinitely since no browser event would ever fire to trigger a retry. `SecurityHome.tsx` now polls every 20s while anything is pending and the connection is effectively up.
+- **`beforeunload` warning when offline movements are still pending sync** — mitigates (not eliminates) the offline queue's biggest risk: it lives only in this browser's IndexedDB with no server-side trace, so clearing site data, uninstalling the PWA, or switching devices before syncing loses those movements permanently and silently. A guard is far less likely to do that if warned at the moment they'd navigate away or close the tab.
+
 ## 2026-09-11 (cont. 3) — Full mobile/desktop responsive audit, two real layout bugs fixed
 
 ### Fixed

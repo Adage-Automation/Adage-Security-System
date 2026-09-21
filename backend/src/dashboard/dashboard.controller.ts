@@ -3,6 +3,7 @@ import { SessionAuthGuard } from '../common/guards/session-auth.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { MovementsService } from '../movements/movements.service';
+import { todayInAppTimezone } from '../common/utils/day-range';
 
 @Controller('dashboard')
 @UseGuards(SessionAuthGuard, PermissionsGuard)
@@ -16,7 +17,7 @@ export class DashboardController {
   @Get('summary')
   @RequirePermissions('VIEW_DASHBOARD')
   summary(@Query('date') date?: string) {
-    const targetDate = date ?? new Date().toISOString().slice(0, 10);
+    const targetDate = date ?? todayInAppTimezone();
     return this.movementsService.summaryForDate(targetDate);
   }
 }

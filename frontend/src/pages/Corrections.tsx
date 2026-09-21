@@ -120,9 +120,18 @@ export function Corrections() {
       setError('Please select a valid date above before saving.');
       return;
     }
+    // A cleared native time input sends "" — Number("") on the split parts
+    // used to produce NaN, which flowed into setHours(NaN, ...) and then
+    // threw a raw "Invalid time value" RangeError out of toISOString()
+    // below instead of a friendly message. Found in the 2026-09-21 audit.
+    const [hours, minutes] = edit.time.split(':').map(Number);
+    if (!edit.time || Number.isNaN(hours) || Number.isNaN(minutes)) {
+      setError('Please enter a valid time above before saving.');
+      return;
+    }
+
     setSaving(true);
     setError(null);
-    const [hours, minutes] = edit.time.split(':').map(Number);
     movementAt.setHours(hours, minutes, 0, 0);
 
     try {
@@ -291,7 +300,7 @@ export function Corrections() {
             <div className="field">
               <label>
                 Time (on {date})
-                <input type="time" value={edit.time} onChange={(e) => setEdit({ ...edit, time: e.target.value })} />
+                <input type="time" value={edit.time} onChange={(e) => setEdit({ ...edit, time: e.target.value })} required />
               </label>
             </div>
             <div className="field">

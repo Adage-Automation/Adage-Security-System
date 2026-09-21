@@ -1,0 +1,28 @@
+name: Keep-alive ping
+
+# Render's free tier spins the backend down after 15 minutes with no
+# incoming requests (30-60s cold start on the next real request — bad for
+# a guard standing at the gate), and Supabase's free tier pauses a project
+# after 7 days with no database activity. This workflow hits the backend's
+# /api/health endpoint (which does a real `SELECT 1`, see
+# backend/src/health/health.controller.ts) often enough to keep both awake.
+#
+# GitHub disables scheduled workflows automatically after 60 days of
+# repository inactivity (any push/commit re-enables it) — if the app goes
+# quiet for that long, re-enable this workflow manually from the Actions
+# tab. GitHub's schedule is also best-effort, not exact-to-the-minute, so
+# treat "every 10 minutes" as "at least once within Render's 15-minute
+# idle window" rather than a precise guarantee.
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping backend health endpoint
+        run: |
+          curl -fsS --max-time 25 "https://adage-security-system.onrender.com/api/health" || \
+          (echo "Health check failed" && exit 1)

@@ -96,11 +96,34 @@ export class EmployeesService {
     return employee;
   }
 
-  async create(dto: CreateEmployeeDto, actingUserId: number) {
-    const existing = await this.prisma.employee.findUnique({ where: { employeeCode: dto.employeeCode } });
-    if (existing) {
+  // The DB's uniqueness constraint on employeeCode is case-sensitive, but
+  // every search in the app matches case-insensitively — so "EMP001" and
+  // "emp001" could otherwise both be created as distinct employees, both
+  // surfacing together in every search and making report filenames/emails
+  // ambiguous. Checked case-insensitively here so the DB constraint is
+  // never actually relied on to catch this. Found in the 2026-09-21 audit.
+  private async assertCodeAndEmailAvailable(employeeCode: string, email: string | undefined, excludingId?: number) {
+    const codeClash = await this.prisma.employee.findFirst({
+      where: { employeeCode: { equals: employeeCode, mode: 'insensitive' }, ...(excludingId ? { id: { not: excludingId } } : {}) },
+    });
+    if (codeClash) {
       throw new ConflictException('Employee code already exists');
     }
+    if (email) {
+      // Email has no DB uniqueness constraint at all (deliberately optional
+      // field) — without this, two employees could share one email with no
+      // warning, and a movement-record email could reach the wrong person.
+      const emailClash = await this.prisma.employee.findFirst({
+        where: { email: { equals: email, mode: 'insensitive' }, ...(excludingId ? { id: { not: excludingId } } : {}) },
+      });
+      if (emailClash) {
+        throw new ConflictException(`That email address is already registered to ${emailClash.employeeName} (${emailClash.employeeCode}).`);
+      }
+    }
+  }
+
+  async create(dto: CreateEmployeeDto, actingUserId: number) {
+    await this.assertCodeAndEmailAvailable(dto.employeeCode, dto.email);
     const employee = await this.prisma.employee.create({ data: dto });
     await this.auditLog.record({
       userId: actingUserId,
@@ -114,6 +137,9 @@ export class EmployeesService {
 
   async update(id: number, dto: UpdateEmployeeDto, actingUserId: number) {
     const before = await this.findById(id);
+    if (dto.email) {
+      await this.assertCodeAndEmailAvailable(before.employeeCode, dto.email, id);
+    }
     const employee = await this.prisma.employee.update({ where: { id }, data: dto });
     await this.auditLog.record({
       userId: actingUserId,
