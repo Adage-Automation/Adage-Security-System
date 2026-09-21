@@ -10,9 +10,21 @@ describe('EmployeesService search', () => {
     jest.clearAllMocks();
   });
 
-  it('returns no results for a blank query', async () => {
-    await expect(service.search('  ')).resolves.toEqual([]);
-    expect(prisma.employee.findMany).not.toHaveBeenCalled();
+  // A blank query used to return [] without even querying the DB — the
+  // dropdown then stayed empty until the guard typed something, so
+  // clicking/focusing the search box looked unresponsive. Changed in the
+  // 2026-09-21 UX pass to return a browse list (first page, alphabetical)
+  // instead, so the frontend can show something immediately on focus.
+  it('returns the first page of active employees, alphabetically, for a blank query', async () => {
+    prisma.employee.findMany.mockResolvedValue([]);
+
+    await service.search('  ');
+
+    expect(prisma.employee.findMany).toHaveBeenCalledWith({
+      where: { isActive: true },
+      take: 10,
+      orderBy: { employeeName: 'asc' },
+    });
   });
 
   it('searches active employees by name, code, email, or car number', async () => {

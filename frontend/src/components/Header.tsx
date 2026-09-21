@@ -7,7 +7,9 @@ export function Header() {
   return (
     <header className="app-header">
       <div className="brand-group">
-        <img src="/logo.png" alt="Adage" className="logo-img" />
+        <span className="logo-badge">
+          <img src="/logo.png" alt="Adage" className="logo-img" />
+        </span>
         <span className="brand">
           <small>Security System</small>
         </span>

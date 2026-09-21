@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
 import { ApiError } from '../api/client';
+import { PasswordInput } from '../components/PasswordInput';
 
 export function Login() {
   const { login } = useAuth();
@@ -56,6 +57,7 @@ export function Login() {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               autoComplete="username"
+              autoFocus
               required
               aria-invalid={Boolean(error)}
               aria-describedby={error ? 'login-error' : undefined}
@@ -63,9 +65,8 @@ export function Login() {
           </div>
           <div className="field">
             <label htmlFor="password">Password</label>
-            <input
+            <PasswordInput
               id="password"
-              type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"

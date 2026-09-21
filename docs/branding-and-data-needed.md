@@ -34,7 +34,7 @@ I can create these directly once you confirm the list, or an Admin can create th
 
 ## 5. Email sending — ✅ working
 
-✅ Decided (2026-09-07): send via Adage's existing Microsoft 365 tenant for `adage-automation.com` (confirmed via public DNS/MX records — no new email vendor needed). See [email-provider-options.md](./email-provider-options.md) for the full comparison that led here.
+✅ Decided (2026-09-07): send via Adage's existing Microsoft 365 tenant for `adage-automation.com` (confirmed via public DNS/MX records — no new email vendor needed). See [decisions.md](./decisions.md#email-provider-smtp-via-adages-existing-microsoft-365-tenant-not-resend) for the full comparison that led here.
 
 **Updated (2026-09-10)**: the original plan was SMTP with a mailbox password, but Microsoft 365 has retired basic-auth SMTP AUTH — no password or app password can authenticate an SMTP send anymore. The app now uses the **Microsoft Graph API** via an OAuth2 app registration instead.
 
@@ -46,10 +46,12 @@ I can create these directly once you confirm the list, or an Admin can create th
 
 ✅ Bucket created and S3-compatible keys filled in (`STORAGE_*` in `backend/.env`), using the same Supabase project as the database. Verified working end to end 2026-09-10 alongside the email test above.
 
-## 7. Domain & deployment (when ready to go live)
+## 7. Domain & deployment — ✅ live, custom domain still open
 
-- The subdomain you want the app on (e.g. `security.adage.com`)
-- Which hosting accounts to use for the frontend/backend (see `docs/deployment.md` for provider suggestions) — or confirmation to proceed with the recommended defaults
+✅ Deployed since 2026-09-11: frontend on Vercel, backend on Render (`https://adage-security-system.onrender.com`), database on Supabase — see `docs/deployment.md`. Still open:
+
+- A custom subdomain (e.g. `security.adage.com`) instead of the free provider-issued URLs above, if wanted
+- Confirming whether a paid Render/Supabase tier is worth it later to remove the free-tier sleep/auto-pause behavior entirely (currently mitigated with a keep-alive ping, not eliminated — see `docs/deployment.md#keeping-it-alive-render-sleep--supabase-auto-pause`)
 
 ## Not needed from you
 

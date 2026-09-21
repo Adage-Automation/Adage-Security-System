@@ -14,10 +14,11 @@
 - **The frontend hiding a button is never treated as security.** Roles now hold different permissions (see below), but every route's `PermissionsGuard` check runs server-side regardless of what the UI shows or hides — this was exactly the point of building the permission-table/guard infrastructure early: narrowing access later (which has already happened once) is a data change to `role_permissions`, not a rewrite of every endpoint.
 - **Current role → permission mapping** (narrowed 2026-09-04; HR recording permissions removed 2026-09-10): `SECURITY` = `RECORD_ENTRY`, `RECORD_EXIT`, `VIEW_DASHBOARD`, `VIEW_EMPLOYEE_HISTORY`, `SEND_EMAIL`, `DOWNLOAD_REPORT`. `HR` = `VIEW_DASHBOARD`, `VIEW_EMPLOYEE_HISTORY`, `SEND_EMAIL`, `DOWNLOAD_REPORT`, `MANAGE_EMPLOYEES` — no recording permissions; HR lands on the Dashboard on login. `ADMIN` = every permission.
 - Permission list lives in one place: `backend/src/common/constants/permissions.ts`. The seed script and the guards both read from it, so they can't drift out of sync.
+- **Admin-lockout protection** (2026-09-21): `UsersService` blocks disabling, or reassigning the role of, the last active user who holds `MANAGE_USERS` — returns a clean `400` rather than allowing every admin to be locked out of Users/Settings/Audit Log with no recovery short of direct database access. See [decisions.md](./decisions.md#last-admin-lockout-protection).
 
 ## Data protection
 
-- Employee movement data is private company information — no endpoint is publicly reachable; all require an authenticated session.
+- Employee movement data is private company information — every endpoint requires an authenticated session, with one deliberate exception: `GET /api/health` (a real `SELECT 1`, no employee/user data, no auth) is intentionally public so it can serve as a reachability check and an external keep-alive ping target — see [deployment.md](./deployment.md#keeping-it-alive-render-sleep--supabase-auto-pause).
 - Generated PNG/PDF reports are **never** served through predictable public URLs. On-demand downloads stream through an authenticated endpoint; emailed reports are stored in S3-compatible storage with no public ACL, retrievable only via a short-lived signed URL (`StorageService.getSignedDownloadUrl`, 5-minute expiry).
 - CORS is locked to `FRONTEND_URL` — no wildcard origins.
 - Helmet sets standard security headers on every response.

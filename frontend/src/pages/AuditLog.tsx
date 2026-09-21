@@ -2,6 +2,7 @@ import { CSSProperties, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { IconHistory, IconInbox } from '../components/icons';
 import { AdminNav } from '../components/AdminNav';
+import { TableSkeleton } from '../components/TableSkeleton';
 
 interface AuditLogRow {
   id: number;
@@ -101,6 +102,8 @@ export function AuditLog() {
           </label>
         </div>
       </div>
+
+      {loading && rows.length === 0 && <TableSkeleton columns={5} />}
 
       {rows.length > 0 && (
         <>

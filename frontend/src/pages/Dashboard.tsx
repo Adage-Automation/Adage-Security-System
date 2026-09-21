@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { Employee, MovementRecord, MovementType } from '../types';
 import { IconGrid, IconUsers, IconEntry, IconExit, IconInbox, IconChevronRight, IconDoorOpen, IconX } from '../components/icons';
 import { AdminNav } from '../components/AdminNav';
+import { TableSkeleton } from '../components/TableSkeleton';
 import { todayIso, isoDaysAgo, formatTime } from '../utils/date';
 
 export function Dashboard() {
@@ -19,6 +20,11 @@ export function Dashboard() {
   // starts as [] either way (found in the 2026-09-09 audit).
   const [recordsLoading, setRecordsLoading] = useState(true);
   const [summary, setSummary] = useState<{ totalEmployees: number; totalEntries: number; totalExits: number; currentlyInside: number } | null>(null);
+  // See the matching comment in SecurityHome.tsx — tracks dropdown
+  // visibility separately from `employeeResults` so a click outside the
+  // search box can close it. Found in the 2026-09-21 audit.
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const employeeSearchRef = useRef<HTMLDivElement>(null);
 
   const isToday = date === todayIso();
 
@@ -41,16 +47,31 @@ export function Dashboard() {
       .finally(() => setRecordsLoading(false));
   }, [date, selectedEmployee, movementType]);
 
+  // A blank query returns a browse list of the first 10 active employees
+  // (backend change, 2026-09-21) instead of nothing, so the dropdown shows
+  // something as soon as the field is focused rather than only once
+  // something's been typed. onFocus (below) covers re-focusing an already-
+  // empty field, which this effect alone can't detect since the query
+  // value hasn't changed.
+  const fetchEmployeeResults = useCallback((q: string) => {
+    api.get<Employee[]>(`/employees/search?q=${encodeURIComponent(q)}`).then(setEmployeeResults).catch(() => setEmployeeResults([]));
+  }, []);
+
   useEffect(() => {
-    if (!employeeQuery.trim()) {
-      setEmployeeResults([]);
-      return;
-    }
-    const t = setTimeout(() => {
-      api.get<Employee[]>(`/employees/search?q=${encodeURIComponent(employeeQuery)}`).then(setEmployeeResults).catch(() => setEmployeeResults([]));
-    }, 250);
+    const t = setTimeout(() => fetchEmployeeResults(employeeQuery), employeeQuery.trim() ? 250 : 0);
     return () => clearTimeout(t);
-  }, [employeeQuery]);
+  }, [employeeQuery, fetchEmployeeResults]);
+
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    const closeIfOutside = (event: MouseEvent) => {
+      if (employeeSearchRef.current && !employeeSearchRef.current.contains(event.target as Node)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', closeIfOutside);
+    return () => document.removeEventListener('mousedown', closeIfOutside);
+  }, [dropdownOpen]);
 
   return (
     <div className="page-wide">
@@ -114,31 +135,44 @@ export function Dashboard() {
               </button>
             </div>
           ) : (
-            <input
-              aria-label="Search dashboard employees by name, employee code, email, or car number"
-              placeholder="All Employees"
-              value={employeeQuery}
-              onChange={(e) => setEmployeeQuery(e.target.value)}
-            />
-          )}
-          {employeeResults.length > 0 && (
-            <div className="search-results">
-              {employeeResults.map((emp) => (
-                <button
-                  key={emp.id}
-                  onClick={() => {
-                    setSelectedEmployee(emp);
-                    setEmployeeQuery('');
-                    setEmployeeResults([]);
-                  }}
-                >
-                  <span className="result-text">
-                    <div className="result-name">{emp.employeeName}</div>
-                    <div className="result-meta">{emp.employeeCode}</div>
-                    {emp.carNumber && <div className="result-meta">Car: {emp.carNumber}</div>}
-                  </span>
+            <div style={{ position: 'relative' }} ref={employeeSearchRef}>
+              <input
+                aria-label="Search dashboard employees by name, employee code, email, or car number"
+                placeholder="All Employees"
+                value={employeeQuery}
+                onChange={(e) => setEmployeeQuery(e.target.value)}
+                onFocus={() => {
+                  setDropdownOpen(true);
+                  fetchEmployeeResults(employeeQuery);
+                }}
+                style={{ paddingRight: employeeQuery ? 36 : undefined }}
+              />
+              {employeeQuery && (
+                <button type="button" className="search-clear-btn" onClick={() => setEmployeeQuery('')} aria-label="Clear employee search">
+                  <IconX />
                 </button>
-              ))}
+              )}
+              {dropdownOpen && employeeResults.length > 0 && (
+                <div className="search-results">
+                  {employeeResults.map((emp) => (
+                    <button
+                      key={emp.id}
+                      onClick={() => {
+                        setSelectedEmployee(emp);
+                        setEmployeeQuery('');
+                        setEmployeeResults([]);
+                        setDropdownOpen(false);
+                      }}
+                    >
+                      <span className="result-text">
+                        <div className="result-name">{emp.employeeName}</div>
+                        <div className="result-meta">{emp.employeeCode}</div>
+                        {emp.carNumber && <div className="result-meta">Car: {emp.carNumber}</div>}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -164,6 +198,8 @@ export function Dashboard() {
           </div>
         )}
       </div>
+
+      {recordsLoading && records.length === 0 && <TableSkeleton columns={5} />}
 
       {records.length > 0 && (
         <>

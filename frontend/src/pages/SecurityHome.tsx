@@ -17,6 +17,7 @@ import {
   IconUserSearch,
   IconWifiOff,
   IconCalendar,
+  IconX,
 } from '../components/icons';
 
 function generateRequestId(): string {
@@ -66,6 +67,13 @@ export function SecurityHome() {
   // audit.
   const [submitting, setSubmitting] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  // Tracks whether the browse/search dropdown is open, independent of
+  // whether `results` has anything in it — without this, clicking outside
+  // the search box couldn't close the dropdown (results stayed populated),
+  // and it covered the rest of the page until a result was picked. Found
+  // in the 2026-09-21 audit.
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const searchBoxRef = useRef<HTMLDivElement>(null);
   // One id per guard tap, reused across that tap's retries (the confirm-
   // resubmit, and the offline queue's sync) so the server can recognize a
   // retry of an already-succeeded request instead of creating a duplicate
@@ -111,31 +119,36 @@ export function SecurityHome() {
     };
   }, [isOnline]);
 
+  // Extracted so it can be called both from the debounced typing effect
+  // below and immediately on focus (see the search input's onFocus) — a
+  // blank query now returns a browse list of the first 10 active
+  // employees (backend change, 2026-09-21) instead of nothing, so tapping
+  // the empty search box shows something right away instead of looking
+  // unresponsive until the guard starts typing.
+  const fetchResults = useCallback(async (q: string) => {
+    try {
+      const res = await api.get<Employee[]>(`/employees/search?q=${encodeURIComponent(q)}`);
+      setResults(res);
+      setSearchError(null);
+    } catch {
+      // Previously swallowed into an empty result list, indistinguishable
+      // from "no such employee" — a guard on a flaky connection could
+      // wrongly conclude someone isn't registered. Found in the
+      // 2026-09-21 audit.
+      setResults([]);
+      setSearchError(q.trim() ? 'Search failed — check your connection and try again.' : null);
+    }
+  }, []);
+
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!query.trim()) {
-      setResults([]);
-      setSearchError(null);
-      return;
-    }
-    debounceRef.current = setTimeout(async () => {
-      try {
-        const res = await api.get<Employee[]>(`/employees/search?q=${encodeURIComponent(query)}`);
-        setResults(res);
-        setSearchError(null);
-      } catch {
-        // Previously swallowed into an empty result list, indistinguishable
-        // from "no such employee" — a guard on a flaky connection could
-        // wrongly conclude someone isn't registered. Found in the
-        // 2026-09-21 audit.
-        setResults([]);
-        setSearchError('Search failed — check your connection and try again.');
-      }
-    }, 250);
+    // Blank query still fetches (the browse list) but with no debounce
+    // delay — only actual typing needs the 250ms settle time.
+    debounceRef.current = setTimeout(() => void fetchResults(query), query.trim() ? 250 : 0);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query]);
+  }, [query, fetchResults]);
 
   const refreshPendingCount = useCallback(async () => {
     if (!user) return;
@@ -249,6 +262,21 @@ export function SecurityHome() {
     return () => window.removeEventListener('beforeunload', warnIfPending);
   }, [pendingCount]);
 
+  // Closes the dropdown on any click/tap outside the search box — without
+  // this, clicking elsewhere on the page (or on the Dashboard link right
+  // below it) did nothing, leaving the dropdown open over the rest of the
+  // screen. Found in the 2026-09-21 audit.
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    const closeIfOutside = (event: MouseEvent) => {
+      if (searchBoxRef.current && !searchBoxRef.current.contains(event.target as Node)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', closeIfOutside);
+    return () => document.removeEventListener('mousedown', closeIfOutside);
+  }, [dropdownOpen]);
+
   useEffect(() => {
     if (confirmDialog) confirmButtonRef.current?.focus();
   }, [confirmDialog]);
@@ -281,6 +309,7 @@ export function SecurityHome() {
     setResults([]);
     setSearchError(null);
     setStatus({ kind: 'idle' });
+    setDropdownOpen(false);
   }
 
   function resetSelection() {
@@ -289,6 +318,7 @@ export function SecurityHome() {
     setResults([]);
     setSearchError(null);
     pendingRequestIdRef.current = null;
+    setDropdownOpen(false);
   }
 
   async function handleMovement(movementType: MovementType, confirmed = false) {
@@ -441,16 +471,32 @@ export function SecurityHome() {
       )}
 
       {!selected && (
-        <div className="search-box">
+        <div className="search-box" ref={searchBoxRef}>
           <IconSearch className="search-icon" />
           <input
             aria-label="Search employees by name, employee code, email, or car number"
             placeholder="Search employee..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            autoFocus
+            onFocus={() => {
+              setDropdownOpen(true);
+              void fetchResults(query);
+            }}
           />
-          {results.length > 0 && (
+          {query && (
+            <button
+              type="button"
+              className="search-clear-btn"
+              onClick={() => {
+                setQuery('');
+                setSearchError(null);
+              }}
+              aria-label="Clear search"
+            >
+              <IconX />
+            </button>
+          )}
+          {dropdownOpen && results.length > 0 && (
             <div className="search-results">
               {results.map((emp) => (
                 <button key={emp.id} onClick={() => selectEmployee(emp)}>
@@ -466,12 +512,12 @@ export function SecurityHome() {
               ))}
             </div>
           )}
-          {searchError && (
+          {dropdownOpen && searchError && (
             <div className="search-results">
               <div className="search-empty error-text">{searchError}</div>
             </div>
           )}
-          {!searchError && query.trim() && results.length === 0 && (
+          {dropdownOpen && !searchError && query.trim() && results.length === 0 && (
             <div className="search-results">
               <div className="search-empty">No matching employees found.</div>
             </div>
@@ -479,7 +525,7 @@ export function SecurityHome() {
         </div>
       )}
 
-      {!selected && !query.trim() && (
+      {!selected && !dropdownOpen && !query.trim() && (
         <div className="empty-state">
           <IconUserSearch />
           <div className="empty-title">Search for an employee</div>

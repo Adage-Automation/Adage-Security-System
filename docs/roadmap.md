@@ -1,6 +1,6 @@
 # Roadmap / Task List
 
-Status as of 2026-09-10. Grouped by area, roughly in priority order within each group. See [Audit findings](#audit-findings-2026-09-04) below for the historical 2026-09-04 audit, and `CHANGELOG.md` for the full dated history of everything since.
+Status as of 2026-09-21. Grouped by area, roughly in priority order within each group. See [Audit findings](#audit-findings-2026-09-04) below for the historical 2026-09-04 audit, [2026-09-21 audit](#2026-09-21--full-codebase-audit-bugs-crashes-offlinenetwork-edge-cases) for the most recent one, and `CHANGELOG.md` for the full dated history of everything since.
 
 **Context**: this system is a secondary/backup attendance record, not the primary one — employees punch their own attendance in a separate app, FactoHR, which stays the system of record. This app exists because security guards independently log entry/exit times at the gate; HR uses it to reconcile a missed FactoHR punch or a disputed time. See `docs/architecture.md`. This framing is why an attendance/payroll roll-up is deliberately out of scope here (see "Working hours" in the Done list below) and why no FactoHR integration is planned.
 
@@ -24,7 +24,7 @@ Status as of 2026-09-10. Grouped by area, roughly in priority order within each 
 - [x] Both backend and frontend build cleanly (verified via `npm run build`)
 - [x] Full documentation set (this folder + root README/CHANGELOG) — refreshed again after the 2026-09-11 cleanup to reflect the current code, including safe audit-log payload sanitization, timezone validation, and the improved conflict-review UI
 - [x] Database provider decided and live: Supabase Postgres, Mumbai (ap-south-1) — see [decisions.md](./decisions.md#database-provider-supabase-mumbai)
-- [x] Real `backend/.env` created (never committed) with actual `DATABASE_URL` and a generated `SESSION_SECRET`; email/storage credentials still pending (see `docs/email-provider-options.md`)
+- [x] Real `backend/.env` created (never committed) with actual `DATABASE_URL` and a generated `SESSION_SECRET`; email/storage credentials configured — see `docs/decisions.md`'s email-provider entries
 - [x] Movement idempotency key (`clientRequestId`) — closes a duplicate-record risk on ambiguous network failures. See [decisions.md](./decisions.md#movement-idempotency-key).
 - [x] Row Level Security enabled on every application table (defense in depth; the runtime-created session table is excluded until it exists). See [decisions.md](./decisions.md#row-level-security-defense-in-depth).
 - [x] Converted to an **npm workspaces** monorepo — one `npm install` and one `npm run dev` from the repo root runs both apps together, on any machine, not just the one this was built on. See [decisions.md](./decisions.md#npm-workspaces-single-install-single-dev-command).
@@ -90,16 +90,51 @@ The remaining items below are intentionally low-priority cleanup work rather tha
 - **Offline + app restart mid-outage**: the app now restores a cached user profile for up to 12 hours whenever `/auth/me` can't be answered — offline, a network failure, or a timeout — rather than only when `navigator.onLine` is `false` (that narrower check missed "online but server unreachable"; fixed 2026-09-11, see `docs/decisions.md`). This allows the recording screen and queue to reopen. The server remains authoritative; cached authentication is not used for online API access, and a real server-issued rejection (401/403) still logs the user out immediately.
 - **Reports controller's `email` endpoint uses `@Post` with query params** rather than a request body — consistent with the rest of the reports endpoints (`image`/`pdf` also use query params for `employeeId`/`date`), but worth a second look if this API is ever consumed by something other than the bundled frontend. Left as-is deliberately: changing just one of the three reports endpoints would be inconsistent, and changing all three touches both the API contract and every frontend caller — a coordinated change, not a quick one.
 
-## Not started — infrastructure (deployment)
+## Infrastructure (deployment) — live since 2026-09-11
 
-None of these can be done from here — each needs an account, credential, or hosting decision only Adage can make:
+- [x] Backend deployed — Render (`https://adage-security-system.onrender.com`)
+- [x] Frontend PWA deployed — Vercel
+- [x] Production domain (provider-issued subdomains for now, no custom domain yet), HTTPS (terminated automatically by both Vercel and Render), CORS allow-list (`FRONTEND_URL`), production database (Supabase `ap-south-1`), server runtime timezone (`TZ=Asia/Kolkata`, validated at boot — see `docs/architecture.md`)
+- [x] Puppeteer's Chromium on Render — found broken live 2026-09-21 (`Could not find Chrome`; Render's build-cache "up to date" fast-path was silently skipping `postinstall`), fixed by installing Chrome as an explicit Build Command step instead. See `docs/decisions.md`'s "Deploying to Render" entry and `docs/deployment.md`'s checklist. Verified: Email Details works end to end in production.
+- [x] Keep-alive for Render's 15-min sleep + Supabase's 7-day auto-pause — `GET /api/health` + `.github/workflows/keep-alive.yml`; an external uptime monitor (UptimeRobot free tier recommended) is the suggested primary pinger. See `docs/deployment.md#keeping-it-alive-render-sleep--supabase-auto-pause`.
+- [x] CI pipeline (lint + build + test on every push/PR) — `.github/workflows/ci.yml` runs workspace install, backend/frontend lint, backend tests, and the full build. Deployment itself is not automated from CI (a manual/Render-triggered deploy on push).
 
-- [ ] Deploy the backend to a hosting provider (Railway/Render/Fly.io/AWS/Azure — see `docs/deployment.md`)
-- [ ] Deploy the frontend PWA to a static host (Vercel/Netlify/Cloudflare Pages)
-- [ ] Configure the production domain, HTTPS termination, CORS allow-list, production database, automated backups, and the server runtime timezone (`TZ=Asia/Kolkata`)
-- [ ] Verify Puppeteer's Chromium dependency actually works on whichever hosting provider is chosen — some serverless/container platforms need extra config
-- [x] CI pipeline (lint + build + test on every push/PR) — `.github/workflows/ci.yml` runs workspace install, backend/frontend lint, backend tests, and the full build. Deployment automation remains separate.
+## 2026-09-21 — full-codebase audit (bugs, crashes, offline/network edge cases)
+
+A complete pass across every backend module and every frontend page, all three roles, requested explicitly ("check the entire code... find any bugs or code that might crash... what can happen if there is internet issue"). 11 real findings, all fixed except one (deliberately mitigated, not eliminated — see below):
+
+- [x] `/dashboard/summary`'s no-`date` fallback used the UTC calendar date, not IST — the same class of bug already fixed everywhere else, reintroduced here. Fixed with `todayInAppTimezone()`.
+- [x] Changing a user's email to one already in use 500'd with a raw Prisma error instead of a clean one. Fixed.
+- [x] No protection against locking every Admin out (disabling the last admin, or reassigning their role away). Fixed server-side — see `docs/decisions.md`.
+- [x] ENTRY/EXIT buttons had no in-flight guard — a double-tap on a slow connection could create a real duplicate record. Fixed (disabled + spinner while a request is in flight).
+- [x] Employee search failures were indistinguishable from "no such employee" (silently rendered as an empty result). Fixed — explicit error message shown instead.
+- [x] `employeeCode` uniqueness was case-sensitive while every search is case-insensitive, and `email` had no uniqueness constraint at all. Fixed with case-insensitive checks on create/update.
+- [x] `StorageService` failed deep inside the AWS SDK with an opaque error when `STORAGE_*` env vars were missing. Fixed with a fail-fast check matching `EmailService`'s existing pattern.
+- [x] Corrections/missing-record modal crashed into a raw `"Invalid time value"` error if the time field was cleared before saving. Fixed with input validation.
+- [x] `navigator.onLine` alone can't detect "server unreachable while the network link is fine" — closed the same gap already fixed for auth, now on the recording screen too, via `GET /api/health` + periodic polling.
+- [x] Offline sync only retried on browser online/offline events, missing "link never dropped, server was briefly down" — added a timer-based retry, plus a `beforeunload` warning when movements are still pending sync.
+- **Not eliminated, only mitigated**: the offline movement queue lives only in the guard's browser (IndexedDB) with no server-side trace — clearing site data, uninstalling the PWA, or switching devices before syncing still loses queued movements permanently and silently. The timer retry and `beforeunload` warning above shrink the risk window; a full fix would need a different architecture (e.g. a server-acknowledged offline channel, or an SMS/USSD fallback). Flagged as a follow-up, not yet scheduled.
+
+See `CHANGELOG.md`'s 2026-09-21 entry for the complete file-level diff list, and `docs/decisions.md` for the reasoning behind each fix.
+
+## 2026-09-21 (cont.) — UI/UX pass
+
+A full pass over every user-facing interaction, requested explicitly ("the ux is the most important thing... easy to use... no struggle"). Real, verified fixes (not just implemented blind — each was confirmed with a Puppeteer screenshot before being called done):
+
+- [x] Header logo rendered with a blurry "shadow" edge — was a CSS mask hack faking a white version of the (real, unaltered) teal logo; replaced with the logo shown in its true color on a small white badge.
+- [x] **Employees "Edit" opened its form at the top of the page**, invisible without scrolling back up — converted to a centered modal, same pattern as Corrections' edit modal.
+- [x] **Editing or deactivating an employee reloaded the list from page 1**, silently discarding any "Load More" progress — now patches just that one row in local state instead of reloading. Same fix applied to Users' disable/enable.
+- [x] **No success confirmation after "Add Employee"/"Add User"** — with 200+ employees sorted alphabetically, a newly added one might not even land on the reset-to-page-1 view, and the only prior feedback was the form silently clearing. Both now show an explicit success banner.
+- [x] **Users page had no loading indicator at all** — missed in the loading-skeleton work below; fixed to match every other data table in the app.
+- [x] No loading indicator on any data table while fetching (Dashboard, Employees, Corrections, Audit Log, Employee Details, Users) — added a shared shimmer skeleton (`TableSkeleton`).
+- [x] No password visibility toggle anywhere (Login, Reset Password, Add User) — added a shared `PasswordInput` component.
+- [x] No way to clear a search box except deleting text manually (SecurityHome, Dashboard, Corrections, Employees) — added a clear (×) button, matching the affordance the selected-employee chip already had.
+- [x] `.table-action-btn` (Edit/Deactivate/Correct) was a ~28px touch target, tight on a tablet — bumped to 36px+.
+- [x] No visual required-field marker on any form — added `*` markers everywhere.
+- [x] Form inputs were 15px, under the 16px iOS Safari needs to not auto-zoom the page on focus — bumped to 16px app-wide.
+
+See `CHANGELOG.md`'s 2026-09-21 (cont. 2)/(cont. 3) entries for the complete list, and `docs/developer-guide.md`'s "Adding a new frontend page" section for the conventions this established going forward.
 
 ## Suggested next step
 
-The database is live, the core movement-recording loop and the full RBAC split are verified end to end, two full audit passes have been completed with all blocking/real-gap findings fixed, and as of 2026-09-10 the full "Email Details" flow (Graph API send + Supabase Storage) is verified working end to end against a real inbox. Nothing is currently blocked on external input. The highest-leverage next steps, in order: (1) run the Exchange Online application access policy restricting the Azure app to one mailbox (currently unrestricted — see "Blocked" section above); (2) swap `MAIL_FROM_ADDRESS`/`SECURITY_EMAIL` to the real `security@adage-automation.com` mailbox once it exists, replacing the current `shivani.naik@` stand-in; (3) expand the automated test suite against `docs/testing.md`'s checklist; (4) pick a hosting provider and deploy, since every remaining infrastructure item downstream of that decision is currently unblockable from here.
+The app is live end to end — frontend (Vercel), backend (Render), database (Supabase), email (Microsoft Graph) — with all three roles verified working, the full "Email Details" flow confirmed in production (including the 2026-09-21 Puppeteer/Render fix), and both a mobile/desktop responsive audit and a full crash/bug/offline-edge-case audit completed with every real finding fixed except the one offline-queue limitation noted above. Nothing is currently blocked on external input except the two items below. Highest-leverage next steps, in order: (1) run the Exchange Online application access policy restricting the Azure app to one mailbox (currently unrestricted — see "Blocked" section above); (2) swap `MAIL_FROM_ADDRESS`/`SECURITY_EMAIL` to the real `security@adage-automation.com` mailbox once it exists, replacing the current `shivani.naik@` stand-in; (3) set up the recommended external uptime monitor (UptimeRobot or similar) on `/api/health` if not already done, since the GitHub Actions pinger alone has the 60-day-inactivity blind spot noted above; (4) decide whether the offline-queue's remaining data-loss risk (above) is worth a dedicated follow-up.

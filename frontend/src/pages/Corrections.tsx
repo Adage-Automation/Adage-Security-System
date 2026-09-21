@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { Employee, MovementRecord, MovementType } from '../types';
 import { IconEdit, IconPlus, IconInbox, IconX, IconCheckCircle } from '../components/icons';
 import { AdminNav } from '../components/AdminNav';
+import { TableSkeleton } from '../components/TableSkeleton';
 import { todayIso, formatTime } from '../utils/date';
 
 function initials(name: string): string {
@@ -37,6 +38,11 @@ export function Corrections() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  // See the matching comment in SecurityHome.tsx — tracks dropdown
+  // visibility separately from `results` so a click outside the search box
+  // can close it. Found in the 2026-09-21 audit.
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const searchBoxRef = useRef<HTMLDivElement>(null);
   const modalCloseRef = useRef<HTMLButtonElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
 
@@ -75,18 +81,30 @@ export function Corrections() {
     return () => document.removeEventListener('keydown', closeOnEscape);
   }, [edit, saving]);
 
+  // search-all includes inactive/deactivated employees — corrections must
+  // still be possible for someone who has since left (spec §39/§42). A
+  // blank query now returns a browse list (backend change, 2026-09-21)
+  // instead of nothing, so the dropdown shows something on focus rather
+  // than only once something's been typed.
+  const fetchResults = useCallback((q: string) => {
+    api.get<Employee[]>(`/employees/search-all?q=${encodeURIComponent(q)}`).then(setResults).catch(() => setResults([]));
+  }, []);
+
   useEffect(() => {
-    if (!query.trim()) {
-      setResults([]);
-      return;
-    }
-    const t = setTimeout(() => {
-      // search-all includes inactive/deactivated employees — corrections
-      // must still be possible for someone who has since left (spec §39/§42).
-      api.get<Employee[]>(`/employees/search-all?q=${encodeURIComponent(query)}`).then(setResults).catch(() => setResults([]));
-    }, 250);
+    const t = setTimeout(() => fetchResults(query), query.trim() ? 250 : 0);
     return () => clearTimeout(t);
-  }, [query]);
+  }, [query, fetchResults]);
+
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    const closeIfOutside = (event: MouseEvent) => {
+      if (searchBoxRef.current && !searchBoxRef.current.contains(event.target as Node)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', closeIfOutside);
+    return () => document.removeEventListener('mousedown', closeIfOutside);
+  }, [dropdownOpen]);
 
   function openCorrect(record: MovementRecord) {
     const d = new Date(record.movementAt);
@@ -199,39 +217,60 @@ export function Corrections() {
               </button>
             </div>
           ) : (
-            <input aria-label="Search employees including inactive employees" placeholder="Search employee (including inactive)..." value={query} onChange={(e) => setQuery(e.target.value)} />
-          )}
-          {results.length > 0 && (
-            <div className="search-results">
-              {results.map((emp) => (
-                <button
-                  key={emp.id}
-                  onClick={() => {
-                    setSelected(emp);
-                    setQuery('');
-                    setResults([]);
-                  }}
-                >
-                  <span className="result-avatar">{initials(emp.employeeName)}</span>
-                  <span className="result-text">
-                    <div className="result-name">
-                      {emp.employeeName}
-                      {!emp.isActive && <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}> · inactive</span>}
-                    </div>
-                    <div className="result-meta">
-                      {emp.employeeCode}
-                      {emp.carNumber ? ` · ${emp.carNumber}` : ''}
-                    </div>
-                  </span>
+            <div style={{ position: 'relative' }} ref={searchBoxRef}>
+              <input
+                aria-label="Search employees including inactive employees"
+                placeholder="Search employee (including inactive)..."
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onFocus={() => {
+                  setDropdownOpen(true);
+                  fetchResults(query);
+                }}
+                style={{ paddingRight: query ? 36 : undefined }}
+              />
+              {query && (
+                <button type="button" className="search-clear-btn" onClick={() => setQuery('')} aria-label="Clear search">
+                  <IconX />
                 </button>
-              ))}
+              )}
+              {dropdownOpen && results.length > 0 && (
+                <div className="search-results">
+                  {results.map((emp) => (
+                    <button
+                      key={emp.id}
+                      onClick={() => {
+                        setSelected(emp);
+                        setQuery('');
+                        setResults([]);
+                        setDropdownOpen(false);
+                      }}
+                    >
+                      <span className="result-avatar">{initials(emp.employeeName)}</span>
+                      <span className="result-text">
+                        <div className="result-name">
+                          {emp.employeeName}
+                          {!emp.isActive && <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}> · inactive</span>}
+                        </div>
+                        <div className="result-meta">
+                          {emp.employeeCode}
+                          {emp.carNumber ? ` · ${emp.carNumber}` : ''}
+                        </div>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
       </div>
 
+      {selected && recordsLoading && records.length === 0 && <TableSkeleton columns={3} />}
+
       {selected && (
         <>
+          {records.length > 0 && (
           <table className="records-table">
             <thead>
               <tr>
@@ -254,6 +293,7 @@ export function Corrections() {
               ))}
             </tbody>
           </table>
+          )}
 
           {!recordsLoading && records.length === 0 && (
             <div className="empty-state">
@@ -299,7 +339,7 @@ export function Corrections() {
             </div>
             <div className="field">
               <label>
-                Time (on {date})
+                Time (on {date})<span className="required-mark"> *</span>
                 <input type="time" value={edit.time} onChange={(e) => setEdit({ ...edit, time: e.target.value })} required />
               </label>
             </div>

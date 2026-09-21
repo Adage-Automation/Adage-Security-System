@@ -112,16 +112,56 @@ svg {
   border-top-color: var(--brand);
 }
 
+/* ── Skeleton loading placeholders (TableSkeleton component) ── */
+@keyframes shimmer {
+  0% {
+    background-position: -300px 0;
+  }
+  100% {
+    background-position: 300px 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #eef1f0 25%, #e2e9e8 37%, #eef1f0 63%);
+  background-size: 300px 100%;
+  animation: shimmer 1.3s ease-in-out infinite;
+  border-radius: 6px;
+}
+
+.skeleton-text {
+  height: 14px;
+}
+
+.skeleton-pill {
+  height: 20px;
+  width: 64px;
+  border-radius: 999px;
+}
+
 /* ── Logo — real Adage wordmark (frontend/public/logo.png) ── */
+/* The header background is dark teal, and the logo itself is teal —
+   invisible directly on it. Previously "solved" by CSS-masking the logo to
+   solid white, but a mask built from a PNG's anti-aliased alpha edges
+   blurs/fringes at this small a render size, reading as a soft grey
+   "shadow" around the wordmark — found and reported 2026-09-21. Showing
+   the logo in its real, unaltered color on a small white badge instead
+   renders it crisply (same technique the login/reset-password cards
+   already use, just applied to the header too) with no masking artifacts
+   at all. */
+.logo-badge {
+  display: flex;
+  align-items: center;
+  background: white;
+  border-radius: var(--radius-sm);
+  padding: 5px 10px;
+  box-shadow: var(--shadow-sm);
+}
+
 .logo-img {
-  height: 26px;
+  height: 20px;
   width: auto;
   display: block;
-  /* the header background is dark teal; the logo's own teal reads poorly
-     on it, so render it white via a mask rather than shipping a second file */
-  -webkit-mask: url('/logo.png') left center / contain no-repeat;
-  mask: url('/logo.png') left center / contain no-repeat;
-  background-color: white;
 }
 
 .login-logo-img {
@@ -277,11 +317,43 @@ svg {
 .search-box input {
   width: 100%;
   font-size: 17px;
-  padding: 16px 18px 16px 46px;
+  padding: 16px 46px 16px 46px;
   border-radius: var(--radius-md);
   border: 1.5px solid var(--border);
   background: var(--card-bg);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* Clear (×) button inside a search input — lets typing be undone with one
+   tap instead of holding backspace, matching the clear affordance the
+   selected-employee chip already has. Shared by every search box in the
+   app (SecurityHome, Dashboard, Corrections, Employees). */
+.search-clear-btn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 50%;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.search-clear-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+.search-clear-btn:hover {
+  background: var(--brand-tint);
+  color: var(--brand-dark);
 }
 
 .search-box input:focus {
@@ -614,7 +686,10 @@ svg {
   padding: 12px 14px;
   border-radius: var(--radius-sm);
   border: 1.5px solid var(--border);
-  font-size: 15px;
+  /* 16px, not 15px — iOS Safari auto-zooms the whole page on focus for any
+     input under 16px, a jarring surprise on a form a guard/HR/admin fills
+     out on a phone. Found in the 2026-09-21 UX pass. */
+  font-size: 16px;
   background: var(--card-bg);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
@@ -624,6 +699,60 @@ svg {
   outline: none;
   border-color: var(--brand-light);
   box-shadow: 0 0 0 4px var(--brand-tint);
+}
+
+/* Marks a required field's label. Only for the sibling label+htmlFor
+   pattern (Login/ForgotPassword/ResetPassword) — `:has()` works here
+   because the label's content ends exactly where the asterisk should
+   appear. The nested `<label>Text<input/></label>` pattern used elsewhere
+   puts the input *inside* the label, so a `label::after` would render
+   after the input's own box (visually below it, not next to the text) —
+   those fields get an explicit `.required-mark` span in JSX instead. */
+.field label:has(+ input[required])::after,
+.field label:has(+ .password-input input[required])::after {
+  content: ' *';
+  color: var(--exit-red);
+}
+
+.required-mark {
+  color: var(--exit-red);
+}
+
+/* ── Password visibility toggle (PasswordInput component) ── */
+.password-input {
+  position: relative;
+}
+
+.password-input input {
+  padding-right: 42px;
+}
+
+.password-toggle {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.password-toggle svg {
+  width: 18px;
+  height: 18px;
+}
+
+.password-toggle:hover {
+  background: var(--brand-tint);
+  color: var(--brand-dark);
 }
 
 /* Some fields wrap their control in <label> instead of pairing it via
@@ -948,13 +1077,18 @@ table.records-table th {
 }
 
 .table-action-btn {
-  padding: 6px 12px;
+  /* Was 6px 12px (~28px tall) — comfortable with a mouse, tight on a
+     tablet/touchscreen, which matters here since admin screens are
+     plausibly used on a tablet at the gate too. 36px+ meets the common
+     touch-target guidance. Found in the 2026-09-21 UX pass. */
+  padding: 9px 14px;
+  min-height: 36px;
   border-radius: 8px;
   border: 1.5px solid var(--border);
   background: white;
   color: var(--brand-dark);
   font-weight: 600;
-  font-size: 12px;
+  font-size: 12.5px;
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease;
 }

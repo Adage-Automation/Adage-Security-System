@@ -1,8 +1,9 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { Employee } from '../types';
-import { IconUsers, IconSearch, IconInbox } from '../components/icons';
+import { IconUsers, IconSearch, IconInbox, IconX, IconCheckCircle } from '../components/icons';
 import { AdminNav } from '../components/AdminNav';
+import { TableSkeleton } from '../components/TableSkeleton';
 
 const PAGE_SIZE = 50;
 
@@ -16,6 +17,42 @@ export function Employees() {
   const [editing, setEditing] = useState<Employee | null>(null);
   const [editForm, setEditForm] = useState({ employeeName: '', email: '', carNumber: '' });
   const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const editModalRef = useRef<HTMLDivElement>(null);
+  const editFirstFieldRef = useRef<HTMLInputElement>(null);
+
+  // The edit form used to render inline at the top of the page, above the
+  // filters and table — invisible and unreachable without scrolling back
+  // up, especially bad once the roster grew large enough to need "Load
+  // More" (an admin editing the 150th row had no idea where their typing
+  // was even going). A modal appears centered in the viewport regardless
+  // of scroll position, so there's never a "where do I type" moment.
+  // Matches the same modal pattern already used by Corrections.tsx and the
+  // ENTRY/EXIT duplicate-confirm dialog. Found in the 2026-09-21 UX pass.
+  useEffect(() => {
+    if (editing) editFirstFieldRef.current?.focus();
+    if (!editing) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setEditing(null);
+      if (event.key === 'Tab') {
+        const focusable = editModalRef.current?.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        );
+        if (!focusable?.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [editing]);
 
   function load(reset: boolean) {
     setLoading(true);
@@ -54,12 +91,20 @@ export function Employees() {
       // isn't known yet) — but the backend's @IsEmail() rejects an empty
       // string outright (only @IsOptional() skips undefined/null), so a
       // blank field must be omitted from the payload, not sent as "".
-      await api.post('/employees', {
+      const created = await api.post<Employee>('/employees', {
         ...form,
         email: form.email.trim() || undefined,
         carNumber: form.carNumber.trim() || undefined,
       });
       setForm({ employeeCode: '', employeeName: '', email: '', carNumber: '' });
+      // The list resets to page 1 (sorted by name) below — with 200+
+      // employees, a newly added one might not even land in the first 50
+      // rows, and the form clearing silently was the only prior feedback.
+      // An explicit confirmation makes it clear the add actually worked,
+      // even when the new row itself isn't visible without a search.
+      // Found in the 2026-09-21 UX pass.
+      setSuccessMsg(`${created.employeeName} added successfully.`);
+      setTimeout(() => setSuccessMsg(null), 4000);
       load(true);
     } catch (err: any) {
       setError(err?.message ?? 'Failed to create employee.');
@@ -69,8 +114,14 @@ export function Employees() {
   async function toggleActive(emp: Employee) {
     const path = emp.isActive ? 'deactivate' : 'reactivate';
     try {
-      await api.patch(`/employees/${emp.id}/${path}`);
-      load(true);
+      const updated = await api.patch<Employee>(`/employees/${emp.id}/${path}`);
+      // Patch this one row in place rather than reloading from page 1 —
+      // a full reload used to silently collapse the list back to the
+      // first 50 rows, discarding any "Load More" progress. An admin who
+      // scrolled/loaded their way to row 150 to deactivate someone would
+      // lose their place and have to redo all of it. Found in the
+      // 2026-09-21 UX pass.
+      setEmployees((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
     } catch (err: any) {
       setError(err?.message ?? `Failed to ${path} employee.`);
     }
@@ -87,13 +138,15 @@ export function Employees() {
     if (!editing) return;
     setError(null);
     try {
-      await api.put(`/employees/${editing.id}`, {
+      const updated = await api.put<Employee>(`/employees/${editing.id}`, {
         employeeName: editForm.employeeName.trim(),
         email: editForm.email.trim() || undefined,
         carNumber: editForm.carNumber.trim() || undefined,
       });
+      // Same reasoning as toggleActive above — patch this one row instead
+      // of reloading from page 1 and losing "Load More" progress.
+      setEmployees((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
       setEditing(null);
-      load(true);
     } catch (err: any) {
       setError(err?.message ?? 'Failed to update employee.');
     }
@@ -115,13 +168,13 @@ export function Employees() {
         <form onSubmit={handleCreate} style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
           <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
             <label>
-              Employee Code
+              Employee Code<span className="required-mark"> *</span>
               <input value={form.employeeCode} onChange={(e) => setForm({ ...form, employeeCode: e.target.value })} required />
             </label>
           </div>
           <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
             <label>
-              Name
+              Name<span className="required-mark"> *</span>
               <input value={form.employeeName} onChange={(e) => setForm({ ...form, employeeName: e.target.value })} required />
             </label>
           </div>
@@ -143,38 +196,14 @@ export function Employees() {
             </button>
           </div>
         </form>
+        {successMsg && (
+          <div className="status-banner success" style={{ marginTop: 12, marginBottom: 0 }} role="status" aria-live="polite">
+            <IconCheckCircle />
+            {successMsg}
+          </div>
+        )}
         {error && <div className="error-text">{error}</div>}
       </div>
-
-      {editing && (
-        <div className="section-card">
-          <h3>Edit Employee: {editing.employeeCode}</h3>
-          <form onSubmit={saveEdit} style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-            <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
-              <label>
-                Name
-                <input value={editForm.employeeName} onChange={(e) => setEditForm({ ...editForm, employeeName: e.target.value })} required />
-              </label>
-            </div>
-            <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
-              <label>
-                Email (optional)
-                <input type="email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
-              </label>
-            </div>
-            <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
-              <label>
-                Car Number (optional)
-                <input value={editForm.carNumber} onChange={(e) => setEditForm({ ...editForm, carNumber: e.target.value })} />
-              </label>
-            </div>
-            <div className="form-actions" style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
-              <button type="submit" className="primary-button" style={{ width: 'auto', padding: '12px 20px' }}>Save</button>
-              <button type="button" className="table-action-btn" onClick={() => setEditing(null)}>Cancel</button>
-            </div>
-          </form>
-        </div>
-      )}
 
       <div className="filters-bar">
         <div className="field" style={{ position: 'relative', marginBottom: 0 }}>
@@ -183,15 +212,22 @@ export function Employees() {
             <div style={{ position: 'relative' }}>
               <IconSearch className="search-icon" style={{ left: 12, width: 16, height: 16 }} />
               <input
-                style={{ paddingLeft: 36 }}
+                style={{ paddingLeft: 36, paddingRight: query ? 36 : undefined }}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={`All ${total || ''} employees`}
               />
+              {query && (
+                <button type="button" className="search-clear-btn" onClick={() => setQuery('')} aria-label="Clear search">
+                  <IconX />
+                </button>
+              )}
             </div>
           </label>
         </div>
       </div>
+
+      {loading && employees.length === 0 && <TableSkeleton columns={6} />}
 
       {employees.length > 0 && (
         <>
@@ -249,6 +285,57 @@ export function Employees() {
           <IconInbox />
           <div className="empty-title">No employees found</div>
           <div className="empty-hint">Try a different search, or add one above.</div>
+        </div>
+      )}
+
+      {editing && (
+        <div className="modal-overlay" role="presentation">
+          <div
+            ref={editModalRef}
+            className="modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-employee-title"
+            style={{ textAlign: 'left', maxWidth: 440 }}
+          >
+            <h3 id="edit-employee-title" style={{ marginTop: 0, textAlign: 'center' }}>
+              Edit Employee: {editing.employeeCode}
+            </h3>
+            <form onSubmit={saveEdit}>
+              <div className="field">
+                <label>
+                  Name<span className="required-mark"> *</span>
+                  <input
+                    ref={editFirstFieldRef}
+                    value={editForm.employeeName}
+                    onChange={(e) => setEditForm({ ...editForm, employeeName: e.target.value })}
+                    required
+                  />
+                </label>
+              </div>
+              <div className="field">
+                <label>
+                  Email (optional)
+                  <input type="email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
+                </label>
+              </div>
+              <div className="field">
+                <label>
+                  Car Number (optional)
+                  <input value={editForm.carNumber} onChange={(e) => setEditForm({ ...editForm, carNumber: e.target.value })} />
+                </label>
+              </div>
+              {error && <div className="error-text">{error}</div>}
+              <div className="modal-actions">
+                <button type="button" className="cancel-btn" onClick={() => setEditing(null)}>
+                  Cancel
+                </button>
+                <button type="submit" className="confirm-btn">
+                  Save
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

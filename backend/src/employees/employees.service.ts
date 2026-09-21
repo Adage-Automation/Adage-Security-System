@@ -15,20 +15,28 @@ export class EmployeesService {
     private auditLog: AuditLogService,
   ) {}
 
-  // Used by the Security ENTRY/EXIT selector — active employees only.
+  // Used by the Security ENTRY/EXIT selector — active employees only. A
+  // blank query used to return nothing at all, so the dropdown stayed
+  // empty until the guard typed something — clicking/focusing the search
+  // box looked broken (no visual response at all). Now returns the first
+  // page of active employees alphabetically instead, so the frontend can
+  // show a "browse" list immediately on focus, before any typing. Found in
+  // the 2026-09-21 UX pass.
   async search(query: string) {
-    if (!query || query.trim().length === 0) {
-      return [];
-    }
+    const trimmed = query?.trim() ?? '';
     return this.prisma.employee.findMany({
       where: {
         isActive: true,
-        OR: [
-          { employeeName: { contains: query, mode: 'insensitive' } },
-          { employeeCode: { contains: query, mode: 'insensitive' } },
-          { email: { contains: query, mode: 'insensitive' } },
-          { carNumber: { contains: query, mode: 'insensitive' } },
-        ],
+        ...(trimmed
+          ? {
+              OR: [
+                { employeeName: { contains: trimmed, mode: 'insensitive' as const } },
+                { employeeCode: { contains: trimmed, mode: 'insensitive' as const } },
+                { email: { contains: trimmed, mode: 'insensitive' as const } },
+                { carNumber: { contains: trimmed, mode: 'insensitive' as const } },
+              ],
+            }
+          : {}),
       },
       take: SEARCH_RESULT_LIMIT,
       orderBy: { employeeName: 'asc' },
@@ -37,19 +45,20 @@ export class EmployeesService {
 
   // Used by admin correction flows — includes inactive employees so
   // historical records can still be fixed after someone has left (§39/§42).
+  // Same blank-query browse-list behavior as search() above.
   async searchIncludingInactive(query: string) {
-    if (!query || query.trim().length === 0) {
-      return [];
-    }
+    const trimmed = query?.trim() ?? '';
     return this.prisma.employee.findMany({
-      where: {
-        OR: [
-          { employeeName: { contains: query, mode: 'insensitive' } },
-          { employeeCode: { contains: query, mode: 'insensitive' } },
-          { email: { contains: query, mode: 'insensitive' } },
-          { carNumber: { contains: query, mode: 'insensitive' } },
-        ],
-      },
+      where: trimmed
+        ? {
+            OR: [
+              { employeeName: { contains: trimmed, mode: 'insensitive' as const } },
+              { employeeCode: { contains: trimmed, mode: 'insensitive' as const } },
+              { email: { contains: trimmed, mode: 'insensitive' as const } },
+              { carNumber: { contains: trimmed, mode: 'insensitive' as const } },
+            ],
+          }
+        : {},
       take: SEARCH_RESULT_LIMIT,
       orderBy: { employeeName: 'asc' },
     });

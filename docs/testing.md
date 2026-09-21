@@ -1,6 +1,6 @@
 # Testing
 
-The codebase now has real Jest coverage in both apps. Backend tests cover username authentication, password reset, employee search/car-number behavior, movement creation/idempotency/corrections, dashboard queries, RBAC, Microsoft Graph failures, storage/report generation failures, and the reports email-success path. Controller-level specs were recently added for the Employees and Reports HTTP surfaces as well. Frontend tests cover the IndexedDB movement queue (including userId scoping and conflict state), the offline auth-cache fallback decision, and the employee day working-hours calculation. This document tracks the current implemented coverage and the remaining areas still worth expanding.
+The codebase now has real Jest coverage in both apps. Backend tests cover username authentication, password reset, employee search/car-number behavior, movement creation/idempotency/corrections, dashboard queries, RBAC, Microsoft Graph failures, storage/report generation failures, the reports email-success path, user management (email-uniqueness rejection, last-admin lockout protection), the IST-aware default-date helper (`todayInAppTimezone`), and the `/api/health` endpoint. Controller-level specs were recently added for the Employees and Reports HTTP surfaces as well. Frontend tests cover the IndexedDB movement queue (including userId scoping and conflict state), the offline auth-cache fallback decision, and the employee day working-hours calculation. This document tracks the current implemented coverage and the remaining areas still worth expanding.
 
 ## Authentication
 
@@ -20,8 +20,12 @@ The codebase now has real Jest coverage in both apps. Backend tests cover userna
 - Search matches name, employee code, email, and car number, case-insensitively
 - Search returns only active employees on `/employees/search`, but includes inactive on `/employees/search-all`
 - Search caps at 10 results
-- Create rejects a duplicate `employeeCode`
+- Create rejects a duplicate `employeeCode`, including one that only differs in case (e.g. `EMP001` vs `emp001`)
+- Create/update rejects an `email` already registered to another employee, naming the existing employee in the error
 - Update, deactivate, reactivate all write an audit log entry with before/after values
+- (Frontend, manual) Editing or deactivating an employee loaded via "Load More" keeps the rest of the loaded list and scroll position intact — does not silently reset back to page 1
+- (Frontend, manual) "Edit" opens a centered modal regardless of scroll position; "Add Employee" shows a success confirmation after creating
+- (Frontend, manual) Every employee search box (Security recording screen, Dashboard's employee filter, Corrections) shows a browse list of employees on focus, before typing; clicking/tapping anywhere outside the box closes the dropdown, and it does not open on its own on page load
 
 ## Movements
 
@@ -49,6 +53,17 @@ The codebase now has real Jest coverage in both apps. Backend tests cover userna
 - A PNG attachment is included and matches the on-screen data
 - A failed send (e.g. provider error) marks the `email_logs` row `FAILED` with `errorMessage` populated, and does not silently report success to the caller
 - No code path other than `POST /reports/email` ever calls `EmailService` — specifically, creating a movement record must never trigger a send
+
+## Users (admin)
+
+- Updating a user's email to one already in use returns a clean `409`, not a raw database error
+- Disabling the last active user who holds `MANAGE_USERS` is rejected with `400`; disabling one when another active admin remains succeeds; disabling a non-admin is unaffected by admin count
+- Reassigning the last active `MANAGE_USERS` holder's `roleId` to a role without that permission is rejected with `400`; the same change succeeds when another active admin remains
+
+## Health
+
+- `GET /health` returns `200 { status: 'ok', time }` when the database responds
+- `GET /health` returns `503` when the database is unreachable (no auth required either way)
 
 ## Authorization
 

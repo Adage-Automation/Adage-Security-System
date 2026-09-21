@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { Employee, MovementRecord } from '../types';
 import { IconArrowLeft, IconMail, IconCheckCircle, IconXCircle, IconInbox, IconClock } from '../components/icons';
+import { TableSkeleton } from '../components/TableSkeleton';
 import { todayIso, formatTime } from '../utils/date';
 
 function initials(name: string): string {
@@ -143,6 +144,8 @@ export function EmployeeDetails() {
           <div className="code">Date: {dateLabel}</div>
         </div>
       )}
+
+      {recordsLoading && records.length === 0 && <TableSkeleton columns={2} />}
 
       {records.length > 0 && (
         <>

@@ -53,6 +53,7 @@ backend/src/
 ├── email/           Microsoft Graph API wrapper (OAuth2, via Adage's Microsoft 365 tenant) — the only place that sends email
 ├── audit-logs/      write-through audit trail, read endpoint for admins
 ├── settings/        key/value system config (company name, timezone, security email, sender name)
+├── health/          GET /health — public, real DB round trip; reachability check + external keep-alive target
 ├── common/          shared decorators (CurrentUser, RequirePermissions), guards, permission constants
 └── prisma/          PrismaService — single DB client, globally injected
 ```
@@ -78,7 +79,10 @@ frontend/src/
 ├── auth/auth-context.ts AuthContext and AuthContextValue type — separated from the provider to allow importing the context type without importing the provider's full dependency tree
 ├── auth/useAuth.ts      `useAuth()` hook — separated from the provider for the same reason; all component imports now use this file rather than AuthContext.tsx directly
 ├── offline/movementQueue.ts  IndexedDB-backed queue for offline ENTRY/EXIT taps; each entry is scoped to a userId; entries have a syncState ('pending' | 'conflict') — a duplicate that comes back requiresConfirmation on sync is marked conflict and surfaced to the guard for explicit resolution rather than auto-confirmed
-├── components/           Header, ProtectedRoute, ErrorBoundary
+├── components/
+│   ├── Header.tsx, ProtectedRoute.tsx, ErrorBoundary.tsx, AdminNav.tsx (admin section nav), icons.tsx (inline SVG icon set)
+│   ├── TableSkeleton.tsx  shimmering loading placeholder — shown while a table's data is loading, used on every data table
+│   └── PasswordInput.tsx  `<input type="password">` with a show/hide toggle — used on every password field
 ├── pages/
 │   ├── Login.tsx
 │   ├── ForgotPassword.tsx  request a reset link by email
@@ -121,3 +125,5 @@ See [decisions.md](./decisions.md) for full rationale on each of these.
 ## Timezone handling
 
 The application timezone is `Asia/Kolkata` (`APP_TIMEZONE` env var). Day-boundary queries (e.g., "today's records") rely on the **server process** running in that timezone — deploy with `TZ=Asia/Kolkata` set, or the day boundaries will be computed against the server's local time instead. The backend now also validates this at startup in production and logs the detected runtime timezone so a misconfigured deploy fails fast instead of silently drifting. See the note in `backend/src/movements/movements.service.ts` and the startup check in `backend/src/main.ts`.
+
+A separate, easy-to-miss pitfall: `new Date().toISOString()` **always** returns the UTC calendar date, regardless of the server process's `TZ` — so any code computing "today" this way (rather than through a proper timezone-aware helper) is wrong for the first 5.5 hours of every IST day, even on a correctly-configured production server. `backend/src/common/utils/day-range.ts`'s `todayInAppTimezone()` (added 2026-09-21, after `GET /dashboard/summary`'s no-`date` fallback was found still using the UTC-based version) is the one correct way to compute "today" server-side; the frontend's equivalent is `frontend/src/utils/date.ts`'s `todayIso()`. Any new "default to today" code, backend or frontend, should use one of these two helpers rather than reimplementing it.

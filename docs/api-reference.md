@@ -1,6 +1,11 @@
 # API Reference
 
-All routes are prefixed with `/api`. Auth is session-cookie based (`credentials: 'include'` required on every fetch). Every route below except `POST /auth/login`, `POST /auth/forgot-password`, and `POST /auth/reset-password` requires an authenticated session; routes also list the permission enforced by `PermissionsGuard`. Roles hold different permission sets (see `docs/security.md` for the current mapping) — the guard check always runs regardless of role.
+All routes are prefixed with `/api`. Auth is session-cookie based (`credentials: 'include'` required on every fetch). Every route below except `POST /auth/login`, `POST /auth/forgot-password`, `POST /auth/reset-password`, and `GET /health` requires an authenticated session; routes also list the permission enforced by `PermissionsGuard`. Roles hold different permission sets (see `docs/security.md` for the current mapping) — the guard check always runs regardless of role.
+
+## Health
+
+### `GET /health`
+No auth required. Runs a real `SELECT 1` against the database and returns `{ status: 'ok', time: ISOString }`, or `503` if the database is unreachable. Two purposes: the frontend's real server-reachability check (`frontend/src/api/health.ts`, polled from `SecurityHome.tsx` — distinguishes "server unreachable" from `navigator.onLine`'s link-only signal), and an external keep-alive target (`.github/workflows/keep-alive.yml`, plus an external uptime monitor if one is configured) to stop Render's free tier sleeping and Supabase's free tier auto-pausing. See `docs/deployment.md`.
 
 ## Auth
 
@@ -26,8 +31,8 @@ Body: `{ token: string, newPassword: string }` (`newPassword` min 8 characters).
 
 | Method | Path | Permission | Notes |
 |---|---|---|---|
-| GET | `/employees/search?q=` | `VIEW_DASHBOARD` | Active employees only, top 10 matches, name/code/email/car number, case-insensitive. Backs both the guard's ENTRY/EXIT selector and the Dashboard's employee filter — every role that reaches either already holds `VIEW_DASHBOARD` |
-| GET | `/employees/search-all?q=` | `CORRECT_RECORDS` | Includes inactive employees — for the admin correction flow; searches name/code/email/car number |
+| GET | `/employees/search?q=` | `VIEW_DASHBOARD` | Active employees only, top 10 matches, name/code/email/car number, case-insensitive. Backs both the guard's ENTRY/EXIT selector and the Dashboard's employee filter — every role that reaches either already holds `VIEW_DASHBOARD`. A blank/omitted `q` returns the first 10 active employees alphabetically (a "browse" list) rather than an empty array — the frontend fetches this on focus, before any typing, so the dropdown isn't empty until something's typed. See `docs/decisions.md`. |
+| GET | `/employees/search-all?q=` | `CORRECT_RECORDS` | Includes inactive employees — for the admin correction flow; searches name/code/email/car number. Same blank-query browse-list behavior as `/employees/search` above. |
 | GET | `/employees?skip=&take=&q=` | `MANAGE_EMPLOYEES` | Admin management list. `q` (optional) filters name/code/email/car number, case-insensitive. Returns `{ rows: Employee[], total: number }` — `total` reflects the filtered count, so the frontend can page/search the full roster rather than being capped at one page. |
 | GET | `/employees/:id` | `VIEW_EMPLOYEE_HISTORY` | Single-employee lookup — intentionally not gated behind `MANAGE_EMPLOYEES`, since it backs the Employee Details page that Security/HR reach via the Dashboard even though they lack `MANAGE_EMPLOYEES` |
 | POST | `/employees` | `MANAGE_EMPLOYEES` | Body: `CreateEmployeeDto` |
@@ -36,6 +41,8 @@ Body: `{ token: string, newPassword: string }` (`newPassword` min 8 characters).
 | PATCH | `/employees/:id/reactivate` | `MANAGE_EMPLOYEES` | |
 
 `CreateEmployeeDto`: `{ employeeCode, employeeName, email?, phone?, department?, designation?, carNumber? }` — `email` and `carNumber` are optional. When email is omitted, that employee simply can't be emailed a report until one is added. `carNumber` is searchable and displayed where employee details are shown. `department`/`designation` are accepted but unused by any search/filter/report — kept only because the DB columns still exist.
+
+`employeeCode` and `email` are checked for a case-insensitive duplicate on both create and update (`PUT /employees/:id`) and return `409` with a message naming the conflicting employee (for email) — closes a gap where the DB's own uniqueness constraint on `employeeCode` is case-sensitive while every search matches case-insensitively, and `email` had no DB uniqueness constraint at all. See `docs/decisions.md`.
 
 ## Movements
 
@@ -77,7 +84,7 @@ Same body shape as above. Adds a brand-new record (no `correctionOf` link) for a
 
 | Method | Path | Permission | Notes |
 |---|---|---|---|
-| GET | `/dashboard/summary?date=` | `VIEW_DASHBOARD` | `{ totalEmployees, totalEntries, totalExits, currentlyInside }` for the given date (defaults to today). `currentlyInside` counts employees whose last movement on that date was ENTRY — a live figure only for today; for a past date it reads as "not exited by end of that day." No working-hours math. |
+| GET | `/dashboard/summary?date=` | `VIEW_DASHBOARD` | `{ totalEmployees, totalEntries, totalExits, currentlyInside }` for the given date (defaults to today, computed in IST via `todayInAppTimezone()` — not the UTC calendar date, which would be wrong for the first 5.5 hours of every IST day). `currentlyInside` counts employees whose last movement on that date was ENTRY — a live figure only for today; for a past date it reads as "not exited by end of that day." No working-hours math. |
 
 ## Reports & Email
 
@@ -102,6 +109,8 @@ Same body shape as above. Adds a brand-new record (no `correctionOf` link) for a
 | PATCH | `/users/:id/reset-password` | `MANAGE_USERS` |
 
 `CreateUserDto`: `{ name, email, phone?, username, password, roleId }`
+
+`PUT /users/:id` (`UpdateUserDto`) rejects a duplicate `email` with a clean `409` instead of a raw DB error. `PUT /users/:id` (when changing `roleId`) and `PATCH /users/:id/disable` both reject with `400` if the change would leave zero active users holding `MANAGE_USERS` — prevents a total admin lockout (Users/Settings/Audit Log becoming unreachable by anyone, recoverable only via direct DB access). See `docs/decisions.md`.
 
 ## Roles / Permissions (read-only listings)
 

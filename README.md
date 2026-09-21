@@ -55,7 +55,7 @@ Frontend (React/PWA) ── HTTPS ── Backend (NestJS REST API)
                    (Prisma)                        (emailed reports only)
 ```
 
-Backend modules: `auth`, `users`, `roles`, `permissions`, `employees`, `movements`, `dashboard`, `reports`, `email`, `audit-logs`, `settings`.
+Backend modules: `auth`, `users`, `roles`, `permissions`, `employees`, `movements`, `dashboard`, `reports`, `email`, `audit-logs`, `settings`, `health` (public reachability/keep-alive endpoint).
 
 ## Database Setup
 
@@ -103,9 +103,12 @@ Frontend: `frontend/dist`, deployable to any static host (Vercel/Netlify/Cloudfl
 
 ## Deployment
 
-- **Frontend**: Vercel / Netlify / Cloudflare Pages
-- **Backend**: Railway / Render / Fly.io / AWS / Azure
-- **Database**: Supabase Postgres, Mumbai (ap-south-1), with automated daily backups
+**Live since 2026-09-11:**
+- **Frontend**: Vercel
+- **Backend**: Render — `https://adage-security-system.onrender.com`
+- **Database**: Supabase Postgres, Mumbai (ap-south-1)
 - **Storage**: Supabase Storage (same project, S3-compatible)
 
-Always run behind HTTPS in production; the session cookie is marked `secure` when `NODE_ENV=production`.
+Both Render's free-tier sleep (15 min idle) and Supabase's free-tier auto-pause (7 days idle) are kept at bay by `GET /api/health` being pinged regularly — see [docs/deployment.md](./docs/deployment.md#keeping-it-alive-render-sleep--supabase-auto-pause) for the full setup. See [docs/deployment.md](./docs/deployment.md) for the complete deployment guide, including a Render-specific Puppeteer/Chrome gotcha worth reading before redeploying from scratch.
+
+Always run behind HTTPS in production (handled automatically by both Vercel and Render here); the session cookie is marked `secure` when `NODE_ENV=production`.

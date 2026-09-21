@@ -1,5 +1,68 @@
 # Changelog
 
+## 2026-09-21 (cont. 6) — Employee search dropdown now closes on outside click; no longer opens itself on page load
+
+### Fixed
+
+- **SecurityHome's search box auto-focused on page load, so its browse dropdown opened by itself before any click — and none of the three employee search boxes (SecurityHome, Dashboard, Corrections) could be dismissed by clicking elsewhere on the page.** Reported directly by the user: the dropdown stayed open and covered the rest of the screen, including the Dashboard button, until an employee was picked. Removed `autoFocus`; added a `dropdownOpen` state per page (independent of the cached results list) plus a click-outside listener that closes it. Verified via screenshot and by confirming the Dashboard link becomes clickable again after clicking outside the dropdown.
+
+## 2026-09-21 (cont. 5) — Employee search dropdown now shows a browse list on focus, not just after typing
+
+### Fixed
+
+- **Every employee search box (SecurityHome, Dashboard's employee filter, Corrections) showed nothing until you started typing** — reported directly by the user as looking unresponsive/broken. `EmployeesService.search()`/`searchIncludingInactive()` now return the first 10 employees alphabetically for a blank query instead of `[]`; the frontend fetches this immediately on input focus (in addition to the existing debounced fetch while typing), so tapping an empty search box shows a usable list right away. Verified via screenshot: SecurityHome's `autoFocus` search box shows the browse list the instant the page loads; clicking Dashboard's empty "All Employees" field shows it immediately too.
+
+## 2026-09-21 (cont. 4) — More UX fixes (pagination-preserving edits, success confirmations), docs consolidation, file audit
+
+### Fixed
+
+- **Editing or deactivating/reactivating an employee reloaded the whole list from page 1**, silently discarding "Load More" progress — an admin who scrolled/loaded to row 150 to fix one record would lose their place entirely. `Employees.tsx`'s `saveEdit`/`toggleActive` now patch the one affected row in local state using the API's response, instead of reloading. Same fix applied to `Users.tsx`'s disable/enable.
+- **No success confirmation after "Add Employee" or "Add User"** — the form just cleared silently; with 200+ employees sorted alphabetically, a newly added one might not even appear in the post-reload page-1 view, so there was no reassurance it actually worked. Both now show an explicit green confirmation banner.
+- **`Users.tsx` had no loading indicator at all** — missed in the earlier loading-skeleton pass; added, matching every other data table.
+
+### Changed — docs
+
+- **Merged `docs/email-provider-options.md` into `docs/decisions.md`** — its content (a provider comparison table) was already substantially duplicated by `decisions.md`'s two email-provider decision entries; folded the table in there and deleted the standalone file, updating the three docs that referenced it (`branding-and-data-needed.md`, `roadmap.md`, `docs/README.md`). Net: 17 docs → 16.
+- Documented the new UI/UX conventions from this and the prior UX pass in `docs/developer-guide.md` ("Adding a new frontend page"): reuse `TableSkeleton`/`PasswordInput`, edit forms triggered from a table row must be a modal, patch-not-reload after row-level edits, required-field markers, success confirmations on create actions.
+- Added a `docs/roadmap.md` section summarizing the full 2026-09-21 UI/UX pass, and two manual-QA checklist items to `docs/testing.md`.
+
+### Audited, no action needed
+
+- Full sweep of every project file (excluding `node_modules`/`.git`/`dist`): nothing unnecessary or dead found. Two files that look like candidates for removal on first glance are both legitimate: `backend/src/reports/assets/adage-logo.png` is a separate, necessary copy of the logo embedded server-side into generated PNG/PDF reports (distinct from `frontend/public/logo.png`, which the browser bundle can't reach); `backend/test/app.e2e-spec.ts` is a real, working e2e suite (skipped unless `E2E_TEST_DATABASE_URL` is set), not a stale scaffold. `*.tsbuildinfo` and `.claude/scheduled_tasks.lock` are local-only, already-gitignored/untracked build-cache and tooling artifacts — no cleanup needed.
+
+## 2026-09-21 (cont. 3) — Employee edit form moved into a modal
+
+### Fixed
+
+- **"Edit" on the Employees admin list opened the edit form at the top of the page**, invisible without scrolling back up — worst once the roster needed "Load More" and an admin was editing a row far down the list, with no indication where their typing was even going. Converted to a centered modal dialog (`Employees.tsx`) matching the pattern already used by Corrections.tsx and the ENTRY/EXIT duplicate-confirm dialog — appears directly over the clicked row regardless of scroll position, first field auto-focused, same focus-trap/Escape-to-close behavior as the other modals. Verified via screenshot: scrolled to the 44th row, clicked Edit, modal opened centered with the correct employee's data pre-filled.
+
+## 2026-09-21 (cont. 2) — Header logo fix + UI/UX pass (loading states, password visibility, search clear, touch targets, required-field markers)
+
+### Fixed
+
+- **Header logo had a soft "shadow"/blurred edge around the wordmark.** The logo is teal and the header background is dark teal, so it was being rendered white via a CSS mask trick — masking a PNG's anti-aliased alpha edges blurs/fringes at this small a size. Replaced with a small white badge showing the logo in its real, unaltered color (`.logo-badge` in `global.css`, `Header.tsx`) — same technique the login card already used successfully. Verified via screenshot: crisp on both desktop and 390px mobile, no artifacts.
+
+### Added — UI/UX pass
+
+- **Loading skeletons** (`frontend/src/components/TableSkeleton.tsx`) on every data table that previously showed nothing during its initial fetch — Dashboard, Employees, Corrections, Audit Log, Employee Details. Verified via a throttled-network screenshot that it actually renders mid-load, not just in theory.
+- **Password visibility toggle** (`frontend/src/components/PasswordInput.tsx`, new `IconEye`/`IconEyeOff`) on every password field: Login, Reset Password (both fields), and the Users "Add User" form.
+- **Clear (×) button inside every search input** — SecurityHome, Dashboard's employee filter, Corrections' employee search, and the Employees admin list — previously only the selected-employee chip had a clear affordance.
+- **Larger touch target on `.table-action-btn`** (Edit/Deactivate/Reactivate/Correct buttons) — was ~28px tall, now 36px+, comfortable on a tablet/touchscreen.
+- **Required-field markers** (`*`) on every required form field across Login, Reset Password, Users, and Employees (add + edit forms), and Corrections' time field.
+- **16px minimum font-size on all `.field` inputs/selects** (was 15px) — under 16px, iOS Safari auto-zooms the whole page on focus, a jarring surprise on a form filled out on a phone.
+- **`autoFocus` on Login's username field and Reset Password's first field** — one less tap/click before typing.
+
+## 2026-09-21 (cont.) — Docs sync: deployment reality, new /health endpoint, all 2026-09-21 audit fixes documented
+
+Full documentation pass, requested explicitly ("check all the docs and update them ... keep the docs properly inlined with the code we have now"). No code changes — docs only.
+
+### Fixed (stale docs)
+
+- **`docs/deployment.md` and `docs/roadmap.md` both still said "nothing is deployed yet"** and listed deployment as not-started, despite the app having been live on Vercel (frontend) + Render (backend) + Supabase (database) since 2026-09-11. Rewrote both to state the actual live setup, added a new "Keeping it alive" section covering Render's sleep + Supabase's auto-pause and the `/api/health` + keep-alive-workflow mitigation, and updated the Puppeteer pre-deployment checklist item with the real Render `postinstall`-gets-skipped gotcha found and fixed live today.
+- **`docs/api-reference.md`** — added the new `GET /health` endpoint; documented the new `409`/`400` responses on `PUT /employees/:id`/`PUT /users/:id`/`PATCH /users/:id/disable` from today's uniqueness/admin-lockout fixes; corrected the dashboard summary's default-date note to mention the IST fix.
+- **`docs/decisions.md`** — added entries for all of today's real decisions: last-admin lockout protection, case-insensitive employeeCode/email uniqueness, real server-reachability detection, offline-sync timer retry + `beforeunload` warning, the double-tap guard, the Render/Puppeteer build-command fix, and the health-endpoint/keep-alive design.
+- **`docs/security.md`, `docs/database-schema.md`, `docs/architecture.md`, `docs/developer-guide.md`, `docs/testing.md`, `README.md`, `docs/branding-and-data-needed.md`** — updated for the new `health` module, the admin-lockout/uniqueness/reachability fixes, the `todayInAppTimezone()` helper, and (branding doc) marking domain/deployment as live rather than "when ready to go live."
+
 ## 2026-09-21 — Full code audit fixes: admin-lockout guard, duplicate-tap guard, IST date bug, uniqueness checks, reachability detection, storage fail-fast
 
 ### Fixed

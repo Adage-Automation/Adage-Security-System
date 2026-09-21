@@ -1,7 +1,9 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { api } from '../api/client';
-import { IconUsers as IconUsersGroup } from '../components/icons';
+import { IconUsers as IconUsersGroup, IconCheckCircle, IconInbox } from '../components/icons';
 import { AdminNav } from '../components/AdminNav';
+import { PasswordInput } from '../components/PasswordInput';
+import { TableSkeleton } from '../components/TableSkeleton';
 import { useAuth } from '../auth/useAuth';
 
 interface UserRow {
@@ -24,10 +26,25 @@ export function Users() {
   const [roles, setRoles] = useState<Role[]>([]);
   const [form, setForm] = useState({ name: '', email: '', username: '', password: '', roleId: '' });
   const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  // Missing from the earlier loading-skeleton pass — this page fetched
+  // without ever tracking whether it was still loading, so a slow
+  // connection showed a blank table area with no feedback, same class of
+  // gap already fixed elsewhere. Found in the 2026-09-21 UX pass.
+  const [loading, setLoading] = useState(true);
 
   function load() {
-    api.get<UserRow[]>('/users').then(setUsers).catch(() => setUsers([]));
-    api.get<Role[]>('/roles').then(setRoles).catch(() => setRoles([]));
+    setLoading(true);
+    Promise.all([api.get<UserRow[]>('/users'), api.get<Role[]>('/roles')])
+      .then(([userRows, roleRows]) => {
+        setUsers(userRows);
+        setRoles(roleRows);
+      })
+      .catch(() => {
+        setUsers([]);
+        setRoles([]);
+      })
+      .finally(() => setLoading(false));
   }
 
   useEffect(load, []);
@@ -36,8 +53,10 @@ export function Users() {
     e.preventDefault();
     setError(null);
     try {
-      await api.post('/users', { ...form, roleId: Number(form.roleId) });
+      const created = await api.post<UserRow>('/users', { ...form, roleId: Number(form.roleId) });
       setForm({ name: '', email: '', username: '', password: '', roleId: '' });
+      setSuccessMsg(`${created.name} added successfully.`);
+      setTimeout(() => setSuccessMsg(null), 4000);
       load();
     } catch (err: any) {
       setError(err?.message ?? 'Failed to create user.');
@@ -55,8 +74,8 @@ export function Users() {
       }
     }
     try {
-      await api.patch(`/users/${user.id}/${path}`);
-      load();
+      const updated = await api.patch<UserRow>(`/users/${user.id}/${path}`);
+      setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
     } catch (err: any) {
       setError(err?.message ?? `Failed to ${path} user.`);
     }
@@ -76,31 +95,31 @@ export function Users() {
         <form onSubmit={handleCreate} style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
           <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
             <label>
-              Name
+              Name<span className="required-mark"> *</span>
               <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
             </label>
           </div>
           <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
             <label>
-              Email
+              Email<span className="required-mark"> *</span>
               <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
             </label>
           </div>
           <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
             <label>
-              Username
+              Username<span className="required-mark"> *</span>
               <input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} required />
             </label>
           </div>
           <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
             <label>
-              Password
-              <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required />
+              Password<span className="required-mark"> *</span>
+              <PasswordInput value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required />
             </label>
           </div>
           <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
             <label>
-              Role
+              Role<span className="required-mark"> *</span>
               <select value={form.roleId} onChange={(e) => setForm({ ...form, roleId: e.target.value })} required>
                 <option value="">Select role</option>
                 {roles.map((r) => (
@@ -115,39 +134,57 @@ export function Users() {
             </button>
           </div>
         </form>
+        {successMsg && (
+          <div className="status-banner success" style={{ marginTop: 12, marginBottom: 0 }} role="status" aria-live="polite">
+            <IconCheckCircle />
+            {successMsg}
+          </div>
+        )}
         {error && <div className="error-text">{error}</div>}
       </div>
 
-      <table className="records-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Username</th>
-            <th>Role</th>
-            <th>Status</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {users.map((u) => (
-            <tr key={u.id}>
-              <td>{u.name}</td>
-              <td>{u.username}</td>
-              <td>{u.role.name}</td>
-              <td>
-                <span className={`status-pill ${u.isActive ? 'active' : 'inactive'}`}>
-                  {u.isActive ? 'Active' : 'Disabled'}
-                </span>
-              </td>
-              <td>
-                <button className="table-action-btn" onClick={() => toggleActive(u)}>
-                  {u.isActive ? 'Disable' : 'Enable'}
-                </button>
-              </td>
+      {loading && users.length === 0 && <TableSkeleton columns={5} />}
+
+      {users.length > 0 && (
+        <table className="records-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Username</th>
+              <th>Role</th>
+              <th>Status</th>
+              <th></th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {users.map((u) => (
+              <tr key={u.id}>
+                <td>{u.name}</td>
+                <td>{u.username}</td>
+                <td>{u.role.name}</td>
+                <td>
+                  <span className={`status-pill ${u.isActive ? 'active' : 'inactive'}`}>
+                    {u.isActive ? 'Active' : 'Disabled'}
+                  </span>
+                </td>
+                <td>
+                  <button className="table-action-btn" onClick={() => toggleActive(u)}>
+                    {u.isActive ? 'Disable' : 'Enable'}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {!loading && users.length === 0 && (
+        <div className="empty-state">
+          <IconInbox />
+          <div className="empty-title">No users found</div>
+          <div className="empty-hint">Add one above to get started.</div>
+        </div>
+      )}
     </div>
   );
 }

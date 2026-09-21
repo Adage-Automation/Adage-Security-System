@@ -48,7 +48,7 @@ One row per login account. `passwordHash` is Argon2 — never store or log a pla
 
 ## `employees`
 
-The people being tracked — distinct from `users` (a guard is a `User`; the people they check in are `Employee` rows, and usually never log in at all). `employeeCode` is the human-facing ID (e.g. `ADG1024`) and is unique. `email` and `carNumber` are nullable because those details may be added later. `carNumber` is mapped to the `car_number` column and indexed for case-insensitive employee search. `isActive = false` (never a hard delete) hides the employee from the guard's search but keeps all historical `movement_records` intact and keeps them selectable in the admin correction flow.
+The people being tracked — distinct from `users` (a guard is a `User`; the people they check in are `Employee` rows, and usually never log in at all). `employeeCode` is the human-facing ID (e.g. `ADG1024`) and is unique **at the DB level case-sensitively**; `EmployeesService` additionally checks both `employeeCode` and `email` for a case-insensitive duplicate before create/update (app-level, not a DB constraint — search everywhere already matches case-insensitively, so this closes a gap where "EMP001"/"emp001" could otherwise both exist). `email` and `carNumber` are nullable because those details may be added later; `email` has no DB uniqueness constraint at all, only the app-level check above. `carNumber` is mapped to the `car_number` column and indexed for case-insensitive employee search. `isActive = false` (never a hard delete) hides the employee from the guard's search but keeps all historical `movement_records` intact and keeps them selectable in the admin correction flow.
 
 ## `movement_records` — the core table
 

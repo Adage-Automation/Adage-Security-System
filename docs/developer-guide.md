@@ -101,6 +101,13 @@ Follow the existing module pattern (e.g. copy `employees/` as a template):
 2. Add a `<Route>` in `App.tsx`, wrapped in `<ProtectedRoute>` unless it's meant to be public.
 3. Use `api` from `src/api/client.ts` for all requests — never `fetch` directly, so error handling stays consistent.
 4. Reuse the CSS classes in `src/styles/global.css` rather than inventing new ones where an existing pattern fits (`.big-button`, `.status-banner`, `.filters-bar`, `.records-table` / `.record-cards` for the responsive table→card pattern).
+5. Reuse the shared components rather than rebuilding their pattern inline (found missing/inconsistent in the 2026-09-21 UX pass, now standard):
+   - **`<TableSkeleton />`** (`src/components/TableSkeleton.tsx`) — render while a table's data is loading (`{loading && rows.length === 0 && <TableSkeleton columns={n} />}`), so a slow connection shows a shimmer instead of a blank gap. Every data table in the app uses this now.
+   - **`<PasswordInput />`** (`src/components/PasswordInput.tsx`) — drop-in replacement for `<input type="password">` with a show/hide toggle. Use it for every password field, no exceptions.
+   - **Edit/detail forms triggered from a table row must be a modal**, not an inline section rendered elsewhere on the page — an inline form above/below a long, paginated, or scrolled table is invisible without scrolling back to it (found live on the Employees "Edit" flow, 2026-09-21). Follow the existing `.modal-overlay`/`.modal-card` pattern (see `Corrections.tsx`'s correction modal or `Employees.tsx`'s edit modal) — centered, focus-trapped, Escape-to-close, first field or the Cancel button focused on open.
+   - **A create/update action from a table page should patch the affected row in local state**, not blindly reload the whole list — reloading from page 1 after editing/toggling a row loaded via "Load More" silently discards the admin's scroll/pagination progress (found on Employees/Users, 2026-09-21; see `saveEdit`/`toggleActive` in `Employees.tsx` for the pattern). A genuinely new row from a create action is the one case where reloading is fine.
+   - **Every required field needs a visible `*` marker** — either automatically via the `.field label:has(+ input[required])::after` CSS rule (works for the `htmlFor`/`id` sibling-label pattern only) or an explicit `<span className="required-mark"> *</span>` in the label text (for the nested `<label>Text<input/></label>` pattern used on most admin forms).
+   - **A create action should show an explicit success confirmation** (`className="status-banner success"`, matching `Corrections.tsx`'s `successMsg` pattern), especially on any page where the new row might not be visible without scrolling/searching afterward.
 
 ## Conventions
 
@@ -109,6 +116,8 @@ Follow the existing module pattern (e.g. copy `employees/` as a template):
 - **Corrections to `movement_records` are append-only.** Never write code that does `prisma.movementRecord.update()` to change `movementType` or `movementAt` on an existing row — use the supersede-and-insert pattern in `MovementsService.correctMovement`.
 - **Working-hours total is frontend-only** — `calcWorkingHours()` in `EmployeeDetails.tsx` derives the span from the already-loaded `records` array (first ENTRY → last EXIT). No backend change, no new endpoint, no timesheet calculation. Any future expansion (daily roll-up, per-gap breakdown, export) belongs in a dedicated module.
 - **No keyboard shortcuts for state-changing actions.**
+- **Never compute "today" as `new Date().toISOString().slice(0, 10)`** — that's always the UTC calendar date, wrong for the first 5.5 hours of every IST day regardless of the server's `TZ`. Use `todayInAppTimezone()` (`backend/src/common/utils/day-range.ts`) or `todayIso()` (`frontend/src/utils/date.ts`).
+- **Any action that could reduce the number of active `MANAGE_USERS` holders to zero must be checked against `UsersService`'s existing guards** (`assertNotLastActiveAdmin`/`assertRoleChangeKeepsAnAdmin`) rather than adding a new one-off check — see `docs/decisions.md`'s "Last-admin lockout protection".
 - DTOs use `strictPropertyInitialization: false` (set in `backend/tsconfig.json`) since `class-validator` DTOs are populated by the framework, not a constructor — don't "fix" this by adding constructors or `!` assertions project-wide.
 
 ## Building
@@ -144,3 +153,6 @@ Full reference lives in `backend/.env.example`. Never commit a real `.env`. Key 
 | Email not sending | `backend/src/reports/reports.service.ts` `emailDailyRecord`, then `backend/src/email/email.service.ts`; check `email_logs.status`/`errorMessage` |
 | PNG/PDF looks wrong | `backend/src/reports/report.template.ts` (the HTML) and `report-generator.service.ts` (Puppeteer rendering) |
 | Day boundary off by a few hours | Server `TZ` isn't set to `Asia/Kolkata` — see architecture doc's timezone note |
+| "Email Details" 500s with `Could not find Chrome` (works locally, fails only in deployment) | Puppeteer's Chrome binary isn't actually installed on the host — see `docs/deployment.md`'s pre-deployment checklist and `docs/decisions.md`'s "Deploying to Render" entry for the exact fix and why relying on `postinstall` alone isn't enough |
+| Backend seems unusually slow to respond after a period of no use, in production | Likely Render's free tier spinning back up from a 15-min idle sleep (30–60s cold start) — see `docs/deployment.md#keeping-it-alive-render-sleep--supabase-auto-pause` for the keep-alive setup; confirm the pinger (GitHub Actions and/or an external uptime monitor) is actually configured and running |
+| "Today" is off by one day, but only for the first few hours after midnight IST | Something is computing "today" via `new Date().toISOString().slice(0, 10)` (always the UTC date) instead of `todayInAppTimezone()` (backend) / `todayIso()` (frontend) — see `docs/architecture.md`'s timezone section |

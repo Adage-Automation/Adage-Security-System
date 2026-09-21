@@ -1,6 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
+import { PasswordInput } from '../components/PasswordInput';
 
 export function ResetPassword() {
   const [params] = useSearchParams();
@@ -69,20 +70,19 @@ export function ResetPassword() {
         <form onSubmit={handleSubmit}>
           <div className="field">
             <label htmlFor="newPassword">New Password</label>
-            <input
+            <PasswordInput
               id="newPassword"
-              type="password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               autoComplete="new-password"
+              autoFocus
               required
             />
           </div>
           <div className="field">
             <label htmlFor="confirmPassword">Confirm New Password</label>
-            <input
+            <PasswordInput
               id="confirmPassword"
-              type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               autoComplete="new-password"
