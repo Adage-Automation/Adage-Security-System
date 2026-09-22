@@ -56,6 +56,13 @@ The codebase now has real Jest coverage in both apps. Backend tests cover userna
 - A PNG attachment is included and matches the on-screen data
 - A failed send (e.g. provider error) marks the `email_logs` row `FAILED` with `errorMessage` populated, and does not silently report success to the caller
 - No code path other than `POST /reports/email` ever calls `EmailService` — specifically, creating a movement record must never trigger a send
+- `ReportGeneratorService`'s pooled browser: a `newPage()` failure retries once with a freshly launched browser; a render that exceeds the 30s timeout discards the pooled browser so the next call launches a clean one; an ordinary render error (bad input, a template bug) leaves the pooled browser in place and reused — verified with a mocked-Puppeteer test suite, not just reasoned about
+
+## Audit Log
+
+- Always ordered newest-first, with no separate sort option
+- `from`/`to` (both optional) filter to a date range using the same local-day boundaries `dayRange()` uses everywhere else — a malformed date is rejected the same way
+- `q` searches `action`, `entityType`, `ipAddress`, and the performing user's name (case-insensitive substring, combined with `OR`); blank/whitespace `q` is a no-op, not an empty-`OR` filter that would match nothing
 
 ## Users (admin)
 

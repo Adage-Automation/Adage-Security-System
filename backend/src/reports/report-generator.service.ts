@@ -91,16 +91,61 @@ export class ReportGeneratorService implements OnModuleDestroy {
     return Buffer.from(raw);
   }
 
-  private async renderWithPuppeteer<T>(html: string, action: (page: any) => Promise<T>): Promise<T> {
+  // How long a single report render may run before we give up on it and
+  // treat the pooled browser as wedged. The 'disconnected' listener in
+  // getBrowser() above only catches a browser that actually crashes —
+  // it does nothing for one that's still technically connected but stuck
+  // (a hung renderer, a page.setContent that never settles), which would
+  // otherwise hang every future report request behind the same dead
+  // instance with no way to notice. Found in the 2026-09-22 audit.
+  private static readonly RENDER_TIMEOUT_MS = 30_000;
+
+  private async renderWithPuppeteer<T>(html: string, action: (page: any) => Promise<T>, isRetry = false): Promise<T> {
     const browser = await this.getBrowser();
-    const page = await browser.newPage();
+    let page: any;
     try {
-      await page.setContent(html, { waitUntil: 'networkidle0' });
-      return await action(page);
+      page = await browser.newPage();
+    } catch (err) {
+      // newPage() failing (as opposed to a clean 'disconnected' event) is
+      // still a sign this pooled browser is unusable — discard it and
+      // retry once with a freshly launched one rather than surfacing a
+      // transient failure as a hard error.
+      if (this.browserPromise) this.browserPromise = null;
+      if (isRetry) throw err;
+      return this.renderWithPuppeteer(html, action, true);
+    }
+
+    let timedOut = false;
+    try {
+      const result = await Promise.race([
+        (async () => {
+          await page.setContent(html, { waitUntil: 'networkidle0' });
+          return action(page);
+        })(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => {
+            timedOut = true;
+            reject(new InternalServerErrorException('Report generation timed out'));
+          }, ReportGeneratorService.RENDER_TIMEOUT_MS),
+        ),
+      ]);
+      return result;
+    } catch (err) {
+      // Only a timeout is treated as "this pooled browser may be wedged
+      // for every future request too" — an ordinary render error (bad
+      // input, a template bug) says nothing about the browser's health
+      // and shouldn't force-relaunch it on every occurrence.
+      if (timedOut && this.browserPromise) {
+        void browser.close().catch(() => undefined);
+        this.browserPromise = null;
+      }
+      throw err;
     } finally {
       // Close the page, not the browser — the browser instance is reused
-      // across requests.
-      await page.close();
+      // across requests. Best-effort: if the browser itself is already
+      // wedged/closed, this may also fail, which is fine — it's already
+      // been discarded above in that case.
+      await page.close().catch(() => undefined);
     }
   }
 }

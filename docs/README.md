@@ -28,7 +28,7 @@ This folder contains the complete documentation for the Adage Security System. S
 
 ## Project at a glance
 
-Adage Security System replaces a manual paper register for recording when employees enter/exit company premises. A security guard searches for an employee, taps ENTRY or EXIT, and the system records the exact server timestamp. HR/Admin can browse historical records on a dashboard and, only when an employee explicitly asks, email them their movement record for a given day.
+Adage Security System replaces a manual paper register for recording when employees enter/exit company premises. A security guard searches for an employee, taps ENTRY or EXIT, and the system records the server timestamp — except for a tap recorded while offline, which keeps the guard's real device-captured time (within a bounded plausibility window) once it syncs, rather than the time it happened to reach the server. See [decisions.md](./decisions.md#offline-sync-preserve-the-real-tap-time-within-bounds). HR/Admin can browse historical records on a dashboard and, only when an employee explicitly asks, email them their movement record for a given day.
 
 Three user roles exist — `SECURITY`, `HR`, `ADMIN` — with role-based access (narrowed from an initial flat "everyone has everything" default on 2026-09-04): Security gets the core recording workflow plus Dashboard, HR additionally gets Employees, and only Admin gets Users/Corrections/Audit Log/Settings. See [decisions.md](./decisions.md) for the mapping and rationale.
 

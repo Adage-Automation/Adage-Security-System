@@ -34,10 +34,15 @@ export function AuditLog() {
   const [rows, setRows] = useState<AuditLogRow[]>([]);
   const [entityType, setEntityType] = useState('');
   const [userId, setUserId] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [q, setQ] = useState('');
   const [users, setUsers] = useState<UserOption[]>([]);
   const [skip, setSkip] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
+
+  const hasActiveFilters = Boolean(entityType || userId || from || to || q.trim());
 
   useEffect(() => {
     api.get<UserOption[]>('/users').then(setUsers).catch(() => setUsers([]));
@@ -49,6 +54,9 @@ export function AuditLog() {
     const params = new URLSearchParams({ skip: String(nextSkip), take: String(PAGE_SIZE) });
     if (entityType) params.set('entityType', entityType);
     if (userId) params.set('userId', userId);
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    if (q.trim()) params.set('q', q.trim());
 
     api
       .get<AuditLogRow[]>(`/audit-logs?${params.toString()}`)
@@ -65,9 +73,20 @@ export function AuditLog() {
   }
 
   useEffect(() => {
-    load(true);
+    // Keyword search gets a debounce (the admin is typing); the other
+    // filters are discrete selections that should react immediately.
+    const t = setTimeout(() => load(true), q.trim() ? 250 : 0);
+    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entityType, userId]);
+  }, [entityType, userId, from, to, q]);
+
+  function clearFilters() {
+    setEntityType('');
+    setUserId('');
+    setFrom('');
+    setTo('');
+    setQ('');
+  }
 
   return (
     <div className="page-wide">
@@ -101,6 +120,35 @@ export function AuditLog() {
             </select>
           </label>
         </div>
+        <div className="field">
+          <label>
+            From
+            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} max={to || undefined} />
+          </label>
+        </div>
+        <div className="field">
+          <label>
+            To
+            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} min={from || undefined} />
+          </label>
+        </div>
+        <div className="field">
+          <label>
+            Search
+            <input
+              type="text"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Action, entity, user, or IP…"
+              aria-label="Search audit log entries by action, entity type, user, or IP address"
+            />
+          </label>
+        </div>
+        {hasActiveFilters && (
+          <button type="button" className="table-action-btn" style={{ alignSelf: 'flex-end' }} onClick={clearFilters}>
+            Clear all filters
+          </button>
+        )}
       </div>
 
       {loading && rows.length === 0 && <TableSkeleton columns={5} />}
@@ -148,8 +196,15 @@ export function AuditLog() {
       {rows.length === 0 && !loading && (
         <div className="empty-state">
           <IconInbox />
-          <div className="empty-title">No audit log entries</div>
-          <div className="empty-hint">Try a different entity type or user filter.</div>
+          <div className="empty-title">{hasActiveFilters ? 'No matches for this filter' : 'No audit log entries yet'}</div>
+          <div className="empty-hint">
+            {hasActiveFilters ? 'Try a different date range, entity type, user, or search term.' : 'Entries appear here as actions are taken across the app.'}
+          </div>
+          {hasActiveFilters && (
+            <button type="button" className="table-action-btn" onClick={clearFilters} style={{ marginTop: 12 }}>
+              Clear all filters
+            </button>
+          )}
         </div>
       )}
     </div>

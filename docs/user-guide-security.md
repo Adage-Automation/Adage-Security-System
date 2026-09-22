@@ -8,7 +8,7 @@ This is the guide for security guards recording employee entry and exit at the g
 2. Enter your username (or email) and password.
 3. Tap **Login**.
 
-Your name and role ("Security") appear at the top of the screen once logged in.
+Your name and role ("Security") appear at the top of the screen once logged in. You'll also see a one-time "Welcome back" message with a quick reminder of what to do next — it only shows right after logging in, not on every page load.
 
 ## Recording an entry or exit
 
@@ -25,11 +25,11 @@ This is the only thing you need to do most of the time:
 
 ## If you tap ENTRY/EXIT and someone is already marked in/out
 
-If an employee was already marked as **inside** and you tap ENTRY again, you'll see a warning:
+If an employee was already marked as **inside** and you tap ENTRY again, you'll see a warning naming them and showing exactly when the earlier record was made:
 
-> "This employee was already marked as inside. Do you want to record another ENTRY?"
+> "[Name] was already marked as inside (last recorded: ENTRY at 4:01 PM). This would record ENTRY twice in a row for the same employee — do you want to record it anyway?"
 
-This isn't necessarily wrong — sometimes it's legitimate (e.g. they went out for something informal without you noticing an EXIT was recorded). If you're sure, tap **Confirm** and it will record. If it's a mistake, tap **Cancel**.
+This isn't necessarily wrong — sometimes it's legitimate (e.g. they went out for something informal without you noticing an EXIT was recorded). If you're sure, tap **Confirm anyway** and it will record. If it's a mistake, tap **Cancel**.
 
 ## An employee can go in and out many times a day
 

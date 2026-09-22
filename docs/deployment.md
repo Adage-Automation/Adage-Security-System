@@ -66,7 +66,7 @@ If the app goes quiet for 60+ days and the GitHub Actions pinger silently stops,
 
 ## Environment variables to set in each environment
 
-See `backend/.env.example` for the full list. At minimum, production needs its own: `DATABASE_URL`, `SESSION_SECRET` (long, random, unique — never reuse the dev value), `AZURE_TENANT_ID`/`AZURE_CLIENT_ID`/`AZURE_CLIENT_SECRET`/`MAIL_FROM_ADDRESS`/`SECURITY_EMAIL`, `STORAGE_*`, `FRONTEND_URL`, and `NODE_ENV=production` (this flips the session cookie to `secure`, which requires HTTPS).
+See `backend/.env.example` for the full list. At minimum, production needs its own: `DATABASE_URL`, `SESSION_SECRET` (long, random, unique — never reuse the dev value), `AZURE_TENANT_ID`/`AZURE_CLIENT_ID`/`AZURE_CLIENT_SECRET`/`MAIL_FROM_ADDRESS`, `STORAGE_*`, `FRONTEND_URL`, and `NODE_ENV=production` (this flips the session cookie to `secure`, which requires HTTPS). `SECURITY_EMAIL` is **not** one of these — it's a database-backed Settings key (`backend/src/common/constants/settings-keys.ts`), configured via the Settings page after deploy, not an env var. Verified 2026-09-22: `backend/.env`'s old `SECURITY_EMAIL` line was never actually read anywhere.
 
 ## Pre-deployment checklist
 

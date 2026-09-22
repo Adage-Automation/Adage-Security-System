@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { dayRange } from '../common/utils/day-range';
 
 interface RecordAuditLogInput {
   userId?: number | null;
@@ -104,13 +105,35 @@ export class AuditLogService {
     });
   }
 
-  async list(params: { entityType?: string; entityId?: number; userId?: number; take?: number; skip?: number }) {
+  // `from`/`to` (both optional, `YYYY-MM-DD`) let an admin scope an
+  // investigation to a window instead of scrolling through the entire
+  // history — found missing in the 2026-09-22 UX audit, the log was the
+  // only major table with no date filter at all. `q` is a keyword search
+  // across the fields an admin would actually be looking for something
+  // by: the action name, the entity type, the performing user's name, and
+  // IP address. Always newest-first — no separate "sort" option needed.
+  async list(params: { entityType?: string; entityId?: number; userId?: number; from?: string; to?: string; q?: string; take?: number; skip?: number }) {
+    const where: any = {
+      entityType: params.entityType,
+      entityId: params.entityId,
+      userId: params.userId,
+    };
+    if (params.from || params.to) {
+      where.createdAt = {};
+      if (params.from) where.createdAt.gte = dayRange(params.from).start;
+      if (params.to) where.createdAt.lt = dayRange(params.to).end;
+    }
+    const q = params.q?.trim();
+    if (q) {
+      where.OR = [
+        { action: { contains: q, mode: 'insensitive' as const } },
+        { entityType: { contains: q, mode: 'insensitive' as const } },
+        { ipAddress: { contains: q, mode: 'insensitive' as const } },
+        { user: { name: { contains: q, mode: 'insensitive' as const } } },
+      ];
+    }
     return this.prisma.auditLog.findMany({
-      where: {
-        entityType: params.entityType,
-        entityId: params.entityId,
-        userId: params.userId,
-      },
+      where,
       orderBy: { createdAt: 'desc' },
       take: params.take ?? 50,
       skip: params.skip ?? 0,

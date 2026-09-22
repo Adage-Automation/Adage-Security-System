@@ -1090,20 +1090,6 @@ table.records-table th {
   color: var(--text-muted);
 }
 
-.missing-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-weight: 700;
-  letter-spacing: 0.3px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 11px;
-  background: var(--pending-tint);
-  color: var(--pending-amber);
-  white-space: nowrap;
-}
-
 .table-action-btn {
   /* Was 6px 12px (~28px tall) — comfortable with a mouse, tight on a
      tablet/touchscreen, which matters here since admin screens are

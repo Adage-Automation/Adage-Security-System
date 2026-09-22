@@ -31,6 +31,8 @@ Navigate to **Settings**. These values are used throughout the system instead of
 - **Security Email** — automatically CC'd on every employee record email that's sent (no one has to type it manually).
 - **Email Sender Name** — the "from" display name on outgoing emails.
 
+Edit as many fields as you need, then click **Save all changes** once — it's greyed out until something's actually changed, and shows an "Unsaved changes" note while you're mid-edit so you don't lose track of what you've touched. Only the fields you actually changed are saved.
+
 ## Correcting a movement record
 
 Mistakes happen — a guard taps EXIT when they meant ENTRY, or forgets to record a movement at all. Corrections require the `CORRECT_RECORDS` permission — currently Admin only.
@@ -41,7 +43,7 @@ Navigate to **Corrections**. Search for the employee (this search includes inact
 
 ## Audit log
 
-Every login/logout, every ENTRY/EXIT, every correction, every employee/user change, every settings change, and every email attempt (sent or failed) is recorded in the audit log with who did it and when. Navigate to **Audit Log** to browse it — filter by entity type or by who performed the action, and use **Load More** to page through older history. Nothing is ever silently lost.
+Every login/logout, every ENTRY/EXIT, every correction, every employee/user change, every settings change, and every email attempt (sent or failed) is recorded in the audit log with who did it and when. Navigate to **Audit Log** to browse it — filter by entity type, by who performed the action, or by a date range, and search by keyword across the action, entity, user, and IP address to narrow down an investigation. Results are always shown newest-first; use **Load More** to page through older history. Nothing is ever silently lost.
 
 ## Things that are intentionally not built
 

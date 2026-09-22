@@ -6,6 +6,7 @@ import { IconGrid, IconUsers, IconEntry, IconExit, IconInbox, IconChevronRight, 
 import { AdminNav } from '../components/AdminNav';
 import { TableSkeleton } from '../components/TableSkeleton';
 import { OfflineBadge } from '../components/OfflineBadge';
+import { WelcomeBanner } from '../components/WelcomeBanner';
 import { todayIso, isoDaysAgo, formatTime } from '../utils/date';
 
 export function Dashboard() {
@@ -77,6 +78,7 @@ export function Dashboard() {
   return (
     <div className="page-wide">
       <AdminNav />
+      <WelcomeBanner />
 
       <div className="page-heading">
         <IconGrid />
@@ -256,8 +258,14 @@ export function Dashboard() {
       {!recordsLoading && records.length === 0 && (
         <div className="empty-state">
           <IconInbox />
-          <div className="empty-title">No records found</div>
-          <div className="empty-hint">Try a different date, employee, or movement type.</div>
+          <div className="empty-title">{selectedEmployee || movementType ? 'No matches for this filter' : 'No movements recorded for this date'}</div>
+          <div className="empty-hint">
+            {selectedEmployee || movementType
+              ? 'Try a different employee, movement type, or clear the filters above.'
+              : isToday
+                ? 'Nothing has been recorded yet today — check back once a guard records an entry or exit.'
+                : 'Try a different date.'}
+          </div>
         </div>
       )}
     </div>

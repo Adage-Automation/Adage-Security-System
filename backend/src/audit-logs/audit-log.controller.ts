@@ -16,6 +16,9 @@ export class AuditLogController {
     @Query('entityType') entityType?: string,
     @Query('entityId') entityId?: string,
     @Query('userId') userId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('q') q?: string,
     @Query('skip') skip?: string,
     @Query('take') take?: string,
   ) {
@@ -23,6 +26,9 @@ export class AuditLogController {
       entityType,
       entityId: parseOptionalInt(entityId, 'entityId'),
       userId: parseOptionalInt(userId, 'userId'),
+      from,
+      to,
+      q,
       skip: parseOptionalInt(skip, 'skip'),
       take: parseOptionalInt(take, 'take'),
     });

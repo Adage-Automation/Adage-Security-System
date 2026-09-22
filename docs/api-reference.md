@@ -69,8 +69,9 @@ Response is one of:
 ```
 or, if the employee's last movement is the same type and `confirmed` was not `true`:
 ```json
-{ "created": false, "requiresConfirmation": true, "lastMovementType": "ENTRY" }
+{ "created": false, "requiresConfirmation": true, "lastMovementType": "ENTRY", "lastMovementAt": "2026-09-22T03:33:00.000Z" }
 ```
+`lastMovementAt` lets the client's confirmation prompt show *when* the last movement happened, not just its type — added in the 2026-09-22 UX audit.
 The client must show a confirmation prompt and resubmit with `confirmed: true` to actually create the record. **The timestamp and recording user are always server-derived for a live tap — never send them in the body.** The one bounded exception is `clientMovementAt` on an offline-queue sync, above. `MovementRecord.recordedOffline` reflects whether that exception actually applied to a given record.
 
 The "read last movement, then write" check above is wrapped in a Postgres advisory lock (`pg_advisory_xact_lock`) scoped to `employeeId`, so two requests for the *same* employee arriving at nearly the same instant (two guards on two different devices) are serialized rather than racing each other into two undetected duplicates — a different employee's request is never blocked by this. See [decisions.md](./decisions.md#offline-sync-preserve-the-real-tap-time-within-bounds).
@@ -135,7 +136,7 @@ Same body shape as above. Adds a brand-new record (no `correctionOf` link) for a
 
 | Method | Path | Permission |
 |---|---|---|
-| GET | `/audit-logs?entityType=&entityId=&userId=&skip=&take=` | `MANAGE_SETTINGS` | `skip`/`take` for pagination (default `take=50`); response rows include the acting user's `{id, name}` |
+| GET | `/audit-logs?entityType=&entityId=&userId=&from=&to=&q=&skip=&take=` | `MANAGE_SETTINGS` | `skip`/`take` for pagination (default `take=50`); response rows include the acting user's `{id, name}`. `from`/`to` (`YYYY-MM-DD`, both optional) scope to a date range using the same local-day boundaries as every other date-scoped query (`to` is inclusive of that whole day). `q` does a case-insensitive substring search across `action`, `entityType`, `ipAddress`, and the performing user's name. Always ordered newest-first. |
 
 ## Error shape
 

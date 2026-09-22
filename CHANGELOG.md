@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-09-22 (cont. 5) — Report-generator resilience + priority UX pass (welcome banner, clearer offline status, empty states, duplicate-confirm context, Settings save-all, Audit Log filters)
+
+Follow-up to a crash-risk audit and a UX backlog review — implemented the items explicitly picked as worth doing now (Puppeteer single-browser risk, plus 6 of the 7 prioritized UX items; the broad responsive/contrast pass was scoped down to spot-checking the pages touched here, not a full site-wide redesign).
+
+### Fixed
+
+- **Puppeteer's pooled report-generator browser had no recovery path for a wedged (not fully crashed) instance.** The existing `'disconnected'` handler only caught a browser that actually crashed — a hung renderer or a `page.setContent` that never settles would leave every future report request hanging behind the same stuck instance indefinitely, with no timeout and no way to notice. Fixed: a 30s render timeout via `Promise.race`, and `newPage()` failing (not just disconnecting) now triggers one retry with a freshly launched browser. Only a timeout is treated as "this browser may be unhealthy" — an ordinary render error (bad input, a template bug) no longer force-relaunches a perfectly fine pooled browser. Verified with a dedicated test suite (`report-generator.service.spec.ts`, mocked Puppeteer): retries once on `newPage()` failure, discards the pooled browser after a real timeout, and does *not* discard it for an unrelated render error.
+
+### Added
+
+- **"Welcome back, [name]" banner right after login**, with a one-line role-specific next action (Security: search to record a movement; HR: filter/export today's activity; Admin: record a movement or use the admin menu). Shown once via a `sessionStorage` flag set at login and cleared on read, so it never reappears on refresh or back-navigation. New `frontend/src/components/WelcomeBanner.tsx`.
+- **Clearer offline/sync wording on the Security recording screen** — "Offline mode — you can still search employees from the last saved list. Movements will be saved once connection returns.", "Queued: N movements pending sync — will be sent automatically once connection returns.", explicit per-tap "Queued: Entry — [name]. Will sync automatically once connection returns."
+- **Duplicate-confirmation dialog now shows real context instead of just a bare type.** `POST /movements`'s `requiresConfirmation` response now includes `lastMovementAt`; the dialog shows the employee's name, when the conflicting movement was last recorded ("last recorded: ENTRY at 4:01 PM"), and an explicit "this would record ENTRY twice in a row" explanation before the guard confirms. Button relabeled "Confirm anyway" for clarity. Verified end-to-end with a real duplicate-tap sequence.
+- **Better empty-state guidance on Dashboard and Audit Log** — distinguishes "no matches for this filter" (with a hint to try a different value, and a Clear-all-filters button) from a genuinely empty table ("No movements recorded for this date" / "No audit log entries yet").
+- **Audit Log: date-range filter (`from`/`to`) + keyword search**, debounced, searching action name, entity type, performing user's name, and IP address. Always newest-first (already the default; not new, but confirmed). New `GET /audit-logs` query params `from`/`to`/`q`; `AuditLogService.list` covered by 5 new unit tests.
+- **Settings rebuilt as a single "Save all changes" form**, replacing four separate per-field Save buttons — matches every other form in the app. Adds an "Unsaved changes" indicator, per-field required/format validation before saving (with inline error text), and a centered save confirmation. Only fields that actually changed are sent to the server.
+
+See `docs/decisions.md`, `docs/api-reference.md`, `docs/architecture.md`, `docs/testing.md` for the reasoning and updated contracts behind each of these.
+
 ## 2026-09-22 (cont. 4) — Fix: concurrent-device duplicate race, offline search, silent offline-storage failures
 
 ### Fixed

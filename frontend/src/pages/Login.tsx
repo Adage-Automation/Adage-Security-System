@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
 import { ApiError } from '../api/client';
 import { PasswordInput } from '../components/PasswordInput';
+import { markJustLoggedIn } from '../components/WelcomeBanner';
 
 export function Login() {
   const { login } = useAuth();
@@ -20,6 +21,7 @@ export function Login() {
     setSubmitting(true);
     try {
       const loggedInUser = await login(username, password);
+      markJustLoggedIn();
       // HR doesn't have the Security recording screen — send them straight
       // to the Dashboard. Everyone else (SECURITY, ADMIN) lands on the
       // recording screen as before.

@@ -1,6 +1,6 @@
 # Roadmap / Task List
 
-Status as of 2026-09-21. Grouped by area, roughly in priority order within each group. See [Audit findings](#audit-findings-2026-09-04) below for the historical 2026-09-04 audit, [2026-09-21 audit](#2026-09-21--full-codebase-audit-bugs-crashes-offlinenetwork-edge-cases) for the most recent one, and `CHANGELOG.md` for the full dated history of everything since.
+Status as of 2026-09-22. Grouped by area, roughly in priority order within each group. See [Audit findings](#audit-findings-2026-09-04) below for the historical 2026-09-04 audit, [2026-09-21 audit](#2026-09-21--full-codebase-audit-bugs-crashes-offlinenetwork-edge-cases) for the most recent full-codebase one, and `CHANGELOG.md` for the full dated history of everything since.
 
 **Context**: this system is a secondary/backup attendance record, not the primary one — employees punch their own attendance in a separate app, FactoHR, which stays the system of record. This app exists because security guards independently log entry/exit times at the gate; HR uses it to reconcile a missed FactoHR punch or a disputed time. See `docs/architecture.md`. This framing is why an attendance/payroll roll-up is deliberately out of scope here (see "Working hours" in the Done list below) and why no FactoHR integration is planned.
 
@@ -66,7 +66,7 @@ Both prior blockers here were cleared and verified live on 2026-09-10 — see th
 
 **One follow-up not yet done** (lower urgency, doesn't block real use): the Exchange Online application access policy (`New-ApplicationAccessPolicy`) restricting the Azure app to only the sending mailbox has not been confirmed run — `Mail.Send` as an application permission can currently send as any mailbox in the tenant until this is applied. See `docs/email-m365-admin-handoff.md` step 5 and `docs/security.md`.
 
-**Also still temporary**: no `security@adage-automation.com` mailbox exists yet — `MAIL_FROM_ADDRESS`/`SECURITY_EMAIL` in `backend/.env` are set to `shivani.naik@adage-automation.com` as a stand-in. Swap both back once that mailbox is created, and re-run the access policy above against it.
+**Also still temporary**: no `security@adage-automation.com` mailbox exists yet — `MAIL_FROM_ADDRESS` in `backend/.env` and the `SECURITY_EMAIL` Settings value (Settings page, not an env var — see `docs/developer-guide.md`) are both set to `shivani.naik@adage-automation.com` as a stand-in. Swap both back once that mailbox is created, and re-run the access policy above against it.
 
 ## Current status — quality
 
@@ -153,6 +153,21 @@ Prompted by walking through "what happens with several guards on several devices
 - [x] Two offline-queue call sites (`enqueueMovement` in `SecurityHome.tsx`, plus `refreshPendingCount`) could reject unhandled (IndexedDB unavailable/blocked) with no error shown to the guard at all. Fixed with `try/catch` + a visible error banner.
 
 See `CHANGELOG.md`'s 2026-09-22 (cont. 3)/(cont. 4) entries and `docs/decisions.md` for full rationale on each.
+
+## 2026-09-22 (cont. 5) — Crash-risk review + priority UX pass
+
+Followed up a broader crash-risk list with a real audit of what was already mitigated vs. genuinely open (most items were already fail-fast-by-design or previously fixed; only the Puppeteer single-browser risk was new), then implemented the UX backlog items picked as worth doing now:
+
+- [x] Puppeteer's pooled report-generator browser had no recovery from a wedged (not fully crashed) instance — 30s render timeout + retry-on-`newPage()`-failure, verified with a dedicated mocked-Puppeteer test suite.
+- [x] Welcome banner right after login, with a role-specific next action — `WelcomeBanner.tsx`, shown once via a `sessionStorage` flag.
+- [x] Clearer offline/sync status wording on SecurityHome.
+- [x] Better empty-state guidance on Dashboard and Audit Log (filter-aware messaging + a Clear-all-filters action).
+- [x] Duplicate-confirmation dialog now shows the employee's name and when the conflicting movement was last recorded, not just its bare type.
+- [x] Settings rebuilt as a single "Save all changes" form with validation and an unsaved-changes indicator, replacing four separate per-field Save buttons.
+- [x] Audit Log gets a `from`/`to` date-range filter and a keyword search across action/entity/user/IP (newest-first was already the default).
+- **Deliberately scoped down, not done**: the broader "responsive consistency and contrast/hierarchy pass" from the UX backlog was limited to spot-checking the pages touched in this pass (Settings, Audit Log, SecurityHome at 375–390px — no horizontal overflow, verified with Puppeteer) rather than a full site-wide redesign, per the user's own framing of that item as "a dedicated pass," not incremental work.
+
+See `CHANGELOG.md`'s 2026-09-22 (cont. 5) entry and `docs/decisions.md` for full rationale on each.
 
 ## Suggested next step
 

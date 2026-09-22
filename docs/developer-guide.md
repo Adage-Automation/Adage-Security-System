@@ -104,6 +104,8 @@ Follow the existing module pattern (e.g. copy `employees/` as a template):
 5. Reuse the shared components rather than rebuilding their pattern inline (found missing/inconsistent in the 2026-09-21 UX pass, now standard):
    - **`<TableSkeleton />`** (`src/components/TableSkeleton.tsx`) — render while a table's data is loading (`{loading && rows.length === 0 && <TableSkeleton columns={n} />}`), so a slow connection shows a shimmer instead of a blank gap. Every data table in the app uses this now.
    - **`<PasswordInput />`** (`src/components/PasswordInput.tsx`) — drop-in replacement for `<input type="password">` with a show/hide toggle. Use it for every password field, no exceptions.
+   - **`<OfflineBadge />`** (`src/components/OfflineBadge.tsx`) — small "offline" pill for next to a movement's time; render it when `record.recordedOffline` is true.
+   - **`<WelcomeBanner />`** (`src/components/WelcomeBanner.tsx`) — one-time post-login banner; render it on a page users land on right after login (currently `SecurityHome`/`Dashboard`). It only shows itself if `Login.tsx`'s `markJustLoggedIn()` was called on this login — no action needed beyond rendering it.
    - **Edit/detail forms triggered from a table row must be a modal**, not an inline section rendered elsewhere on the page — an inline form above/below a long, paginated, or scrolled table is invisible without scrolling back to it (found live on the Employees "Edit" flow, 2026-09-21). Follow the existing `.modal-overlay`/`.modal-card` pattern (see `Corrections.tsx`'s correction modal or `Employees.tsx`'s edit modal) — centered, focus-trapped, Escape-to-close, first field or the Cancel button focused on open.
    - **A create/update action from a table page should patch the affected row in local state**, not blindly reload the whole list — reloading from page 1 after editing/toggling a row loaded via "Load More" silently discards the admin's scroll/pagination progress (found on Employees/Users, 2026-09-21; see `saveEdit`/`toggleActive` in `Employees.tsx` for the pattern). A genuinely new row from a create action is the one case where reloading is fine.
    - **Every required field needs a visible `*` marker** — either automatically via the `.field label:has(+ input[required])::after` CSS rule (works for the `htmlFor`/`id` sibling-label pattern only) or an explicit `<span className="required-mark"> *</span>` in the label text (for the nested `<label>Text<input/></label>` pattern used on most admin forms).
@@ -139,9 +141,11 @@ Full reference lives in `backend/.env.example`. Never commit a real `.env`. Key 
 | `APP_TIMEZONE` | Should stay `Asia/Kolkata`; also set the OS-level `TZ` on the backend process (see architecture doc's timezone note) |
 | `TZ` | Runtime environment variable for the backend process; set it to `Asia/Kolkata` in the container/host environment, not just in the app config |
 | `AZURE_TENANT_ID` / `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` | OAuth2 app registration for the Microsoft Graph API — Adage's Microsoft 365 tenant, see `docs/email-m365-admin-handoff.md` |
-| `MAIL_FROM_ADDRESS` / `SECURITY_EMAIL` | Sending mailbox and CC address |
+| `MAIL_FROM_ADDRESS` | Sending mailbox |
 | `STORAGE_*` | S3-compatible bucket for persisted emailed reports |
 | `FRONTEND_URL` | Used for CORS allow-list |
+
+The CC address (`SECURITY_EMAIL`) is **not** an env var, despite the similar name — it's a database-backed Settings key, changed via the Settings page. There is no env var to set for it.
 
 ## Where things live if you're debugging
 

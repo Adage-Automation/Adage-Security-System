@@ -26,16 +26,18 @@ function makeService() {
 }
 
 describe('MovementsService.createMovement', () => {
-  it('warns on a repeated movement without writing', async () => {
+  it('warns on a repeated movement without writing, including when it last happened', async () => {
     const { service, prisma, auditLog } = makeService();
+    const lastMovementAt = new Date('2026-09-22T09:03:00.000Z');
     prisma.employee.findUnique.mockResolvedValue({ id: 7 });
     prisma.movementRecord.findUnique.mockResolvedValue(null);
-    prisma.movementRecord.findFirst.mockResolvedValue({ movementType: 'ENTRY' });
+    prisma.movementRecord.findFirst.mockResolvedValue({ movementType: 'ENTRY', movementAt: lastMovementAt });
 
     await expect(service.createMovement({ employeeId: 7, movementType: 'ENTRY' }, 3)).resolves.toEqual({
       created: false,
       requiresConfirmation: true,
       lastMovementType: 'ENTRY',
+      lastMovementAt,
     });
     expect(prisma.movementRecord.create).not.toHaveBeenCalled();
     expect(auditLog.record).not.toHaveBeenCalled();

@@ -10,7 +10,7 @@ Security personnel search for an employee, then record an **ENTRY** or **EXIT** 
 
 Key principles carried through the whole design:
 - **Event log, not slots** — one row per movement, never `morning_entry`/`lunch_exit` columns.
-- **Server-authoritative timestamps** — the frontend never supplies the official time or user identity.
+- **Server-authoritative timestamps, with one bounded exception** — the frontend never supplies the official time or user identity for a live tap. Only the offline-queue sync path may supply a client-captured time (`clientMovementAt`), and only within a plausibility window — see [decisions.md](./docs/decisions.md#offline-sync-preserve-the-real-tap-time-within-bounds).
 - **Email is strictly on-demand** — never automatic, never triggered by recording a movement.
 - **Working hours displayed on the day view** — the employee details page shows total working hours (first entry → last exit) as a convenience summary; movements are still stored as individual events, not time-slots.
 - **Append-only corrections** — a correction never overwrites history; the original row is marked superseded and a new linked record is added.

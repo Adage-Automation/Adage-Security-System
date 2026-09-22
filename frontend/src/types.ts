@@ -38,5 +38,6 @@ export interface CreateMovementResponse {
   created: boolean;
   requiresConfirmation: boolean;
   lastMovementType?: MovementType;
+  lastMovementAt?: string;
   record?: MovementRecord;
 }

@@ -6,6 +6,7 @@ import { useAuth } from '../auth/useAuth';
 import { Employee, CreateMovementResponse, MovementType } from '../types';
 import { enqueueMovement, listPendingMovements, removePendingMovement, updatePendingMovement } from '../offline/movementQueue';
 import { refreshEmployeeCache, searchEmployeeCache, hasEmployeeCache } from '../offline/employeeCache';
+import { WelcomeBanner } from '../components/WelcomeBanner';
 import {
   IconSearch,
   IconEntry,
@@ -62,7 +63,7 @@ export function SecurityHome() {
   const [pendingCount, setPendingCount] = useState(0);
   const [conflictCount, setConflictCount] = useState(0);
   const [conflicts, setConflicts] = useState<Awaited<ReturnType<typeof listPendingMovements>>>([]);
-  const [confirmDialog, setConfirmDialog] = useState<{ movementType: MovementType; lastType: MovementType } | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{ movementType: MovementType; lastType: MovementType; lastMovementAt?: string } | null>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   // navigator.onLine only tells us the link is up, not that the server is
   // actually reachable (dead backend, DNS hiccup, captive portal all still
@@ -439,7 +440,7 @@ export function SecurityHome() {
         });
 
         if (res.requiresConfirmation && res.lastMovementType) {
-          setConfirmDialog({ movementType, lastType: res.lastMovementType });
+          setConfirmDialog({ movementType, lastType: res.lastMovementType, lastMovementAt: res.lastMovementAt });
           return;
         }
 
@@ -484,6 +485,7 @@ export function SecurityHome() {
 
   return (
     <div className="page">
+      <WelcomeBanner />
       <div className="date-heading">
         <IconCalendar />
         {today}
@@ -493,8 +495,8 @@ export function SecurityHome() {
         <div className="status-banner pending" role="status" aria-live="polite">
           <IconWifiOff />
           {isOnline
-            ? 'The server is unreachable right now. Records will be saved once connection returns.'
-            : 'You are offline. Records will be saved once connection returns.'}
+            ? 'Server unreachable — you can still search employees from the last saved list. Movements will be saved once connection returns.'
+            : 'Offline mode — you can still search employees from the last saved list. Movements will be saved once connection returns.'}
         </div>
       )}
 
@@ -520,7 +522,7 @@ export function SecurityHome() {
       {pendingCount > 0 && (
         <div className="status-banner pending" role="status" aria-live="polite">
           <IconClock />
-          {pendingCount} record{pendingCount === 1 ? '' : 's'} pending sync.
+          Queued: {pendingCount} movement{pendingCount === 1 ? '' : 's'} pending sync — will be sent automatically once connection returns.
         </div>
       )}
 
@@ -538,7 +540,7 @@ export function SecurityHome() {
           <IconClock />
           <span>
             Queued: {status.movementType === 'ENTRY' ? 'Entry' : 'Exit'}
-            <span className="status-detail"> — {status.employeeName}, pending sync</span>
+            <span className="status-detail"> — {status.employeeName}. Will sync automatically once connection returns.</span>
           </span>
         </div>
       )}
@@ -650,10 +652,18 @@ export function SecurityHome() {
               <IconAlertTriangle />
             </div>
             <p id="duplicate-movement-title">
-              This employee was already marked as{' '}
-              {confirmDialog.lastType === 'ENTRY' ? 'inside' : 'outside'}.
+              {selected?.employeeName ?? 'This employee'} was already marked as{' '}
+              {confirmDialog.lastType === 'ENTRY' ? 'inside' : 'outside'}
+              {confirmDialog.lastMovementAt && (
+                <>
+                  {' '}
+                  (last recorded: {confirmDialog.lastType} at{' '}
+                  {new Intl.DateTimeFormat('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(confirmDialog.lastMovementAt))})
+                </>
+              )}
+              .
               <br />
-              Do you want to record another {confirmDialog.movementType}?
+              This would record {confirmDialog.movementType} twice in a row for the same employee — do you want to record it anyway?
             </p>
             <div className="modal-actions">
               <button
@@ -674,7 +684,7 @@ export function SecurityHome() {
                 }}
               >
                 {submitting && <span className="spinner" />}
-                Confirm
+                Confirm anyway
               </button>
             </div>
           </div>

@@ -8,6 +8,11 @@ export interface CreateMovementResult {
   created: boolean;
   requiresConfirmation: boolean;
   lastMovementType?: 'ENTRY' | 'EXIT';
+  // The existing record's own timestamp — lets the frontend's duplicate-
+  // confirmation dialog show "Last recorded: ENTRY at 9:03 AM" instead of
+  // just the bare type, so the guard isn't confirming blind. Added in the
+  // 2026-09-22 UX audit.
+  lastMovementAt?: Date;
   record?: any;
 }
 
@@ -108,7 +113,7 @@ export class MovementsService {
       });
 
       if (last && last.movementType === dto.movementType && !dto.confirmed) {
-        return { kind: 'confirm' as const, lastMovementType: last.movementType as 'ENTRY' | 'EXIT' };
+        return { kind: 'confirm' as const, lastMovementType: last.movementType as 'ENTRY' | 'EXIT', lastMovementAt: last.movementAt };
       }
 
       try {
@@ -147,7 +152,7 @@ export class MovementsService {
     });
 
     if (outcome.kind === 'confirm') {
-      return { created: false, requiresConfirmation: true, lastMovementType: outcome.lastMovementType };
+      return { created: false, requiresConfirmation: true, lastMovementType: outcome.lastMovementType, lastMovementAt: outcome.lastMovementAt };
     }
     if (outcome.kind === 'replay') {
       return { created: true, requiresConfirmation: false, record: outcome.record };
