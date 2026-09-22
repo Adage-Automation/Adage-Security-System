@@ -5,7 +5,7 @@ This is the guide for security guards recording employee entry and exit at the g
 ## Logging in
 
 1. Open the app (on your phone: tap the Adage icon if you've installed it; otherwise open the link in your browser).
-2. Enter your username and password.
+2. Enter your username (or email) and password.
 3. Tap **Login**.
 
 Your name and role ("Security") appear at the top of the screen once logged in.
@@ -14,8 +14,8 @@ Your name and role ("Security") appear at the top of the screen once logged in.
 
 This is the only thing you need to do most of the time:
 
-1. Tap the search box and start typing the employee's name (or their ID, or email).
-2. As you type, matching employees appear. Tap the correct one.
+1. Tap the search box — a list of employees appears right away, even before you type anything. Start typing a name (or ID, or email) to narrow it down.
+2. Tap the correct employee from the list. Tapping anywhere outside the box closes it without picking anyone.
 3. Their name and Employee ID appear on screen — check it's the right person.
 4. Tap **ENTRY** if they're coming in, or **EXIT** if they're leaving.
 5. You'll see a green confirmation: "✓ Entry Recorded" (or Exit) with the exact time.

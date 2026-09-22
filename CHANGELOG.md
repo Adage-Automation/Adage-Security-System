@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-09-22 (cont. 2) — Login by username or email; faster reset after recording a movement
+
+### Added
+
+- **Login now accepts either username or email in the same field** (`Username or Email` on the login form) — email match is case-insensitive. Requested by the user. Backend: `AuthService.validateUser` now matches on `username` OR case-insensitive `email` instead of `username` only.
+
+### Changed
+
+- **Cut the delay between recording an ENTRY/EXIT and the search box reappearing for the next employee from 1800ms to 800ms** (`AUTO_RESET_DELAY_MS` in `SecurityHome.tsx`) — reported by the user as feeling slow when working through several people quickly at the gate. The success/pending-sync confirmation banner isn't cleared by this timer (only picking the next employee does), so the confirmation stays visible above the search box rather than being lost.
+
+## 2026-09-22 (cont. 1) — Dashboard: employee names are now clickable, linking straight to their day view
+
+### Added
+
+- **Employee names in the Dashboard's movement records table/cards are now links** to `/employee-details` for that employee and the currently selected date — same destination as the existing "View Employee Day" button, just reachable directly from the row instead of requiring a separate employee-filter step first. Requested by the user. Verified via screenshot (both the table row link and the resulting Employee Movement Details page).
+
+## 2026-09-22 — Fix keep-alive workflow's timeout being shorter than Render's actual cold-start time
+
+### Fixed
+
+- **`.github/workflows/keep-alive.yml` had failed on every scheduled run since it started actually hitting a cold backend** (3 consecutive failures, reported by the user). Its first run happened to pass because the backend was already warm from manual testing; every run after that failed. Root cause: `curl --max-time 25` against a Render free-tier instance that was genuinely asleep — timed a real cold start at 33s, over the 25s budget. Bumped to `--max-time 100`.
+
 ## 2026-09-21 (cont. 6) — Employee search dropdown now closes on outside click; no longer opens itself on page load
 
 ### Fixed

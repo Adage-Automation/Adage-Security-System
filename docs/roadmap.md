@@ -135,6 +135,13 @@ A full pass over every user-facing interaction, requested explicitly ("the ux is
 
 See `CHANGELOG.md`'s 2026-09-21 (cont. 2)/(cont. 3) entries for the complete list, and `docs/developer-guide.md`'s "Adding a new frontend page" section for the conventions this established going forward.
 
+## 2026-09-21 (cont. 5/6) — Employee search dropdown fixes
+
+- [x] Every employee search box (SecurityHome, Dashboard's employee filter, Corrections) showed nothing until you started typing — a blank query now returns a browse list of the first 10 employees alphabetically, fetched immediately on input focus.
+- [x] SecurityHome's search box had `autoFocus`, so that browse dropdown opened by itself on page load, before any click, and none of the three search boxes could be dismissed by clicking elsewhere on the page. Removed `autoFocus`; added click-outside-to-close on all three.
+
+See `CHANGELOG.md`'s 2026-09-21 (cont. 5)/(cont. 6) entries and `docs/decisions.md`'s "Employee search: blank query returns a browse list, not nothing" entry.
+
 ## Suggested next step
 
 The app is live end to end — frontend (Vercel), backend (Render), database (Supabase), email (Microsoft Graph) — with all three roles verified working, the full "Email Details" flow confirmed in production (including the 2026-09-21 Puppeteer/Render fix), and both a mobile/desktop responsive audit and a full crash/bug/offline-edge-case audit completed with every real finding fixed except the one offline-queue limitation noted above. Nothing is currently blocked on external input except the two items below. Highest-leverage next steps, in order: (1) run the Exchange Online application access policy restricting the Azure app to one mailbox (currently unrestricted — see "Blocked" section above); (2) swap `MAIL_FROM_ADDRESS`/`SECURITY_EMAIL` to the real `security@adage-automation.com` mailbox once it exists, replacing the current `shivani.naik@` stand-in; (3) set up the recommended external uptime monitor (UptimeRobot or similar) on `/api/health` if not already done, since the GitHub Actions pinger alone has the 60-day-inactivity blind spot noted above; (4) decide whether the offline-queue's remaining data-loss risk (above) is worth a dedicated follow-up.

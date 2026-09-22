@@ -42,6 +42,16 @@ type Status =
   | { kind: 'pending-sync'; movementType: MovementType; employeeName: string }
   | { kind: 'error'; message: string };
 
+// How long the confirmed-employee card/buttons stay up after a
+// successful ENTRY/EXIT before the search box reappears for the next
+// employee. Was 1800ms — reported by the user as feeling slow when
+// working through a queue of people quickly at the gate; the success/
+// pending-sync banner itself isn't cleared by this (only the next
+// selection does that), so the confirmation stays visible while the
+// guard is already free to search the next name. Found in the
+// 2026-09-22 audit.
+const AUTO_RESET_DELAY_MS = 800;
+
 export function SecurityHome() {
   const { user } = useAuth();
   const [query, setQuery] = useState('');
@@ -354,7 +364,7 @@ export function SecurityHome() {
         });
         await refreshPendingCount();
         setStatus({ kind: 'pending-sync', movementType, employeeName: selected.employeeName });
-        setTimeout(resetSelection, 1800);
+        setTimeout(resetSelection, AUTO_RESET_DELAY_MS);
         return;
       }
 
@@ -375,7 +385,7 @@ export function SecurityHome() {
           new Date(res.record!.movementAt),
         );
         setStatus({ kind: 'success', movementType, employeeName: selected.employeeName, time });
-        setTimeout(resetSelection, 1800);
+        setTimeout(resetSelection, AUTO_RESET_DELAY_MS);
       } catch (err) {
         if (err instanceof ApiError) {
           setStatus({ kind: 'error', message: 'Unable to save record. Please check the connection and try again.' });
@@ -395,7 +405,7 @@ export function SecurityHome() {
           });
           await refreshPendingCount();
           setStatus({ kind: 'pending-sync', movementType, employeeName: selected.employeeName });
-          setTimeout(resetSelection, 1800);
+          setTimeout(resetSelection, AUTO_RESET_DELAY_MS);
         }
       }
     } finally {

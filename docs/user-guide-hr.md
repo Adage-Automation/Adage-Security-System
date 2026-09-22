@@ -8,7 +8,7 @@ This is a **backup/reconciliation record, not your primary attendance source.** 
 
 ## Logging in
 
-Same as any user: username + password on the login screen. After login, you land directly on the **Dashboard** — HR does not have access to the Security recording screen.
+Same as any user: username (or email) + password on the login screen. After login, you land directly on the **Dashboard** — HR does not have access to the Security recording screen.
 
 ## Dashboard
 
@@ -27,6 +27,8 @@ If you want the day's total working hours, open **View Employee Day** for that e
 - **Movement** — filter to just ENTRY, just EXIT, or All.
 
 The records table updates automatically as you change filters. On a phone, the table becomes a stack of cards instead of a scrolling table.
+
+Tap any employee's name in the table (or card) to jump straight to their **View Employee Day** page for the selected date — a shortcut for the "select employee then tap the button" flow described below.
 
 ## Viewing one employee's day
 

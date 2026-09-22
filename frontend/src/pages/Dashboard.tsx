@@ -216,7 +216,11 @@ export function Dashboard() {
             <tbody>
               {records.map((r) => (
                 <tr key={r.id}>
-                  <td>{r.employee?.employeeName}</td>
+                  <td>
+                    <Link className="employee-name-link" to={`/employee-details?employeeId=${r.employeeId}&date=${date}`}>
+                      {r.employee?.employeeName}
+                    </Link>
+                  </td>
                   <td>{new Date(r.movementAt).toLocaleDateString('en-IN')}</td>
                   <td>{formatTime(r.movementAt)}</td>
                   <td><span className={`movement-badge ${r.movementType}`}>{r.movementType}</span></td>
@@ -230,7 +234,9 @@ export function Dashboard() {
             {records.map((r) => (
               <div className="record-card" key={r.id}>
                 <div>
-                  <strong>{r.employee?.employeeName}</strong>
+                  <Link className="employee-name-link" to={`/employee-details?employeeId=${r.employeeId}&date=${date}`}>
+                    <strong>{r.employee?.employeeName}</strong>
+                  </Link>
                   <div style={{ fontSize: 12, color: '#666' }}>
                     {new Date(r.movementAt).toLocaleString('en-IN')}
                   </div>

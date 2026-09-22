@@ -10,7 +10,7 @@ No auth required. Runs a real `SELECT 1` against the database and returns `{ sta
 ## Auth
 
 ### `POST /auth/login`
-Body: `{ username: string, password: string }`
+Body: `{ username: string, password: string }` — despite the field name, `username` accepts either the account's username or its email (email match is case-insensitive; username match is exact, consistent with its case-sensitive DB uniqueness). See `docs/decisions.md`.
 Rate-limited to 5 attempts/60s per IP. Returns `{ user: AuthUser }` on success, `401` on bad credentials, `429` if rate-limited.
 
 ### `POST /auth/logout`

@@ -6,7 +6,7 @@ jest.mock('argon2', () => ({
 }));
 
 describe('AuthService.validateUser', () => {
-  const prisma = { user: { findUnique: jest.fn() } };
+  const prisma = { user: { findUnique: jest.fn(), findFirst: jest.fn() } };
   const auditLog = {};
   const emailService = {};
   const settings = {};
@@ -17,7 +17,7 @@ describe('AuthService.validateUser', () => {
   });
 
   it('authenticates an active user by username', async () => {
-    prisma.user.findUnique.mockResolvedValue({
+    prisma.user.findFirst.mockResolvedValue({
       id: 1,
       name: 'Admin User',
       email: 'admin@example.com',
@@ -39,14 +39,45 @@ describe('AuthService.validateUser', () => {
       role: 'ADMIN',
       permissions: ['MANAGE_USERS'],
     });
-    expect(prisma.user.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { username: 'admin' } }));
+    expect(prisma.user.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { OR: [{ username: 'admin' }, { email: { equals: 'admin', mode: 'insensitive' } }] },
+      }),
+    );
+  });
+
+  it('authenticates an active user by email, case-insensitively', async () => {
+    prisma.user.findFirst.mockResolvedValue({
+      id: 1,
+      name: 'Admin User',
+      email: 'admin@example.com',
+      username: 'admin',
+      passwordHash: 'hash',
+      isActive: true,
+      role: { name: 'ADMIN', rolePermissions: [] },
+    });
+    (argon2.verify as jest.Mock).mockResolvedValue(true);
+
+    await expect(service.validateUser('Admin@Example.com', 'password')).resolves.toEqual(
+      expect.objectContaining({ id: 1, username: 'admin' }),
+    );
+    expect(prisma.user.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { OR: [{ username: 'Admin@Example.com' }, { email: { equals: 'Admin@Example.com', mode: 'insensitive' } }] },
+      }),
+    );
+  });
+
+  it('rejects a blank identifier without querying the database', async () => {
+    await expect(service.validateUser('   ', 'password')).resolves.toBeNull();
+    expect(prisma.user.findFirst).not.toHaveBeenCalled();
   });
 
   it('rejects inactive users and invalid passwords', async () => {
-    prisma.user.findUnique.mockResolvedValue({ isActive: false });
+    prisma.user.findFirst.mockResolvedValue({ isActive: false });
     await expect(service.validateUser('disabled', 'password')).resolves.toBeNull();
 
-    prisma.user.findUnique.mockResolvedValue({ isActive: true, passwordHash: 'hash' });
+    prisma.user.findFirst.mockResolvedValue({ isActive: true, passwordHash: 'hash' });
     (argon2.verify as jest.Mock).mockResolvedValue(false);
     await expect(service.validateUser('user', 'wrong')).resolves.toBeNull();
   });

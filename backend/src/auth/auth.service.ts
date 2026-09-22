@@ -22,9 +22,22 @@ export class AuthService {
     private settings: SettingsService,
   ) {}
 
-  async validateUser(username: string, password: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { username },
+  // Accepts either username or email in the same field — the login form
+  // doesn't ask which one you're typing. Username match stays exact
+  // (consistent with its case-sensitive DB uniqueness); email match is
+  // case-insensitive, consistent with how email is already treated
+  // case-insensitively everywhere else (see the employee duplicate-check
+  // decision in docs/decisions.md). Requested by the user, 2026-09-22.
+  async validateUser(usernameOrEmail: string, password: string) {
+    const identifier = usernameOrEmail?.trim() ?? '';
+    if (!identifier) {
+      return null;
+    }
+
+    const user = await this.prisma.user.findFirst({
+      where: {
+        OR: [{ username: identifier }, { email: { equals: identifier, mode: 'insensitive' } }],
+      },
       include: { role: { include: { rolePermissions: { include: { permission: true } } } } },
     });
 

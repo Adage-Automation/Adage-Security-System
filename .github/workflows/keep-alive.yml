@@ -23,6 +23,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Ping backend health endpoint
+        # A cold Render free-tier instance took 33s to answer in testing
+        # (2026-09-22) — the previous 25s timeout failed on almost every
+        # run where the backend had actually gone to sleep, which is
+        # exactly the case this workflow exists to handle. 100s leaves
+        # comfortable headroom over the observed cold-start time.
         run: |
-          curl -fsS --max-time 25 "https://adage-security-system.onrender.com/api/health" || \
+          curl -fsS --max-time 100 "https://adage-security-system.onrender.com/api/health" || \
           (echo "Health check failed" && exit 1)

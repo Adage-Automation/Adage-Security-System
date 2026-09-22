@@ -982,6 +982,19 @@ table.records-table tbody tr:hover {
   background: var(--brand-tint);
 }
 
+.employee-name-link {
+  color: var(--brand-dark);
+  font-weight: 600;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+
+.employee-name-link:hover,
+.employee-name-link:focus-visible {
+  color: var(--brand);
+  border-bottom-color: var(--brand-light);
+}
+
 table.records-table th {
   background: #eef4f3;
   font-weight: 700;
