@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import { Employee, MovementRecord } from '../types';
 import { IconArrowLeft, IconMail, IconCheckCircle, IconXCircle, IconInbox, IconClock } from '../components/icons';
 import { TableSkeleton } from '../components/TableSkeleton';
+import { OfflineBadge } from '../components/OfflineBadge';
 import { todayIso, formatTime } from '../utils/date';
 
 function initials(name: string): string {
@@ -159,7 +160,10 @@ export function EmployeeDetails() {
             <tbody>
               {records.map((r) => (
                 <tr key={r.id}>
-                  <td>{formatTime(r.movementAt)}</td>
+                  <td>
+                    {formatTime(r.movementAt)}
+                    {r.recordedOffline && <OfflineBadge />}
+                  </td>
                   <td><span className={`movement-badge ${r.movementType}`}>{r.movementType}</span></td>
                 </tr>
               ))}
@@ -169,7 +173,10 @@ export function EmployeeDetails() {
           <div className="record-cards">
             {records.map((r) => (
               <div className="record-card" key={r.id}>
-                <span>{formatTime(r.movementAt)}</span>
+                <span>
+                  {formatTime(r.movementAt)}
+                  {r.recordedOffline && <OfflineBadge />}
+                </span>
                 <span className={`movement-badge ${r.movementType}`}>{r.movementType}</span>
               </div>
             ))}

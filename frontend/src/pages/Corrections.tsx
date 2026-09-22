@@ -4,6 +4,7 @@ import { Employee, MovementRecord, MovementType } from '../types';
 import { IconEdit, IconPlus, IconInbox, IconX, IconCheckCircle } from '../components/icons';
 import { AdminNav } from '../components/AdminNav';
 import { TableSkeleton } from '../components/TableSkeleton';
+import { OfflineBadge } from '../components/OfflineBadge';
 import { todayIso, formatTime } from '../utils/date';
 
 function initials(name: string): string {
@@ -282,7 +283,10 @@ export function Corrections() {
             <tbody>
               {records.map((r) => (
                 <tr key={r.id}>
-                  <td>{formatTime(r.movementAt)}</td>
+                  <td>
+                    {formatTime(r.movementAt)}
+                    {r.recordedOffline && <OfflineBadge />}
+                  </td>
                   <td><span className={`movement-badge ${r.movementType}`}>{r.movementType}</span></td>
                   <td>
                     <button className="table-action-btn" onClick={() => openCorrect(r)}>

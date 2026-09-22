@@ -50,6 +50,8 @@ If you're offline or the network fails when you tap ENTRY/EXIT, you'll see **"Qu
 
 **If a queued record has a conflict**: occasionally, when the app syncs a queued movement it finds that the same employee already has a more recent record of the same type — for example, another device also recorded an ENTRY while you were offline. Instead of auto-recording a duplicate, the app flags it with a red banner: **"X offline movements need review because a newer record exists."** Tap **Record anyway** to confirm you still want to record it, or tap **Dismiss** if the queued item no longer needs action. This only ever happens after a reconnect, never immediately when you tap.
 
+**Searching while offline**: the employee search box still works while you're offline, as long as you've opened the app at least once while connected before — the phone keeps a local copy of the employee list and refreshes it automatically whenever you're online. If you've never connected on this device (or it's brand new), search results won't appear until you connect at least once.
+
 ## Viewing records (Dashboard)
 
 Tap **DASHBOARD** at the bottom of the main screen to look up past records — for example if an employee asks you to check when they came in yesterday. See [user-guide-hr.md](./user-guide-hr.md#dashboard) for how to use the filters; the dashboard works the same way for every role.

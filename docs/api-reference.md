@@ -33,6 +33,7 @@ Body: `{ token: string, newPassword: string }` (`newPassword` min 8 characters).
 |---|---|---|---|
 | GET | `/employees/search?q=` | `VIEW_DASHBOARD` | Active employees only, top 10 matches, name/code/email/car number, case-insensitive. Backs both the guard's ENTRY/EXIT selector and the Dashboard's employee filter — every role that reaches either already holds `VIEW_DASHBOARD`. A blank/omitted `q` returns the first 10 active employees alphabetically (a "browse" list) rather than an empty array — the frontend fetches this on focus, before any typing, so the dropdown isn't empty until something's typed. See `docs/decisions.md`. |
 | GET | `/employees/search-all?q=` | `CORRECT_RECORDS` | Includes inactive employees — for the admin correction flow; searches name/code/email/car number. Same blank-query browse-list behavior as `/employees/search` above. |
+| GET | `/employees/offline-cache` | `VIEW_DASHBOARD` | Full active roster (id/name/code/email/car number only, no take limit) — backs the Security app's offline search fallback (`frontend/src/offline/employeeCache.ts`). The frontend fetches this on load and every 5 minutes while online and caches it in `localStorage`, since `/employees/search` above is `NetworkOnly` in the service worker and unreachable while genuinely offline. See `docs/decisions.md`. |
 | GET | `/employees?skip=&take=&q=` | `MANAGE_EMPLOYEES` | Admin management list. `q` (optional) filters name/code/email/car number, case-insensitive. Returns `{ rows: Employee[], total: number }` — `total` reflects the filtered count, so the frontend can page/search the full roster rather than being capped at one page. |
 | GET | `/employees/:id` | `VIEW_EMPLOYEE_HISTORY` | Single-employee lookup — intentionally not gated behind `MANAGE_EMPLOYEES`, since it backs the Employee Details page that Security/HR reach via the Dashboard even though they lack `MANAGE_EMPLOYEES` |
 | POST | `/employees` | `MANAGE_EMPLOYEES` | Body: `CreateEmployeeDto` |
@@ -56,9 +57,11 @@ Body: `{ token: string, newPassword: string }` (`newPassword` min 8 characters).
 
 ### `POST /movements` — creating a movement
 
-Body: `{ employeeId: number, movementType: 'ENTRY' | 'EXIT', confirmed?: boolean, clientRequestId?: string }`
+Body: `{ employeeId: number, movementType: 'ENTRY' | 'EXIT', confirmed?: boolean, clientRequestId?: string, clientMovementAt?: string }`
 
 `clientRequestId` is an optional client-generated idempotency key, one per guard tap, resent unchanged on any retry of that same tap (including the offline queue's sync retry). If a record already exists for that key, the server returns it instead of creating a duplicate — closes the "request succeeded but the response was lost, so the client retries" duplicate-record risk.
+
+`clientMovementAt` (ISO 8601, optional) is sent only by the offline queue's sync path — the guard's device-captured real tap time. It is **not** trusted outright: the server uses it only if it's within a plausible window (not more than 7 days in the past, not more than 5 minutes in the future); otherwise it falls back to the server clock exactly as if the field had been omitted. A live/online tap never sends this field at all. See [decisions.md](./decisions.md#offline-sync-preserve-the-real-tap-time-within-bounds).
 
 Response is one of:
 ```json
@@ -68,7 +71,9 @@ or, if the employee's last movement is the same type and `confirmed` was not `tr
 ```json
 { "created": false, "requiresConfirmation": true, "lastMovementType": "ENTRY" }
 ```
-The client must show a confirmation prompt and resubmit with `confirmed: true` to actually create the record. **The timestamp and recording user are always server-derived — never send them in the body.**
+The client must show a confirmation prompt and resubmit with `confirmed: true` to actually create the record. **The timestamp and recording user are always server-derived for a live tap — never send them in the body.** The one bounded exception is `clientMovementAt` on an offline-queue sync, above. `MovementRecord.recordedOffline` reflects whether that exception actually applied to a given record.
+
+The "read last movement, then write" check above is wrapped in a Postgres advisory lock (`pg_advisory_xact_lock`) scoped to `employeeId`, so two requests for the *same* employee arriving at nearly the same instant (two guards on two different devices) are serialized rather than racing each other into two undetected duplicates — a different employee's request is never blocked by this. See [decisions.md](./decisions.md#offline-sync-preserve-the-real-tap-time-within-bounds).
 
 ### `POST /movements/:id/correct`
 

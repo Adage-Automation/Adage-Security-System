@@ -11,6 +11,16 @@ export interface CreateMovementResult {
   record?: any;
 }
 
+// How far a client-claimed offline tap time is allowed to diverge from the
+// server clock before it's discarded in favor of `new Date()`. Bounds how
+// far a device could backdate/postdate a record — 7 days comfortably
+// covers an extended offline stretch (leave, a broken phone sitting
+// unused) on company-managed devices, where the spoofing risk this bound
+// guards against is lower than on an open/personal device. Raised from
+// 48h, 2026-09-22 — see docs/decisions.md.
+const MAX_CLIENT_TIMESTAMP_PAST_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_CLIENT_TIMESTAMP_FUTURE_MS = 5 * 60 * 1000;
+
 @Injectable()
 export class MovementsService {
   constructor(
@@ -18,11 +28,23 @@ export class MovementsService {
     private auditLog: AuditLogService,
   ) {}
 
-  private async getLastMovement(employeeId: number) {
-    return this.prisma.movementRecord.findFirst({
-      where: { employeeId, isSuperseded: false },
-      orderBy: { movementAt: 'desc' },
-    });
+  // Never trusts a client timestamp for a live/online tap (dto without
+  // clientMovementAt) — only the offline-queue sync path sends one, and
+  // even then only within a plausible window. Outside that window the tap
+  // still gets recorded, just with the server's own clock instead of
+  // being rejected — a timestamp technicality must never lose a guard's
+  // tap. See docs/decisions.md.
+  private resolveMovementTimestamp(clientMovementAt?: string): { movementAt: Date; recordedOffline: boolean } {
+    if (!clientMovementAt) {
+      return { movementAt: new Date(), recordedOffline: false };
+    }
+    const claimed = new Date(clientMovementAt);
+    const now = Date.now();
+    const withinBounds =
+      !Number.isNaN(claimed.getTime()) &&
+      claimed.getTime() >= now - MAX_CLIENT_TIMESTAMP_PAST_MS &&
+      claimed.getTime() <= now + MAX_CLIENT_TIMESTAMP_FUTURE_MS;
+    return withinBounds ? { movementAt: claimed, recordedOffline: true } : { movementAt: new Date(), recordedOffline: false };
   }
 
   // Confirm-before-save flow (§43, decided deliberately): if the
@@ -35,58 +57,40 @@ export class MovementsService {
       throw new NotFoundException('Employee not found');
     }
 
-    // Idempotency replay (found in the 2026-09-09 audit): if this exact
-    // guard tap already succeeded — e.g. the connection dropped after the
-    // server committed but before the client read the response — the
-    // retry (including the offline queue's auto-confirm-on-sync path)
-    // must return the existing record rather than create a genuine
-    // duplicate ENTRY/EXIT. This check runs before the duplicate-type
-    // warning below, since a replay isn't a new tap to warn about.
-    if (dto.clientRequestId) {
-      const existing = await this.prisma.movementRecord.findUnique({
-        where: { clientRequestId: dto.clientRequestId },
-        include: { employee: true },
-      });
-      if (existing) {
-        if (existing.employeeId !== dto.employeeId || existing.movementType !== dto.movementType || existing.recordedByUserId !== recordedByUserId) {
-          throw new ConflictException('clientRequestId is already associated with a different movement');
-        }
-        return { created: true, requiresConfirmation: false, record: existing };
-      }
-    }
+    // Server is authoritative for the timestamp on a live tap (§20, §46).
+    // The offline-queue sync path is the one exception — see
+    // resolveMovementTimestamp above.
+    const { movementAt, recordedOffline } = this.resolveMovementTimestamp(dto.clientMovementAt);
 
-    const last = await this.getLastMovement(dto.employeeId);
+    // Two guards on two different devices can tap for the same employee
+    // within the same instant — a real scenario with several devices in
+    // the field, not just single-device double-tap (already guarded on
+    // the frontend). Without serializing per employee, both requests could
+    // read "last movement" before either commits, both miss the
+    // duplicate-type check below, and both create a record with no
+    // warning shown to either guard. A Postgres advisory lock scoped to
+    // this transaction serializes concurrent requests for the SAME
+    // employee only — any other employee's tap proceeds immediately,
+    // uncontended — and releases automatically when the transaction ends,
+    // success or failure. Found in the 2026-09-22 audit.
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      // $executeRaw, not $queryRaw: pg_advisory_xact_lock() returns void,
+      // which $queryRaw can't deserialize into a Prisma row (throws
+      // P2010 "Failed to deserialize column of type 'void'") — caught by
+      // testing this against the real database, not just the mocked
+      // unit test. $executeRaw doesn't try to parse a result set.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${dto.employeeId})`;
 
-    if (last && last.movementType === dto.movementType && !dto.confirmed) {
-      return {
-        created: false,
-        requiresConfirmation: true,
-        lastMovementType: last.movementType as 'ENTRY' | 'EXIT',
-      };
-    }
-
-    // Server is authoritative for the timestamp — the frontend can never
-    // supply the official movement time (§20, §46).
-    let record;
-    try {
-      record = await this.prisma.movementRecord.create({
-        data: {
-          employeeId: dto.employeeId,
-          movementType: dto.movementType,
-          movementAt: new Date(),
-          recordedByUserId,
-          clientRequestId: dto.clientRequestId,
-        },
-        include: { employee: true },
-      });
-    } catch (err: any) {
-      // Race: two near-simultaneous requests carrying the same
-      // clientRequestId (e.g. a retry firing just as the first request's
-      // commit lands) both pass the check above before either commits.
-      // The unique constraint catches what the check couldn't; treat it
-      // the same as a normal idempotency replay rather than a hard error.
-      if (err?.code === 'P2002' && dto.clientRequestId) {
-        const existing = await this.prisma.movementRecord.findUnique({
+      // Idempotency replay (found in the 2026-09-09 audit): if this exact
+      // guard tap already succeeded — e.g. the connection dropped after
+      // the server committed but before the client read the response —
+      // the retry (including the offline queue's auto-confirm-on-sync
+      // path) must return the existing record rather than create a
+      // genuine duplicate ENTRY/EXIT. Re-checked here, inside the lock,
+      // in case a concurrent replay of the same clientRequestId committed
+      // while this request was waiting for the lock.
+      if (dto.clientRequestId) {
+        const existing = await tx.movementRecord.findUnique({
           where: { clientRequestId: dto.clientRequestId },
           include: { employee: true },
         });
@@ -94,23 +98,72 @@ export class MovementsService {
           if (existing.employeeId !== dto.employeeId || existing.movementType !== dto.movementType || existing.recordedByUserId !== recordedByUserId) {
             throw new ConflictException('clientRequestId is already associated with a different movement');
           }
-          return { created: true, requiresConfirmation: false, record: existing };
+          return { kind: 'replay' as const, record: existing };
         }
       }
-      throw err;
+
+      const last = await tx.movementRecord.findFirst({
+        where: { employeeId: dto.employeeId, isSuperseded: false },
+        orderBy: { movementAt: 'desc' },
+      });
+
+      if (last && last.movementType === dto.movementType && !dto.confirmed) {
+        return { kind: 'confirm' as const, lastMovementType: last.movementType as 'ENTRY' | 'EXIT' };
+      }
+
+      try {
+        const record = await tx.movementRecord.create({
+          data: {
+            employeeId: dto.employeeId,
+            movementType: dto.movementType,
+            movementAt,
+            recordedOffline,
+            recordedByUserId,
+            clientRequestId: dto.clientRequestId,
+          },
+          include: { employee: true },
+        });
+        return { kind: 'created' as const, record };
+      } catch (err: any) {
+        // Defense-in-depth: the advisory lock above already serializes
+        // same-employee requests, so this shouldn't be reachable in
+        // practice anymore, but a clientRequestId collision constraint
+        // violation is still handled the same as a normal idempotency
+        // replay rather than surfacing as a hard error.
+        if (err?.code === 'P2002' && dto.clientRequestId) {
+          const existing = await tx.movementRecord.findUnique({
+            where: { clientRequestId: dto.clientRequestId },
+            include: { employee: true },
+          });
+          if (existing) {
+            if (existing.employeeId !== dto.employeeId || existing.movementType !== dto.movementType || existing.recordedByUserId !== recordedByUserId) {
+              throw new ConflictException('clientRequestId is already associated with a different movement');
+            }
+            return { kind: 'replay' as const, record: existing };
+          }
+        }
+        throw err;
+      }
+    });
+
+    if (outcome.kind === 'confirm') {
+      return { created: false, requiresConfirmation: true, lastMovementType: outcome.lastMovementType };
+    }
+    if (outcome.kind === 'replay') {
+      return { created: true, requiresConfirmation: false, record: outcome.record };
     }
 
     await this.auditLog.record({
       userId: recordedByUserId,
       action: dto.movementType === 'ENTRY' ? 'ENTRY_RECORDED' : 'EXIT_RECORDED',
       entityType: 'MovementRecord',
-      entityId: record.id,
-      newValue: record,
+      entityId: outcome.record.id,
+      newValue: outcome.record,
       ipAddress: ip,
       userAgent,
     });
 
-    return { created: true, requiresConfirmation: false, record };
+    return { created: true, requiresConfirmation: false, record: outcome.record };
   }
 
   async listByEmployeeAndDate(employeeId: number, date: string) {

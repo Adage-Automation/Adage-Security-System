@@ -43,6 +43,25 @@ export class EmployeesService {
     });
   }
 
+  // Backs the Security app's offline employee-search fallback
+  // (frontend/src/offline/employeeCache.ts) — the frontend caches this
+  // full active roster locally while online, so a guard can still search
+  // for and select someone while genuinely offline. The live /search
+  // endpoint above is deliberately NetworkOnly in the service worker
+  // (vite.config.ts) and unreachable offline at all, and without a local
+  // copy a guard who opens the app offline — or goes offline before
+  // picking a new employee — couldn't find anyone to record. No take
+  // limit: unlike /search's 10-result autocomplete cap, this is meant to
+  // be the full roster. Only the fields the search UI actually needs.
+  // Found in the 2026-09-22 audit.
+  async listActiveForOfflineCache() {
+    return this.prisma.employee.findMany({
+      where: { isActive: true },
+      select: { id: true, employeeName: true, employeeCode: true, email: true, carNumber: true, isActive: true },
+      orderBy: { employeeName: 'asc' },
+    });
+  }
+
   // Used by admin correction flows — includes inactive employees so
   // historical records can still be fixed after someone has left (§39/§42).
   // Same blank-query browse-list behavior as search() above.

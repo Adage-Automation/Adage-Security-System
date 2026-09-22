@@ -2,6 +2,8 @@
 // A failed/offline submission is stored here and retried when connectivity
 // returns. The guard's UI must show this as "pending sync", never as a
 // confirmed save — we never report success before the server confirms it.
+import { correctedNow } from './clockOffset';
+
 const DB_NAME = 'adage-security-offline';
 const STORE_NAME = 'pending-movements';
 
@@ -37,7 +39,12 @@ export async function enqueueMovement(entry: Omit<PendingMovement, 'localId' | '
   const pending: PendingMovement = {
     ...entry,
     localId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    queuedAt: new Date().toISOString(),
+    // The device's own clock, corrected by the last known offset from the
+    // server (see clockOffset.ts) — this is what's later sent to the
+    // server as clientMovementAt, so a device with a wrong clock doesn't
+    // silently produce a wrong movementAt. Falls back to the raw device
+    // clock if the app has never successfully reached the server yet.
+    queuedAt: new Date(correctedNow()).toISOString(),
     syncState: 'pending',
   };
   return new Promise((resolve, reject) => {

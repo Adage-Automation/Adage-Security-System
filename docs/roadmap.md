@@ -142,6 +142,18 @@ See `CHANGELOG.md`'s 2026-09-21 (cont. 2)/(cont. 3) entries for the complete lis
 
 See `CHANGELOG.md`'s 2026-09-21 (cont. 5)/(cont. 6) entries and `docs/decisions.md`'s "Employee search: blank query returns a browse list, not nothing" entry.
 
+## 2026-09-22 (cont. 3/4) — Offline-recorded timestamps, multi-device concurrency, offline search
+
+Prompted by walking through "what happens with several guards on several devices recording concurrently":
+
+- [x] An offline-recorded movement was written with the *sync* time, not the guard's real tap time. Fixed — `clientMovementAt` (bounded, offline-sync-only) + `recordedOffline` flag. See `docs/decisions.md#offline-sync-preserve-the-real-tap-time-within-bounds`.
+- [x] A wrong device clock would have corrupted `clientMovementAt`. Fixed — `offline/clockOffset.ts` calibrates against the server's clock on every successful health check.
+- [x] Two guards on two different devices tapping for the same employee within the same instant could both slip past the duplicate-type check and create an unwarned duplicate — a gap the existing single-device double-tap guard couldn't close. Fixed with a per-employee Postgres advisory lock around the check-then-write. Verified against the real database, not just a mocked test.
+- [x] A guard couldn't search for a *new* employee while genuinely offline (the live search endpoint is `NetworkOnly` in the service worker, and there was no local roster copy at all). Fixed — `GET /employees/offline-cache` cached client-side, used as the offline search fallback.
+- [x] Two offline-queue call sites (`enqueueMovement` in `SecurityHome.tsx`, plus `refreshPendingCount`) could reject unhandled (IndexedDB unavailable/blocked) with no error shown to the guard at all. Fixed with `try/catch` + a visible error banner.
+
+See `CHANGELOG.md`'s 2026-09-22 (cont. 3)/(cont. 4) entries and `docs/decisions.md` for full rationale on each.
+
 ## Suggested next step
 
 The app is live end to end — frontend (Vercel), backend (Render), database (Supabase), email (Microsoft Graph) — with all three roles verified working, the full "Email Details" flow confirmed in production (including the 2026-09-21 Puppeteer/Render fix), and both a mobile/desktop responsive audit and a full crash/bug/offline-edge-case audit completed with every real finding fixed except the one offline-queue limitation noted above. Nothing is currently blocked on external input except the two items below. Highest-leverage next steps, in order: (1) run the Exchange Online application access policy restricting the Azure app to one mailbox (currently unrestricted — see "Blocked" section above); (2) swap `MAIL_FROM_ADDRESS`/`SECURITY_EMAIL` to the real `security@adage-automation.com` mailbox once it exists, replacing the current `shivani.naik@` stand-in; (3) set up the recommended external uptime monitor (UptimeRobot or similar) on `/api/health` if not already done, since the GitHub Actions pinger alone has the 60-day-inactivity blind spot noted above; (4) decide whether the offline-queue's remaining data-loss risk (above) is worth a dedicated follow-up.

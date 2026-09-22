@@ -33,6 +33,17 @@ export class EmployeesController {
     return this.employeesService.searchIncludingInactive(q);
   }
 
+  // Full active roster for the Security app's offline search fallback —
+  // see EmployeesService.listActiveForOfflineCache. Registered before the
+  // ':id' route below so it isn't swallowed by it. Same VIEW_DASHBOARD gate
+  // as /search, since every role that can reach the recording screen
+  // already holds it.
+  @Get('offline-cache')
+  @RequirePermissions('VIEW_DASHBOARD')
+  offlineCache() {
+    return this.employeesService.listActiveForOfflineCache();
+  }
+
   @Get()
   @RequirePermissions('MANAGE_EMPLOYEES')
   findAll(@Query('skip') skip?: string, @Query('take') take?: string, @Query('q') q?: string) {

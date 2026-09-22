@@ -56,7 +56,8 @@ One row **per movement event**. This is deliberately an event log, not a slot-ba
 
 Key fields:
 - `movementType`: `ENTRY` | `EXIT`
-- `movementAt`: server-generated timestamp — **never** trust a client-supplied time
+- `movementAt`: server-generated timestamp for a live tap — **never** trust a client-supplied time there. The one exception is a record synced from the offline queue: see `recordedOffline` below and [decisions.md](./decisions.md#offline-sync-preserve-the-real-tap-time-within-bounds).
+- `recordedOffline`: `false` unless `movementAt` came from the guard's device (offline-queue sync) instead of the server clock at creation time, and only when that client-supplied time passed a plausibility check (not more than 7 days in the past, not more than 5 minutes in the future). Surfaced in the UI as a small "offline" badge next to the time wherever movement records are listed.
 - `recordedByUserId`: which logged-in user (almost always SECURITY) tapped the button
 - `isSuperseded` / `correctionOfId` / `correctedByUserId` / `correctionReason`: the append-only correction chain. A correction never updates `movementType`/`movementAt` in place — it flags the original `isSuperseded = true` and inserts a new row pointing back at it. All "current" queries filter `isSuperseded: false`.
 

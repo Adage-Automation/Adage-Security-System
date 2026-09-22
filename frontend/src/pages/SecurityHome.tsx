@@ -5,6 +5,7 @@ import { isServerReachable } from '../api/health';
 import { useAuth } from '../auth/useAuth';
 import { Employee, CreateMovementResponse, MovementType } from '../types';
 import { enqueueMovement, listPendingMovements, removePendingMovement, updatePendingMovement } from '../offline/movementQueue';
+import { refreshEmployeeCache, searchEmployeeCache, hasEmployeeCache } from '../offline/employeeCache';
 import {
   IconSearch,
   IconEntry,
@@ -135,20 +136,45 @@ export function SecurityHome() {
   // employees (backend change, 2026-09-21) instead of nothing, so tapping
   // the empty search box shows something right away instead of looking
   // unresponsive until the guard starts typing.
-  const fetchResults = useCallback(async (q: string) => {
-    try {
-      const res = await api.get<Employee[]>(`/employees/search?q=${encodeURIComponent(q)}`);
-      setResults(res);
-      setSearchError(null);
-    } catch {
-      // Previously swallowed into an empty result list, indistinguishable
-      // from "no such employee" — a guard on a flaky connection could
-      // wrongly conclude someone isn't registered. Found in the
-      // 2026-09-21 audit.
-      setResults([]);
-      setSearchError(q.trim() ? 'Search failed — check your connection and try again.' : null);
-    }
-  }, []);
+  //
+  // When the server isn't reachable, search falls back to the locally
+  // cached roster (offline/employeeCache.ts) instead of failing outright —
+  // otherwise a guard offline (or opening the app already offline) could
+  // never find a NEW employee to record at all. Found in the 2026-09-22
+  // audit.
+  const fetchResults = useCallback(
+    async (q: string) => {
+      if (!isEffectivelyOnline) {
+        setResults(searchEmployeeCache(q));
+        setSearchError(
+          hasEmployeeCache() ? null : 'You are offline and no employee list has been cached on this device yet. Connect once to enable offline search.',
+        );
+        return;
+      }
+      try {
+        const res = await api.get<Employee[]>(`/employees/search?q=${encodeURIComponent(q)}`);
+        setResults(res);
+        setSearchError(null);
+      } catch {
+        // We think we're online but the request still failed (a genuine
+        // blip) — try the cache before giving up, rather than leaving the
+        // guard stuck.
+        const cached = searchEmployeeCache(q);
+        if (cached.length > 0) {
+          setResults(cached);
+          setSearchError(null);
+        } else {
+          // Previously swallowed into an empty result list, indistinguishable
+          // from "no such employee" — a guard on a flaky connection could
+          // wrongly conclude someone isn't registered. Found in the
+          // 2026-09-21 audit.
+          setResults([]);
+          setSearchError(q.trim() ? 'Search failed — check your connection and try again.' : null);
+        }
+      }
+    },
+    [isEffectivelyOnline],
+  );
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -162,14 +188,33 @@ export function SecurityHome() {
 
   const refreshPendingCount = useCallback(async () => {
     if (!user) return;
-    const pending = await listPendingMovements(user.id);
-    setPendingCount(pending.length);
-    const conflictItems = pending
-      .filter((item) => item.syncState === 'conflict')
-      .sort((a, b) => new Date(b.queuedAt).getTime() - new Date(a.queuedAt).getTime());
-    setConflicts(conflictItems);
-    setConflictCount(conflictItems.length);
+    try {
+      const pending = await listPendingMovements(user.id);
+      setPendingCount(pending.length);
+      const conflictItems = pending
+        .filter((item) => item.syncState === 'conflict')
+        .sort((a, b) => new Date(b.queuedAt).getTime() - new Date(a.queuedAt).getTime());
+      setConflicts(conflictItems);
+      setConflictCount(conflictItems.length);
+    } catch {
+      // Offline storage unavailable/blocked on this device (private-mode
+      // restrictions, quota, etc.) — leave the counts at their last known
+      // values rather than letting this reject unhandled into whichever
+      // effect/handler called it. Found in the 2026-09-22 audit.
+    }
   }, [user]);
+
+  // Keeps the offline employee-search cache reasonably fresh whenever the
+  // app can actually reach the server — on mount and every 5 minutes
+  // while online. A failed refresh (server blip) just leaves the previous
+  // cache in place.
+  useEffect(() => {
+    if (!isEffectivelyOnline) return;
+    const refresh = () => void refreshEmployeeCache().catch(() => undefined);
+    refresh();
+    const interval = setInterval(refresh, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [isEffectivelyOnline]);
 
   const syncPending = useCallback(async () => {
     if (!user) return;
@@ -192,6 +237,12 @@ export function SecurityHome() {
           movementType: item.movementType,
           confirmed: item.confirmed ?? false,
           clientRequestId: item.clientRequestId,
+          // The guard's real tap time, captured when this was queued — the
+          // server bounds and may discard it, but without sending it the
+          // record would get stamped with whenever this sync happens to
+          // run instead of when the tap actually occurred. See
+          // docs/decisions.md.
+          clientMovementAt: item.queuedAt,
         });
         if (res.requiresConfirmation) {
           await updatePendingMovement(item.localId, {
@@ -220,6 +271,7 @@ export function SecurityHome() {
         movementType: item.movementType,
         confirmed: true,
         clientRequestId: item.clientRequestId,
+        clientMovementAt: item.queuedAt,
       });
       if (result.created) await removePendingMovement(item.localId);
       await refreshPendingCount();
@@ -354,17 +406,27 @@ export function SecurityHome() {
       if (!isEffectivelyOnline) {
         // Never falsely report success — the queued state is shown distinctly
         // from a confirmed save (spec §52, decided deliberately).
-        await enqueueMovement({
-          userId: user!.id,
-          employeeId: selected.id,
-          employeeName: selected.employeeName,
-          movementType,
-          confirmed,
-          clientRequestId,
-        });
-        await refreshPendingCount();
-        setStatus({ kind: 'pending-sync', movementType, employeeName: selected.employeeName });
-        setTimeout(resetSelection, AUTO_RESET_DELAY_MS);
+        //
+        // enqueueMovement can reject (offline storage unavailable/blocked —
+        // some private-browsing modes, storage quota, a locked-down device
+        // profile). Previously unguarded, this could throw with nothing
+        // caught it, no banner shown, and the guard's tap silently lost.
+        // Found in the 2026-09-22 audit.
+        try {
+          await enqueueMovement({
+            userId: user!.id,
+            employeeId: selected.id,
+            employeeName: selected.employeeName,
+            movementType,
+            confirmed,
+            clientRequestId,
+          });
+          await refreshPendingCount();
+          setStatus({ kind: 'pending-sync', movementType, employeeName: selected.employeeName });
+          setTimeout(resetSelection, AUTO_RESET_DELAY_MS);
+        } catch {
+          setStatus({ kind: 'error', message: 'Unable to save this record on your device right now. Please try again.' });
+        }
         return;
       }
 
@@ -395,17 +457,24 @@ export function SecurityHome() {
           // request actually reached the server and committed before the
           // connection dropped, the eventual sync retry will be recognized
           // as a replay instead of creating a duplicate record.
-          await enqueueMovement({
-            userId: user!.id,
-            employeeId: selected.id,
-            employeeName: selected.employeeName,
-            movementType,
-            confirmed,
-            clientRequestId,
-          });
-          await refreshPendingCount();
-          setStatus({ kind: 'pending-sync', movementType, employeeName: selected.employeeName });
-          setTimeout(resetSelection, AUTO_RESET_DELAY_MS);
+          //
+          // Same unguarded-rejection risk as the offline branch above —
+          // wrapped for the same reason. Found in the 2026-09-22 audit.
+          try {
+            await enqueueMovement({
+              userId: user!.id,
+              employeeId: selected.id,
+              employeeName: selected.employeeName,
+              movementType,
+              confirmed,
+              clientRequestId,
+            });
+            await refreshPendingCount();
+            setStatus({ kind: 'pending-sync', movementType, employeeName: selected.employeeName });
+            setTimeout(resetSelection, AUTO_RESET_DELAY_MS);
+          } catch {
+            setStatus({ kind: 'error', message: 'Unable to save this record — both the network request and offline storage failed. Please try again.' });
+          }
         }
       }
     } finally {

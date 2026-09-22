@@ -8,13 +8,29 @@
 // (AuthContext.tsx's shouldUseCachedUser), now given an explicit signal on
 // the recording screen too instead of only being discovered by waiting out
 // a failed movement submission.
+import { recordServerTime } from '../offline/clockOffset';
+
 const HEALTH_CHECK_TIMEOUT_MS = 5_000;
 
 export async function isServerReachable(): Promise<boolean> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT_MS);
+  const requestStartedAt = Date.now();
   try {
     const res = await fetch('/api/health', { signal: controller.signal, cache: 'no-store' });
+    if (res.ok) {
+      // Piggybacks on this already-scheduled poll (SecurityHome.tsx runs it
+      // every 20s while online) to keep the device's clock-offset estimate
+      // fresh, instead of a separate polling loop just for this.
+      try {
+        const body = (await res.json()) as { time?: string };
+        if (body.time) recordServerTime(body.time, requestStartedAt, Date.now());
+      } catch {
+        // Body parsing is a bonus, not the point of this check — a
+        // malformed/unexpected response here shouldn't affect the
+        // reachability result below.
+      }
+    }
     return res.ok;
   } catch {
     return false;

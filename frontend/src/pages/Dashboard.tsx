@@ -5,6 +5,7 @@ import { Employee, MovementRecord, MovementType } from '../types';
 import { IconGrid, IconUsers, IconEntry, IconExit, IconInbox, IconChevronRight, IconDoorOpen, IconX } from '../components/icons';
 import { AdminNav } from '../components/AdminNav';
 import { TableSkeleton } from '../components/TableSkeleton';
+import { OfflineBadge } from '../components/OfflineBadge';
 import { todayIso, isoDaysAgo, formatTime } from '../utils/date';
 
 export function Dashboard() {
@@ -222,7 +223,10 @@ export function Dashboard() {
                     </Link>
                   </td>
                   <td>{new Date(r.movementAt).toLocaleDateString('en-IN')}</td>
-                  <td>{formatTime(r.movementAt)}</td>
+                  <td>
+                    {formatTime(r.movementAt)}
+                    {r.recordedOffline && <OfflineBadge />}
+                  </td>
                   <td><span className={`movement-badge ${r.movementType}`}>{r.movementType}</span></td>
                   <td>{r.recordedBy?.name}</td>
                 </tr>
@@ -239,6 +243,7 @@ export function Dashboard() {
                   </Link>
                   <div style={{ fontSize: 12, color: '#666' }}>
                     {new Date(r.movementAt).toLocaleString('en-IN')}
+                    {r.recordedOffline && <OfflineBadge />}
                   </div>
                 </div>
                 <span className={`movement-badge ${r.movementType}`}>{r.movementType}</span>

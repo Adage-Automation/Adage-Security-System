@@ -27,6 +27,9 @@ export interface MovementRecord {
   movementType: MovementType;
   movementAt: string;
   recordedByUserId: number;
+  // True when movementAt came from the guard's device (offline-queue sync)
+  // instead of the server clock — see docs/decisions.md.
+  recordedOffline?: boolean;
   employee?: { id: number; employeeName: string; employeeCode: string };
   recordedBy?: { id: number; name: string };
 }

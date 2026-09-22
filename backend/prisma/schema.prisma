@@ -145,6 +145,12 @@ model MovementRecord {
   // new one.
   clientRequestId String? @unique @map("client_request_id")
 
+  // True only when movementAt came from the guard's device (offline-queue
+  // sync) rather than the server clock — see MovementsService.createMovement
+  // and docs/decisions.md. Lets an admin see why a record's time might
+  // differ from when it actually appeared in the system.
+  recordedOffline Boolean @default(false) @map("recorded_offline")
+
   employee     Employee         @relation(fields: [employeeId], references: [id])
   recordedBy   User             @relation("RecordedBy", fields: [recordedByUserId], references: [id])
   correctedBy  User?            @relation("CorrectedBy", fields: [correctedByUserId], references: [id])

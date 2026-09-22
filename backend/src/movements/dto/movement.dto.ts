@@ -24,6 +24,16 @@ export class CreateMovementDto {
   @IsOptional()
   @IsString()
   clientRequestId?: string;
+
+  // Only sent by the offline queue's sync path (see SecurityHome.tsx's
+  // syncPending/resolveConflict) — the guard's device-local capture of the
+  // real tap time. A live/online tap never sends this and keeps getting a
+  // pure server timestamp. Bounded and possibly discarded server-side (see
+  // MovementsService.createMovement) — never trusted outright, just used
+  // when it's plausible. See docs/decisions.md.
+  @IsOptional()
+  @IsISO8601()
+  clientMovementAt?: string;
 }
 
 export class CorrectMovementDto {

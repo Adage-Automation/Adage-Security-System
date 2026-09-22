@@ -1,6 +1,6 @@
 # Testing
 
-The codebase now has real Jest coverage in both apps. Backend tests cover username authentication, password reset, employee search/car-number behavior, movement creation/idempotency/corrections, dashboard queries, RBAC, Microsoft Graph failures, storage/report generation failures, the reports email-success path, user management (email-uniqueness rejection, last-admin lockout protection), the IST-aware default-date helper (`todayInAppTimezone`), and the `/api/health` endpoint. Controller-level specs were recently added for the Employees and Reports HTTP surfaces as well. Frontend tests cover the IndexedDB movement queue (including userId scoping and conflict state), the offline auth-cache fallback decision, and the employee day working-hours calculation. This document tracks the current implemented coverage and the remaining areas still worth expanding.
+The codebase now has real Jest coverage in both apps. Backend tests cover username authentication, password reset, employee search/car-number behavior, movement creation/idempotency/corrections, dashboard queries, RBAC, Microsoft Graph failures, storage/report generation failures, the reports email-success path, user management (email-uniqueness rejection, last-admin lockout protection), the IST-aware default-date helper (`todayInAppTimezone`), and the `/api/health` endpoint. Controller-level specs were recently added for the Employees and Reports HTTP surfaces as well. Frontend tests cover the IndexedDB movement queue (including userId scoping and conflict state), the device clock-offset calibration (`offline/clockOffset.ts`), the offline auth-cache fallback decision, and the employee day working-hours calculation. This document tracks the current implemented coverage and the remaining areas still worth expanding.
 
 ## Authentication
 
@@ -36,6 +36,9 @@ The codebase now has real Jest coverage in both apps. Backend tests cover userna
 - A queued movement that comes back `requiresConfirmation` during sync is marked `syncState: 'conflict'` and is **not** auto-confirmed; the guard sees a red review banner with a conflict reason, can choose **Record anyway**, or **Dismiss** it if the queued record is no longer needed
 - Correcting a record marks the original `isSuperseded: true` and creates a new linked record — the original is never deleted or mutated in place
 - "Current" queries (dashboard, employee history) exclude superseded records
+- An offline-queue sync's `clientMovementAt` is accepted (and `recordedOffline: true`) within a 7-day-past/5-minute-future window; outside it, falls back to the server clock with `recordedOffline: false`
+- The per-employee advisory lock (`pg_advisory_xact_lock`) is acquired before the duplicate-type check runs, keyed on `employeeId` — verified both at the unit level (call ordering) and against a real database (two concurrent connections on the same key visibly serialize; two different employees' keys run fully concurrently with no waiting)
+- (Frontend, manual) Employee search falls back to a locally cached roster (`offline/employeeCache.ts`) when the app is offline or a live search call fails, so a guard can still find and select a new employee without a connection
 
 ## Dashboard
 
