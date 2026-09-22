@@ -6,7 +6,7 @@ Covers everything in the [Security](./user-guide-security.md) and [HR](./user-gu
 
 Navigate to **Employees** (also available to HR, not Admin-only).
 
-- **Add employee**: fill in Employee Code (must be unique) and Name; Email and Car Number are optional — leave either blank if you don't have it yet, and use **Edit** on the same screen once you do. The email you enter is where their movement-record emails will be sent — double check it. An employee with no email on file simply can't be sent EMAIL DETAILS until one is added (shown clearly on their details page). (Department/Designation aren't collected — they turned out to be unused anywhere in the system and were dropped from this form by request.)
+- **Add employee**: fill in Employee Code (must be unique) and Name; Email and Car Number are optional — leave either blank if you don't have it yet, and use **Edit** on the same screen once you do. The email you enter is where their movement-record emails will be sent — double check it. An employee with no email on file simply can't be sent EMAIL DETAILS until one is added (shown clearly on their details page).
 - **Search**: the list is the full employee roster (200+ people), so use the search box (matches name, code, email, or car number) rather than scrolling — results load a page at a time with a **Load More** button.
 - **Edit**: update an employee's name, optional email, or optional car number without changing the employee code.
 - **Deactivate**: marks an employee inactive instead of deleting them. They stop appearing in the Security search box, but every historical movement record stays fully intact and visible on the Dashboard. Use this when someone leaves the company — never delete an employee outright.

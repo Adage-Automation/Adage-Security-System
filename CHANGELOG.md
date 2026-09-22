@@ -523,7 +523,7 @@ Puppeteer launching a fresh browser per report (scale concern, not urgent at tod
 ### Removed
 
 - **Permanently deleted** the 4 fake seeded test employees (Rahul Sharma, Rahul Patil, Amit Patil, Priya Nair) and their dependent rows (6 movement records, 1 email log), per user request — a deliberate one-off exception to the app's normal soft-delete-only rule for employees, justified because these were seed/test data, not real former staff. Verified no employees remain with those codes; the 6 real employees are unaffected.
-- `department` and `designation` fields removed from the "Add Employee" form (`frontend/src/pages/Employees.tsx`) and from the employee list table — confirmed via code search they weren't referenced anywhere in search, filtering, or report generation, so they were pure unused metadata. The database columns remain (nullable) in case they're wanted later; nothing currently requires populating them. CSV import format simplified accordingly to `employee_code,employee_name,email`.
+- `department` and `designation` fields removed from the "Add Employee" form (`frontend/src/pages/Employees.tsx`) and from the employee list table — confirmed via code search they weren't referenced anywhere in search, filtering, or report generation, so they were pure unused metadata. The employee schema and CSV import format were simplified accordingly to `employee_code,employee_name,email`.
 - Renamed the seeded dev "security" login account from "Rahul Sharma" to "Security User" (and its DB row updated to match) — it previously borrowed the name of a fake test employee, which was confusing now that that employee no longer exists.
 
 ### Changed
@@ -536,7 +536,7 @@ Puppeteer launching a fresh browser per report (scale concern, not urgent at tod
 
 - `backend/scripts/import-employees.ts` — reusable CSV employee import (spec §41), run via `npm run import:employees -- <path-to-csv>`. Validates every row (required fields, email format, duplicate employee codes) before writing anything; upserts by employee code so re-running a corrected file is safe. This was a planned-but-not-built roadmap item, built now instead of as a one-off script since more employee batches are expected.
 - `backend/data/employees-import.csv` — the source file for the first real import.
-- Imported the first 6 real employees, provided by the user: Shivani R Naik (55668), Bala Dattaprasad Patwardhan (55778), Pranav P Naik (55714), Raj Ramanand Fal Dessai (55715), Sai Sanjay Kunkalienkar (55777), Adarsh Bhaskaran Chanabhat (55602). Department/designation left blank — not yet supplied.
+- Imported the first 6 real employees, provided by the user: Shivani R Naik (55668), Bala Dattaprasad Patwardhan (55778), Pranav P Naik (55714), Raj Ramanand Fal Dessai (55715), Sai Sanjay Kunkalienkar (55777), Adarsh Bhaskaran Chanabhat (55602). Department and designation were not tracked in the current employee schema.
 
 ### Changed
 

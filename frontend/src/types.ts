@@ -12,9 +12,6 @@ export interface Employee {
   employeeCode: string;
   employeeName: string;
   email: string | null;
-  phone?: string | null;
-  department?: string | null;
-  designation?: string | null;
   carNumber?: string | null;
   isActive: boolean;
 }

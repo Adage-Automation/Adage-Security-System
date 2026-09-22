@@ -15,18 +15,6 @@ export class CreateEmployeeDto {
 
   @IsOptional()
   @IsString()
-  phone?: string;
-
-  @IsOptional()
-  @IsString()
-  department?: string;
-
-  @IsOptional()
-  @IsString()
-  designation?: string;
-
-  @IsOptional()
-  @IsString()
   carNumber?: string;
 }
 
@@ -38,18 +26,6 @@ export class UpdateEmployeeDto {
   @IsOptional()
   @IsEmail()
   email?: string;
-
-  @IsOptional()
-  @IsString()
-  phone?: string;
-
-  @IsOptional()
-  @IsString()
-  department?: string;
-
-  @IsOptional()
-  @IsString()
-  designation?: string;
 
   @IsOptional()
   @IsString()

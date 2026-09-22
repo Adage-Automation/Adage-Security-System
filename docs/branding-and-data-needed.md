@@ -21,7 +21,7 @@ These populate the `settings` table (Settings screen, or I can seed them directl
 
 ✅ First 6 real employees added (2026-09-03), then the full roster of 205 employees imported (2026-09-09) from `backend/data/employees.csv` — re-run `npm run import:employees -w backend -- data/employees.csv` from the repo root any time it is updated; upserts by employee code, safe to re-run. The 4 fake test employees (Rahul Sharma, Rahul Patil, Amit Patil, Priya Nair) have been permanently deleted, along with their test movement records.
 
-**Department/designation dropped** (2026-09-03, by request): confirmed these fields weren't used anywhere in search, filtering, or reports — pure unused metadata. Removed from the "Add Employee" form and the CSV import format entirely. The database columns remain (nullable, harmless) in case they're wanted later.
+**Employee metadata trimmed** (2026-09-03, by request): department and designation were confirmed to be unused in search, filtering, and reports, and were removed from the employee model, form, and CSV import format entirely. The current schema only keeps the employee fields the app actually uses.
 
 **Email made optional** (2026-09-09): 54 of the 205 imported employees don't have a registered email yet — the schema, import script, and UI (Add Employee form, EMAIL DETAILS button) all handle this correctly now. **Still needed**: those 54 employees' email addresses, whenever available — update the roster CSV and re-run the import, or add them individually via the Employees screen. Until then, "EMAIL DETAILS" simply won't be available for those employees, with a clear inline explanation shown.
 

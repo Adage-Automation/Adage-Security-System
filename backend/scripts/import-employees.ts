@@ -6,8 +6,7 @@
 //   npm run import:employees -- data/employees.csv
 //
 // Expected CSV header: employee_code,employee_name,email,car_number
-// Email may be blank until the employee's address is available. Department
-// and designation columns are still accepted if present for compatibility.
+// Email may be blank until the employee's address is available.
 // car_number is optional too -- most employees don't have this on file yet.
 
 import { readFileSync } from 'fs';
@@ -20,8 +19,6 @@ interface EmployeeRow {
   employee_code: string;
   employee_name: string;
   email?: string;
-  department?: string;
-  designation?: string;
   car_number?: string;
 }
 
@@ -89,8 +86,6 @@ async function main() {
     const data = {
       employeeName: toTitleCase(row.employee_name),
       email: row.email?.trim() || null,
-      department: row.department?.trim() || null,
-      designation: row.designation?.trim() || null,
       carNumber: row.car_number?.trim() || null,
     };
 

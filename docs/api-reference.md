@@ -41,7 +41,7 @@ Body: `{ token: string, newPassword: string }` (`newPassword` min 8 characters).
 | PATCH | `/employees/:id/deactivate` | `MANAGE_EMPLOYEES` | Soft — sets `isActive: false` |
 | PATCH | `/employees/:id/reactivate` | `MANAGE_EMPLOYEES` | |
 
-`CreateEmployeeDto`: `{ employeeCode, employeeName, email?, phone?, department?, designation?, carNumber? }` — `email` and `carNumber` are optional. When email is omitted, that employee simply can't be emailed a report until one is added. `carNumber` is searchable and displayed where employee details are shown. `department`/`designation` are accepted but unused by any search/filter/report — kept only because the DB columns still exist.
+`CreateEmployeeDto`: `{ employeeCode, employeeName, email?, carNumber? }` — `email` and `carNumber` are optional. When email is omitted, that employee simply can't be emailed a report until one is added. `carNumber` is searchable and displayed where employee details are shown.
 
 `employeeCode` and `email` are checked for a case-insensitive duplicate on both create and update (`PUT /employees/:id`) and return `409` with a message naming the conflicting employee (for email) — closes a gap where the DB's own uniqueness constraint on `employeeCode` is case-sensitive while every search matches case-insensitively, and `email` had no DB uniqueness constraint at all. See `docs/decisions.md`.
 

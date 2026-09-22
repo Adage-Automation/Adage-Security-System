@@ -86,9 +86,6 @@ model Employee {
   employeeCode String   @unique @map("employee_code")
   employeeName String   @map("employee_name")
   email        String?
-  phone        String?
-  department   String?
-  designation  String?
   // Optional — most employees don't have this on file yet (2026-09-10);
   // added so it can be filled in over time without a schema change later.
   // Searchable the same way as name/code/email, in both the guard's
