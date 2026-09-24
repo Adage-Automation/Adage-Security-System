@@ -21,7 +21,7 @@ These populate the `settings` table (Settings screen, or I can seed them directl
 
 ✅ First 6 real employees added (2026-09-03), then the full roster of 205 employees imported (2026-09-09) from `backend/data/employees.csv` — re-run `npm run import:employees -w backend -- data/employees.csv` from the repo root any time it is updated; upserts by employee code, safe to re-run. The 4 fake test employees (Rahul Sharma, Rahul Patil, Amit Patil, Priya Nair) have been permanently deleted, along with their test movement records.
 
-**Employee metadata trimmed** (2026-09-03, by request): department and designation were confirmed to be unused in search, filtering, and reports, and were removed from the employee model, form, and CSV import format entirely. The current schema only keeps the employee fields the app actually uses.
+**Employee metadata trimmed**: the Add/Edit Employee form and CSV import never exposed phone/department/designation fields (confirmed unused in search, filtering, and reports back on 2026-09-03) — but the underlying database columns and schema type lingered unused until 2026-09-22, when they were properly dropped (schema, DTOs, import script, and frontend types all updated to match; see [decisions.md](./decisions.md#backfill-migration-for-a-schema-change-made-directly-against-the-database)). The current schema now only keeps the employee fields the app actually uses.
 
 **Email made optional** (2026-09-09): 54 of the 205 imported employees don't have a registered email yet — the schema, import script, and UI (Add Employee form, EMAIL DETAILS button) all handle this correctly now. **Still needed**: those 54 employees' email addresses, whenever available — update the roster CSV and re-run the import, or add them individually via the Employees screen. Until then, "EMAIL DETAILS" simply won't be available for those employees, with a clear inline explanation shown.
 
@@ -40,7 +40,7 @@ I can create these directly once you confirm the list, or an Admin can create th
 
 ✅ **Verified working end to end (2026-09-10)**: the Azure AD app is registered, admin consent for `Mail.Send` is granted, credentials are set in `backend/.env`, and a real "Email Details" send was confirmed delivered.
 
-**Still to do** (not blocking normal use): (1) run the Exchange Online application access policy restricting the app to just the security mailbox — see [email-m365-admin-handoff.md](./email-m365-admin-handoff.md) step 5; (2) once a real `security@adage-automation.com` mailbox is created, swap `MAIL_FROM_ADDRESS`/`SECURITY_EMAIL` in `backend/.env` away from the current temporary stand-in (`shivani.naik@adage-automation.com`) to it, and re-run the access policy against the new mailbox.
+**Still to do** (not blocking normal use): (1) run the Exchange Online application access policy restricting the app to just the security mailbox — see [email-m365-admin-handoff.md](./email-m365-admin-handoff.md) step 5; (2) once a real `security@adage-automation.com` mailbox is created, swap `MAIL_FROM_ADDRESS` in `backend/.env` and the `SECURITY_EMAIL` Settings value (Settings page — it's a database key, not an env var, despite the similar name) away from the current temporary stand-in (`shivani.naik@adage-automation.com`) to it, and re-run the access policy against the new mailbox.
 
 ## 6. Storage (for emailed reports) — ✅ working
 

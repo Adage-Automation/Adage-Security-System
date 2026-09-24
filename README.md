@@ -72,7 +72,7 @@ The seed script creates one ADMIN, one HR, and one SECURITY user (all with passw
 
 ## Environment Variables
 
-See `backend/.env.example` for the full list: `DATABASE_URL`, `SESSION_SECRET`, `APP_TIMEZONE`, `TZ` (set to `Asia/Kolkata` in the host/container runtime), `AZURE_TENANT_ID`/`AZURE_CLIENT_ID`/`AZURE_CLIENT_SECRET`/`MAIL_FROM_ADDRESS`/`SECURITY_EMAIL`, and `STORAGE_*` for the S3-compatible bucket used to persist emailed reports. Never commit a real `.env` file.
+See `backend/.env.example` for the full list: `DATABASE_URL`, `SESSION_SECRET`, `APP_TIMEZONE`, `TZ` (set to `Asia/Kolkata` in the host/container runtime), `AZURE_TENANT_ID`/`AZURE_CLIENT_ID`/`AZURE_CLIENT_SECRET`/`MAIL_FROM_ADDRESS`, and `STORAGE_*` for the S3-compatible bucket used to persist emailed reports. Never commit a real `.env` file. (`SECURITY_EMAIL` is not among these — it's a database-backed Settings key, configured via the Settings page, not an env var.)
 
 ## Local Development
 

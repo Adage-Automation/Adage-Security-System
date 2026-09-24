@@ -219,7 +219,20 @@ export function SecurityHome() {
 
   const syncPending = useCallback(async () => {
     if (!user) return;
-    const pending = await listPendingMovements(user.id);
+    let pending: Awaited<ReturnType<typeof listPendingMovements>>;
+    try {
+      pending = await listPendingMovements(user.id);
+    } catch {
+      // Offline storage unavailable/blocked on this device — nothing to
+      // sync this round. Unguarded, this was a genuine unhandled-promise-
+      // rejection risk: syncPending is invoked via `void syncPending()`
+      // from both a mount effect and a repeating 20s interval, so a
+      // throw here would have fired an unhandled rejection every 20
+      // seconds with sync silently never running. Found in the
+      // 2026-09-23 audit — refreshPendingCount already got this same
+      // guard in the 2026-09-22 audit; this sibling function was missed.
+      return;
+    }
     for (const item of pending) {
       if (item.syncState === 'conflict') continue;
       try {

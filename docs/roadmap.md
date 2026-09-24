@@ -1,6 +1,6 @@
 # Roadmap / Task List
 
-Status as of 2026-09-22. Grouped by area, roughly in priority order within each group. See [Audit findings](#audit-findings-2026-09-04) below for the historical 2026-09-04 audit, [2026-09-21 audit](#2026-09-21--full-codebase-audit-bugs-crashes-offlinenetwork-edge-cases) for the most recent full-codebase one, and `CHANGELOG.md` for the full dated history of everything since.
+Status as of 2026-09-24. Grouped by area, roughly in priority order within each group. See [Audit findings](#audit-findings-2026-09-04) below for the historical 2026-09-04 audit, [2026-09-21 audit](#2026-09-21--full-codebase-audit-bugs-crashes-offlinenetwork-edge-cases) for the most recent full-codebase one, and `CHANGELOG.md` for the full dated history of everything since.
 
 **Context**: this system is a secondary/backup attendance record, not the primary one — employees punch their own attendance in a separate app, FactoHR, which stays the system of record. This app exists because security guards independently log entry/exit times at the gate; HR uses it to reconcile a missed FactoHR punch or a disputed time. See `docs/architecture.md`. This framing is why an attendance/payroll roll-up is deliberately out of scope here (see "Working hours" in the Done list below) and why no FactoHR integration is planned.
 
@@ -168,6 +168,17 @@ Followed up a broader crash-risk list with a real audit of what was already miti
 - **Deliberately scoped down, not done**: the broader "responsive consistency and contrast/hierarchy pass" from the UX backlog was limited to spot-checking the pages touched in this pass (Settings, Audit Log, SecurityHome at 375–390px — no horizontal overflow, verified with Puppeteer) rather than a full site-wide redesign, per the user's own framing of that item as "a dedicated pass," not incremental work.
 
 See `CHANGELOG.md`'s 2026-09-22 (cont. 5) entry and `docs/decisions.md` for full rationale on each.
+
+## 2026-09-22/23 — Dead-code/stale-config cleanup, employee field removal, follow-up crash audit
+
+- [x] Full dead-code and unused-file audit across both workspaces — one unused CSS class (`.missing-badge`) removed; everything else (every backend module, npm dependency, migration; every frontend component/page/route) verified in active use, nothing else removed.
+- [x] `SECURITY_EMAIL` was incorrectly documented as an environment variable in `backend/.env`/`.env.example`/`docs/deployment.md`/`docs/developer-guide.md` — it's actually a database-backed Settings key, never read from `process.env` anywhere. Fixed the `.env` files and every doc reference; also removed the dead `STORAGE_PUBLIC_URL` entry from `.env.example`.
+- [x] Full docs-vs-code accuracy audit — found and fixed drift in `README.md`/`docs/README.md` (an absolute "server always supplies the timestamp" claim, missing the offline-sync exception), `docs/user-guide-security.md` (stale duplicate-confirm dialog text/button label), `docs/user-guide-admin.md` (Audit Log/Settings sections missing the new filters and save-all form), `docs/architecture.md` (frontend file tree missing `api/health.ts`/`OfflineBadge.tsx`/`WelcomeBanner.tsx`), `docs/developer-guide.md` (reusable-components list), and this file's own stale status date.
+- [x] `Employee.phone`/`department`/`designation` columns, dropped manually from the live database (never had any frontend UI exposing them), removed from `schema.prisma`, the DTOs, the CSV import script, and frontend types to match — done directly by the user, verified clean by a follow-up audit (zero remaining references anywhere, live endpoints confirmed working).
+- [x] Follow-up crash-risk audit targeting recently-changed code: one claimed finding (a `Promise.race` timeout supposedly crashing the whole process) checked empirically and ruled out as a false positive; three real issues found and fixed — `AuthContext.tsx`'s `cacheUser()` and `SecurityHome.tsx`'s `syncPending()` both had unguarded storage/IndexedDB calls (the same class of bug fixed elsewhere in the 2026-09-22 audit, missed in these two spots), and the advisory-lock transaction's default 5s/2s Prisma timeouts were widened to 20s/10s for burst-load headroom.
+- [x] A follow-up migration (`20260924100000_drop_employee_metadata_columns`) was added afterward to keep the migration history consistent with the manually-made database change — a genuine no-op against the live database, meaningful only for a future from-scratch rebuild.
+
+See `CHANGELOG.md`'s 2026-09-23/2026-09-24 entries and `docs/decisions.md` for full rationale on each.
 
 ## Suggested next step
 

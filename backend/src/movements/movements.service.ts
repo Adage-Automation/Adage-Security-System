@@ -149,6 +149,17 @@ export class MovementsService {
         }
         throw err;
       }
+    }, {
+      // Prisma's defaults (5s transaction timeout, 2s max wait to even
+      // start) are sized for a typical single-row transaction, not one
+      // that can queue up behind a per-employee advisory lock under a
+      // burst of concurrent taps for the SAME employee (e.g. several
+      // devices' offline queues syncing at once after a shared outage,
+      // all queued for one person). Widened so that queue depth alone
+      // doesn't turn into a generic transaction-timeout 500 the guard
+      // has to manually retry. Found in the 2026-09-23 audit.
+      maxWait: 10_000,
+      timeout: 20_000,
     });
 
     if (outcome.kind === 'confirm') {

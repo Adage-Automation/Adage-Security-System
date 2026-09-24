@@ -7,7 +7,21 @@ const LAST_AUTH_KEY = 'adage.last-authenticated-user';
 const LAST_AUTH_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
 function cacheUser(user: AuthUser) {
-  localStorage.setItem(LAST_AUTH_KEY, JSON.stringify({ user, cachedAt: Date.now() }));
+  // Unlike every other localStorage write added this session
+  // (clockOffset.ts, employeeCache.ts, WelcomeBanner.tsx), this one was
+  // never guarded — a throw here (private-browsing mode, quota exceeded,
+  // storage disabled by policy) previously propagated out of both call
+  // sites below: on login it surfaced as a false "unable to sign in"
+  // error despite the server having authenticated successfully, and on
+  // the initial-load path it caused the just-fetched valid user to be
+  // discarded and replaced with null. Caching is a convenience for
+  // offline reloads, not something either call site should ever fail on
+  // top of. Found in the 2026-09-23 audit.
+  try {
+    localStorage.setItem(LAST_AUTH_KEY, JSON.stringify({ user, cachedAt: Date.now() }));
+  } catch {
+    // Best-effort only.
+  }
 }
 
 function readCachedUser(): AuthUser | null {
