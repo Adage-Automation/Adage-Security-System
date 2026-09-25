@@ -12,11 +12,21 @@ name: Database backup
 #
 # Requires two repo secrets this workflow cannot set up on its own — see
 # docs/decisions.md and docs/deployment.md for exactly what to add and why:
-#   BACKUP_DATABASE_URL — a DIRECT (session-mode) Postgres connection
-#     string, NOT the pooled/transaction-mode DATABASE_URL the app itself
-#     uses — pg_dump doesn't work reliably through a transaction-mode
-#     pgbouncer pooler. Supabase: Project Settings > Database > Connection
-#     string > "Direct connection".
+#   BACKUP_DATABASE_URL — a SESSION-mode Postgres connection URI, NOT the
+#     transaction-mode (port 6543) DATABASE_URL the app itself uses —
+#     pg_dump doesn't work reliably through a transaction-mode pgbouncer
+#     pooler. Supabase: Project Settings > Database > Connection string.
+#     Either of these is session-mode and fine:
+#       - "Direct connection" (db.<ref>.supabase.co:5432) — but note this
+#         hostname resolves to IPv6 only, and GitHub-hosted runners have no
+#         IPv6, so it fails here with "Network is unreachable"/"could not
+#         translate host name" even though it works from Render.
+#       - "Session pooler" (aws-<n>-<region>.pooler.supabase.com:5432, user
+#         postgres.<project-ref>) — IPv4, and session mode, so this is the
+#         one that actually works from Actions. Note the port: 5432 is
+#         session mode, 6543 is transaction mode and will not dump.
+#     Paste the URI exactly, with no surrounding quotes and no leading or
+#     trailing whitespace — see the Dump step for why that matters.
 #   STORAGE_ENDPOINT / STORAGE_REGION / STORAGE_BUCKET / STORAGE_ACCESS_KEY
 #   / STORAGE_SECRET_KEY — the same S3-compatible values already in
 #     backend/.env, added here as separate GitHub Actions secrets (GitHub
@@ -63,18 +73,56 @@ jobs:
 
       - name: Install PostgreSQL client tools
         run: |
+          set -euo pipefail
+          # From PGDG, not Ubuntu's own repo: the runner image ships
+          # postgresql-client 16, and pg_dump refuses outright ("aborting
+          # because of server version mismatch") against a newer server —
+          # Supabase projects created recently run Postgres 17. A newer
+          # client dumping an older server is fine, the reverse is not.
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
           sudo apt-get update
-          sudo apt-get install -y postgresql-client
+          sudo apt-get install -y postgresql-client-17
+          pg_dump --version
 
       - name: Dump database
         run: |
           set -euo pipefail
+          # libpq only treats this argument as a CONNECTION STRING when it
+          # begins exactly with postgresql:// or postgres:// (or is a
+          # key=value conninfo). Anything else — a stray leading space or
+          # newline, a pasted-in pair of surrounding quotes, or Supabase's
+          # `psql -h ... -U ...` command form instead of its URI — is
+          # treated as a bare DATABASE NAME, so pg_dump silently falls back
+          # to its default local Unix socket and fails with
+          #   connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed
+          # which points nowhere near the actual cause (the secret's
+          # format). Trim the recoverable cases, and fail loudly on the
+          # rest rather than letting it surface as a socket error again.
+          # Hit for real on 2026-09-25, the first run of this workflow.
+          DB_URL=$(printf '%s' "$BACKUP_DATABASE_URL" \
+            | tr -d '\r\n' \
+            | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/")
+          case "$DB_URL" in
+            postgresql://*|postgres://*) ;;
+            *)
+              # Never echo the value itself — it carries the database
+              # password, and a trimmed/derived value is no longer covered
+              # by GitHub's secret masking.
+              echo "BACKUP_DATABASE_URL is set, but it is not a Postgres connection URI."
+              echo "It must start with postgresql:// (or postgres://) — otherwise pg_dump reads it as a database name and tries a local socket."
+              echo "Supabase: Project Settings > Database > Connection string > URI. Copy the URI itself, with no surrounding quotes and no leading/trailing spaces, and replace [YOUR-PASSWORD] with the real password."
+              exit 1
+              ;;
+          esac
           FILENAME="backup-$(date -u +%Y-%m-%dT%H-%M-%SZ).sql.gz"
           echo "FILENAME=$FILENAME" >> "$GITHUB_ENV"
           # Plain SQL format (not pg_dump's custom -Fc binary format) —
           # maximally portable regardless of client/server version
           # mismatch, restorable with a plain `psql < file` if ever needed.
-          pg_dump "$BACKUP_DATABASE_URL" --no-owner --no-privileges --format=plain | gzip > "$FILENAME"
+          pg_dump "$DB_URL" --no-owner --no-privileges --format=plain | gzip > "$FILENAME"
           ls -lh "$FILENAME"
         env:
           BACKUP_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}

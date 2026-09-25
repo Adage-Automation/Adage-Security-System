@@ -1,5 +1,33 @@
 # Changelog
 
+## 2026-09-25 (cont. 5) — Fixed the database-backup workflow's first live run
+
+The backup workflow added earlier today failed on its first real run with
+`connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed` — pg_dump never
+even attempted to reach Supabase. Cause: libpq only parses `pg_dump`'s argument as a
+connection string when it begins exactly with `postgresql://`/`postgres://` (or is a
+`key=value` conninfo); anything else — a stray leading space or newline, a pasted-in pair of
+surrounding quotes, Supabase's `psql -h ... -U ...` command form — is read as a bare *database
+name*, so it silently falls back to a local Unix socket that doesn't exist on a GitHub runner.
+The "required secrets are set" check passed because the secret genuinely was set; it just
+wasn't URI-shaped.
+
+- **`.github/workflows/db-backup.yml`, Dump step** — trims whitespace/quotes off
+  `BACKUP_DATABASE_URL`, then hard-fails with a message naming the actual problem (and what to
+  copy from Supabase) if what's left doesn't start with `postgresql://`. The value itself is
+  never echoed: it carries the database password, and a trimmed/derived value is no longer
+  covered by GitHub's secret masking.
+- **Install step now pulls `postgresql-client-17` from PGDG** instead of Ubuntu's own
+  `postgresql-client`. The runner image ships client 16, and pg_dump refuses outright
+  ("aborting because of server version mismatch") against a newer server — recent Supabase
+  projects run Postgres 17. This would have been the very next failure.
+- **Corrected the connection-string guidance** (workflow header, `docs/decisions.md`,
+  `docs/roadmap.md`): what `pg_dump` needs is a *session-mode* URI, which is about the port
+  (5432 session, 6543 transaction), not direct-vs-pooler. Supabase's "Direct connection"
+  hostname resolves to IPv6 only and GitHub-hosted runners have no IPv6, so the **"Session
+  pooler"** string on port 5432 is the one that actually works from Actions — the previous
+  guidance pointed at the one that can't.
+
 ## 2026-09-25 (cont. 4) — Database backups and backend error tracking
 
 Closed two of the open deployment risks flagged earlier today's audit, on explicit user confirmation:
