@@ -144,9 +144,26 @@ jobs:
       - name: Upload to storage
         run: |
           set -euo pipefail
-          aws s3 cp "$FILENAME" "s3://${STORAGE_BUCKET}/db-backups/${FILENAME}" \
-            --endpoint-url "$STORAGE_ENDPOINT" \
-            --region "$STORAGE_REGION"
+          # Same trap as BACKUP_DATABASE_URL (see the Dump step): these
+          # values are copied out of backend/.env, where dotenv strips the
+          # surrounding quotes — `STORAGE_REGION="auto"` in .env.example is
+          # the literal line — but a GitHub secret is taken verbatim, so
+          # the quotes survive and the AWS CLI rejects `"auto"` with
+          # `Provided region_name ... doesn't match a supported format`.
+          # Trimmed here rather than left to be hand-cleaned across five
+          # secrets. Kept as shell locals, never written to $GITHUB_ENV:
+          # values set there are echoed in each later step's `env:` header
+          # in clear text, outside GitHub's secret masking.
+          # Hit on the 2026-09-25 re-run.
+          trim() { printf '%s' "$1" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/"; }
+          ENDPOINT=$(trim "$STORAGE_ENDPOINT")
+          REGION=$(trim "$STORAGE_REGION")
+          BUCKET=$(trim "$STORAGE_BUCKET")
+          export AWS_ACCESS_KEY_ID=$(trim "$AWS_ACCESS_KEY_ID")
+          export AWS_SECRET_ACCESS_KEY=$(trim "$AWS_SECRET_ACCESS_KEY")
+          aws s3 cp "$FILENAME" "s3://${BUCKET}/db-backups/${FILENAME}" \
+            --endpoint-url "$ENDPOINT" \
+            --region "$REGION"
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.STORAGE_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.STORAGE_SECRET_KEY }}
@@ -157,16 +174,23 @@ jobs:
       - name: Prune old backups beyond retention count
         run: |
           set -euo pipefail
+          # Same trimming as the Upload step above — see the comment there.
+          trim() { printf '%s' "$1" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/"; }
+          ENDPOINT=$(trim "$STORAGE_ENDPOINT")
+          REGION=$(trim "$STORAGE_REGION")
+          BUCKET=$(trim "$STORAGE_BUCKET")
+          export AWS_ACCESS_KEY_ID=$(trim "$AWS_ACCESS_KEY_ID")
+          export AWS_SECRET_ACCESS_KEY=$(trim "$AWS_SECRET_ACCESS_KEY")
           # Filenames are ISO-8601 timestamps, so plain lexical sort is
           # also chronological order — oldest first.
-          all=$(aws s3 ls "s3://${STORAGE_BUCKET}/db-backups/" --endpoint-url "$STORAGE_ENDPOINT" --region "$STORAGE_REGION" | awk '{print $4}' | sort)
+          all=$(aws s3 ls "s3://${BUCKET}/db-backups/" --endpoint-url "$ENDPOINT" --region "$REGION" | awk '{print $4}' | sort)
           count=$(echo "$all" | grep -c . || true)
           if [ "$count" -gt "$RETENTION_COUNT" ]; then
             to_delete=$((count - RETENTION_COUNT))
             echo "$all" | head -n "$to_delete" | while read -r name; do
               [ -z "$name" ] && continue
               echo "Deleting old backup: $name"
-              aws s3 rm "s3://${STORAGE_BUCKET}/db-backups/${name}" --endpoint-url "$STORAGE_ENDPOINT" --region "$STORAGE_REGION"
+              aws s3 rm "s3://${BUCKET}/db-backups/${name}" --endpoint-url "$ENDPOINT" --region "$REGION"
             done
           else
             echo "$count backups present, within retention of $RETENTION_COUNT — nothing to prune."

@@ -26,6 +26,13 @@ wasn't URI-shaped.
   the runner image also ships a PostgreSQL 16 server with a `main` cluster — so it kept
   resolving to 16 with 17 installed and unused. The dump step now logs `pg_dump --version`
   too, so a future mismatch is visible in the failing run itself.
+- **Upload/Prune steps now trim the `STORAGE_*` values the same way.** These are copied out of
+  `backend/.env`, where dotenv strips the surrounding quotes (`.env.example`'s own line is
+  `STORAGE_REGION="auto"`) — but a GitHub secret is taken verbatim, so the quotes survive and
+  the AWS CLI rejects `"auto"` with `Provided region_name ... doesn't match a supported
+  format`. Trimmed in-step rather than left to be hand-cleaned across five secrets. Kept as
+  shell locals and deliberately *not* written to `$GITHUB_ENV`: values set there are echoed in
+  every later step's `env:` header in clear text, outside GitHub's secret masking.
 - **Corrected the connection-string guidance** (workflow header, `docs/decisions.md`,
   `docs/roadmap.md`): what `pg_dump` needs is a *session-mode* URI, which is about the port
   (5432 session, 6543 transaction), not direct-vs-pooler. Supabase's "Direct connection"
