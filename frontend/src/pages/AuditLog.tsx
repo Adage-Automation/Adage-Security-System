@@ -182,6 +182,24 @@ export function AuditLog() {
             </tbody>
           </table>
 
+          <div className="record-cards">
+            {rows.map((row) => (
+              <div className="record-card" key={row.id} style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                  <span className="status-pill" style={actionToneStyle(actionTone(row.action))}>
+                    {row.action.replace(/_/g, ' ')}
+                  </span>
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{new Date(row.createdAt).toLocaleString('en-IN')}</span>
+                </div>
+                <div style={{ fontSize: 13 }}>
+                  {row.entityType ?? '—'}{row.entityId ? ` #${row.entityId}` : ''}
+                  {row.user?.name ? ` · ${row.user.name}` : ''}
+                </div>
+                {row.ipAddress && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{row.ipAddress}</div>}
+              </div>
+            ))}
+          </div>
+
           {hasMore && (
             <div className="action-row">
               <button onClick={() => load(false)} disabled={loading}>

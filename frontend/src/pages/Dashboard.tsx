@@ -55,8 +55,21 @@ export function Dashboard() {
   // something's been typed. onFocus (below) covers re-focusing an already-
   // empty field, which this effect alone can't detect since the query
   // value hasn't changed.
+  // Guards against a slower response for an earlier query landing after a
+  // faster response for a newer one, flashing stale results. Found in the
+  // 2026-09-25 audit.
+  const employeeSearchSeqRef = useRef(0);
+
   const fetchEmployeeResults = useCallback((q: string) => {
-    api.get<Employee[]>(`/employees/search?q=${encodeURIComponent(q)}`).then(setEmployeeResults).catch(() => setEmployeeResults([]));
+    const seq = ++employeeSearchSeqRef.current;
+    api
+      .get<Employee[]>(`/employees/search?q=${encodeURIComponent(q)}`)
+      .then((res) => {
+        if (seq === employeeSearchSeqRef.current) setEmployeeResults(res);
+      })
+      .catch(() => {
+        if (seq === employeeSearchSeqRef.current) setEmployeeResults([]);
+      });
   }, []);
 
   useEffect(() => {

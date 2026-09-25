@@ -1,0 +1,117 @@
+name: Database backup
+
+# Supabase's free tier has no automated backups or point-in-time recovery
+# at all (that's a paid-tier feature) — found in the 2026-09-25 deployment
+# audit. Without this, an accidentally deleted/corrupted project, or a bad
+# migration/manual SQL command, would mean the live movement/employee/user
+# data is simply gone with no recovery path. This workflow runs a plain
+# pg_dump on a schedule and uploads it (gzip-compressed) to the same
+# Supabase Storage bucket already used for emailed reports, under a
+# separate prefix, pruning old backups so it doesn't quietly eat into the
+# free tier's 1GB storage cap shared with those reports.
+#
+# Requires two repo secrets this workflow cannot set up on its own — see
+# docs/decisions.md and docs/deployment.md for exactly what to add and why:
+#   BACKUP_DATABASE_URL — a DIRECT (session-mode) Postgres connection
+#     string, NOT the pooled/transaction-mode DATABASE_URL the app itself
+#     uses — pg_dump doesn't work reliably through a transaction-mode
+#     pgbouncer pooler. Supabase: Project Settings > Database > Connection
+#     string > "Direct connection".
+#   STORAGE_ENDPOINT / STORAGE_REGION / STORAGE_BUCKET / STORAGE_ACCESS_KEY
+#   / STORAGE_SECRET_KEY — the same S3-compatible values already in
+#     backend/.env, added here as separate GitHub Actions secrets (GitHub
+#     Actions can't read Render's environment).
+on:
+  schedule:
+    # 20:15 UTC daily (~01:45 IST) — off-peak for a guard-facing app.
+    # GitHub's schedule is best-effort, not exact-to-the-minute (same
+    # caveat as keep-alive.yml) — a backup landing within an hour or two
+    # of this is still far better than the "none at all" status quo.
+    - cron: '15 20 * * *'
+  workflow_dispatch: {}
+
+# How many days of daily backups to keep. Each backup is a compressed SQL
+# dump of the whole database — at this app's current scale (a few hundred
+# employees, movement/audit-log rows accumulating daily) that's small, but
+# storage is shared with actual emailed report attachments (1GB free-tier
+# cap), so this is deliberately bounded rather than kept forever.
+env:
+  RETENTION_COUNT: 14
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm required secrets are set
+        run: |
+          missing=""
+          for v in BACKUP_DATABASE_URL STORAGE_ENDPOINT STORAGE_REGION STORAGE_BUCKET STORAGE_ACCESS_KEY STORAGE_SECRET_KEY; do
+            if [ -z "${!v}" ]; then missing="$missing $v"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "Missing required secrets:$missing"
+            echo "See the comment block at the top of .github/workflows/db-backup.yml for what to add and where to find each value."
+            exit 1
+          fi
+        env:
+          BACKUP_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          STORAGE_ENDPOINT: ${{ secrets.STORAGE_ENDPOINT }}
+          STORAGE_REGION: ${{ secrets.STORAGE_REGION }}
+          STORAGE_BUCKET: ${{ secrets.STORAGE_BUCKET }}
+          STORAGE_ACCESS_KEY: ${{ secrets.STORAGE_ACCESS_KEY }}
+          STORAGE_SECRET_KEY: ${{ secrets.STORAGE_SECRET_KEY }}
+
+      - name: Install PostgreSQL client tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Dump database
+        run: |
+          set -euo pipefail
+          FILENAME="backup-$(date -u +%Y-%m-%dT%H-%M-%SZ).sql.gz"
+          echo "FILENAME=$FILENAME" >> "$GITHUB_ENV"
+          # Plain SQL format (not pg_dump's custom -Fc binary format) —
+          # maximally portable regardless of client/server version
+          # mismatch, restorable with a plain `psql < file` if ever needed.
+          pg_dump "$BACKUP_DATABASE_URL" --no-owner --no-privileges --format=plain | gzip > "$FILENAME"
+          ls -lh "$FILENAME"
+        env:
+          BACKUP_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+
+      - name: Upload to storage
+        run: |
+          set -euo pipefail
+          aws s3 cp "$FILENAME" "s3://${STORAGE_BUCKET}/db-backups/${FILENAME}" \
+            --endpoint-url "$STORAGE_ENDPOINT" \
+            --region "$STORAGE_REGION"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.STORAGE_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.STORAGE_SECRET_KEY }}
+          STORAGE_ENDPOINT: ${{ secrets.STORAGE_ENDPOINT }}
+          STORAGE_REGION: ${{ secrets.STORAGE_REGION }}
+          STORAGE_BUCKET: ${{ secrets.STORAGE_BUCKET }}
+
+      - name: Prune old backups beyond retention count
+        run: |
+          set -euo pipefail
+          # Filenames are ISO-8601 timestamps, so plain lexical sort is
+          # also chronological order — oldest first.
+          all=$(aws s3 ls "s3://${STORAGE_BUCKET}/db-backups/" --endpoint-url "$STORAGE_ENDPOINT" --region "$STORAGE_REGION" | awk '{print $4}' | sort)
+          count=$(echo "$all" | grep -c . || true)
+          if [ "$count" -gt "$RETENTION_COUNT" ]; then
+            to_delete=$((count - RETENTION_COUNT))
+            echo "$all" | head -n "$to_delete" | while read -r name; do
+              [ -z "$name" ] && continue
+              echo "Deleting old backup: $name"
+              aws s3 rm "s3://${STORAGE_BUCKET}/db-backups/${name}" --endpoint-url "$STORAGE_ENDPOINT" --region "$STORAGE_REGION"
+            done
+          else
+            echo "$count backups present, within retention of $RETENTION_COUNT — nothing to prune."
+          fi
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.STORAGE_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.STORAGE_SECRET_KEY }}
+          STORAGE_ENDPOINT: ${{ secrets.STORAGE_ENDPOINT }}
+          STORAGE_REGION: ${{ secrets.STORAGE_REGION }}
+          STORAGE_BUCKET: ${{ secrets.STORAGE_BUCKET }}

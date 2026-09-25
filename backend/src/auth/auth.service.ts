@@ -87,7 +87,13 @@ export class AuthService {
   // enumerate which addresses have accounts. The controller always
   // returns the same generic response regardless of what happens here.
   async requestPasswordReset(email: string, ip?: string, userAgent?: string): Promise<void> {
-    const user = await this.prisma.user.findUnique({ where: { email } });
+    // Case-insensitive, matching how login (validateUser, below) resolves
+    // email — otherwise a user typing a different case than their stored
+    // email gets the generic "if that email exists…" response but no email
+    // ever actually sends, while login with the same casing would work
+    // fine. findUnique can't take `mode: 'insensitive'` on a unique field,
+    // so this uses findFirst instead. Found in the 2026-09-25 audit.
+    const user = await this.prisma.user.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
     if (!user || !user.isActive) {
       return;
     }

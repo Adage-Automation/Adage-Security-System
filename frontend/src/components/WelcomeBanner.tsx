@@ -45,7 +45,18 @@ export function WelcomeBanner() {
         type="button"
         onClick={() => setVisible(false)}
         aria-label="Dismiss welcome message"
-        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: 4, display: 'flex' }}
+        style={{
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          color: 'inherit',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minWidth: 44,
+          minHeight: 44,
+          flexShrink: 0,
+        }}
       >
         <IconX />
       </button>

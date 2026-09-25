@@ -2,7 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 
 interface SendMovementEmailInput {
   to: string;
-  cc: string;
+  // Optional — CC is now the sending guard's own account-level Security CC
+  // Email (per-unit), not a single global setting. Omitted entirely when
+  // the sender has none configured (e.g. HR/Admin, or a not-yet-assigned
+  // account). Found in the 2026-09-25 two-security-units change.
+  cc?: string;
   employeeName: string;
   dateLabel: string;
   senderName: string;

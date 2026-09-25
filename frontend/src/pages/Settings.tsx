@@ -3,8 +3,6 @@ import { api } from '../api/client';
 import { IconSettings as IconSettingsGear, IconCheckCircle } from '../components/icons';
 import { AdminNav } from '../components/AdminNav';
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 interface Field {
   key: string;
   label: string;
@@ -12,15 +10,12 @@ interface Field {
   validate?: (value: string) => string | null;
 }
 
+// No security-email field here — with multiple security units (each a
+// shared login, 2026-09-25), CC is the sending account's own login email,
+// not a single global setting. See Users screen / docs/decisions.md.
 const FIELDS: Field[] = [
   { key: 'COMPANY_NAME', label: 'Company Name', required: true },
   { key: 'TIMEZONE', label: 'Timezone', required: true },
-  {
-    key: 'SECURITY_EMAIL',
-    label: 'Security Email (CC on all employee record emails)',
-    required: false,
-    validate: (value) => (value.trim() && !EMAIL_PATTERN.test(value.trim()) ? 'Enter a valid email address' : null),
-  },
   { key: 'EMAIL_SENDER_NAME', label: 'Email Sender Name', required: true },
 ];
 
@@ -85,16 +80,29 @@ export function Settings() {
     if (changed.length === 0) return;
 
     setSaving(true);
-    try {
-      await Promise.all(changed.map((f) => api.put(`/settings/${f.key}`, { value: draft[f.key] ?? '' })));
-      setSaved((s) => ({ ...s, ...Object.fromEntries(changed.map((f) => [f.key, draft[f.key] ?? ''])) }));
-      setConfirmation({ kind: 'success', message: `Saved ${changed.length} change${changed.length === 1 ? '' : 's'}` });
-    } catch {
-      setConfirmation({ kind: 'error', message: 'Unable to save changes. Please try again.' });
-    } finally {
-      setSaving(false);
-      setTimeout(() => setConfirmation(null), 2500);
+    // Promise.allSettled, not Promise.all — a mid-batch failure with
+    // Promise.all used to reject immediately, skipping the setSaved below
+    // entirely even for fields that *did* persist server-side. Those
+    // fields then stayed marked "unsaved" client-side (and would be
+    // silently re-sent next time) while the error message implied nothing
+    // saved at all. Found in the 2026-09-25 audit.
+    const results = await Promise.allSettled(
+      changed.map((f) => api.put(`/settings/${f.key}`, { value: draft[f.key] ?? '' }).then(() => f.key)),
+    );
+    const succeededKeys = results.filter((r): r is PromiseFulfilledResult<string> => r.status === 'fulfilled').map((r) => r.value);
+    const failedCount = results.length - succeededKeys.length;
+    if (succeededKeys.length > 0) {
+      setSaved((s) => ({ ...s, ...Object.fromEntries(succeededKeys.map((key) => [key, draft[key] ?? ''])) }));
     }
+    if (failedCount === 0) {
+      setConfirmation({ kind: 'success', message: `Saved ${succeededKeys.length} change${succeededKeys.length === 1 ? '' : 's'}` });
+    } else if (succeededKeys.length > 0) {
+      setConfirmation({ kind: 'error', message: `Saved ${succeededKeys.length}, but ${failedCount} failed. Please try again.` });
+    } else {
+      setConfirmation({ kind: 'error', message: 'Unable to save changes. Please try again.' });
+    }
+    setSaving(false);
+    setTimeout(() => setConfirmation(null), 2500);
   }
 
   return (

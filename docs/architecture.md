@@ -52,7 +52,7 @@ backend/src/
 ├── reports/         PNG/PDF generation (Puppeteer) + on-demand email orchestration
 ├── email/           Microsoft Graph API wrapper (OAuth2, via Adage's Microsoft 365 tenant) — the only place that sends email
 ├── audit-logs/      write-through audit trail, read endpoint for admins
-├── settings/        key/value system config (company name, timezone, security email, sender name)
+├── settings/        key/value system config (company name, timezone, sender name)
 ├── health/          GET /health — public, real DB round trip; reachability check + external keep-alive target
 ├── common/          shared decorators (CurrentUser, RequirePermissions), guards, permission constants
 └── prisma/          PrismaService — single DB client, globally injected
@@ -99,7 +99,7 @@ frontend/src/
 │   ├── Users.tsx          admin: user CRUD, enable/disable
 │   ├── Corrections.tsx    admin: search a date + employee, append-only-correct or add a missing record
 │   ├── AuditLog.tsx       admin: browse the audit trail, filter by entity type / user / date range, keyword search, always newest-first
-│   └── Settings.tsx       admin: company name, timezone, security email, sender name — single "Save all changes" form with validation
+│   └── Settings.tsx       admin: company name, timezone, sender name — single "Save all changes" form with validation
 └── styles/global.css     mobile-first, large touch targets, responsive table→card breakpoint
 ```
 

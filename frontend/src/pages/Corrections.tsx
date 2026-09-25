@@ -87,8 +87,21 @@ export function Corrections() {
   // blank query now returns a browse list (backend change, 2026-09-21)
   // instead of nothing, so the dropdown shows something on focus rather
   // than only once something's been typed.
+  // Guards against a slower response for an earlier query landing after a
+  // faster response for a newer one, flashing stale results. Found in the
+  // 2026-09-25 audit.
+  const searchSeqRef = useRef(0);
+
   const fetchResults = useCallback((q: string) => {
-    api.get<Employee[]>(`/employees/search-all?q=${encodeURIComponent(q)}`).then(setResults).catch(() => setResults([]));
+    const seq = ++searchSeqRef.current;
+    api
+      .get<Employee[]>(`/employees/search-all?q=${encodeURIComponent(q)}`)
+      .then((res) => {
+        if (seq === searchSeqRef.current) setResults(res);
+      })
+      .catch(() => {
+        if (seq === searchSeqRef.current) setResults([]);
+      });
   }, []);
 
   useEffect(() => {
@@ -272,6 +285,7 @@ export function Corrections() {
       {selected && (
         <>
           {records.length > 0 && (
+          <>
           <table className="records-table">
             <thead>
               <tr>
@@ -297,6 +311,24 @@ export function Corrections() {
               ))}
             </tbody>
           </table>
+
+          <div className="record-cards">
+            {records.map((r) => (
+              <div className="record-card" key={r.id}>
+                <div>
+                  <span className={`movement-badge ${r.movementType}`}>{r.movementType}</span>
+                  <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
+                    {formatTime(r.movementAt)}
+                    {r.recordedOffline && <OfflineBadge />}
+                  </div>
+                </div>
+                <button className="table-action-btn" onClick={() => openCorrect(r)}>
+                  Correct
+                </button>
+              </div>
+            ))}
+          </div>
+          </>
           )}
 
           {!recordsLoading && records.length === 0 && (

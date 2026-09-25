@@ -27,6 +27,7 @@ export function Users() {
   const [form, setForm] = useState({ name: '', email: '', username: '', password: '', roleId: '' });
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   // Missing from the earlier loading-skeleton pass — this page fetched
   // without ever tracking whether it was still loading, so a slow
   // connection showed a blank table area with no feedback, same class of
@@ -51,7 +52,9 @@ export function Users() {
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
+    if (creating) return;
     setError(null);
+    setCreating(true);
     try {
       const created = await api.post<UserRow>('/users', { ...form, roleId: Number(form.roleId) });
       setForm({ name: '', email: '', username: '', password: '', roleId: '' });
@@ -60,6 +63,8 @@ export function Users() {
       load();
     } catch (err: any) {
       setError(err?.message ?? 'Failed to create user.');
+    } finally {
+      setCreating(false);
     }
   }
 
@@ -129,8 +134,9 @@ export function Users() {
             </label>
           </div>
           <div className="form-actions" style={{ display: 'flex', alignItems: 'flex-end' }}>
-            <button type="submit" className="primary-button" style={{ width: 'auto', padding: '12px 20px' }}>
-              Add User
+            <button type="submit" className="primary-button" style={{ width: 'auto', padding: '12px 20px' }} disabled={creating}>
+              {creating && <span className="spinner" />}
+              {creating ? 'Adding…' : 'Add User'}
             </button>
           </div>
         </form>
@@ -176,6 +182,27 @@ export function Users() {
             ))}
           </tbody>
         </table>
+      )}
+
+      {users.length > 0 && (
+        <div className="record-cards">
+          {users.map((u) => (
+            <div className="record-card" key={u.id} style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                <div>
+                  <strong>{u.name}</strong>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{u.username} · {u.role.name}</div>
+                </div>
+                <span className={`status-pill ${u.isActive ? 'active' : 'inactive'}`}>
+                  {u.isActive ? 'Active' : 'Disabled'}
+                </span>
+              </div>
+              <button className="table-action-btn" onClick={() => toggleActive(u)}>
+                {u.isActive ? 'Disable' : 'Enable'}
+              </button>
+            </div>
+          ))}
+        </div>
       )}
 
       {!loading && users.length === 0 && (

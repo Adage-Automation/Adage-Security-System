@@ -135,7 +135,10 @@ export class AuditLogService {
     return this.prisma.auditLog.findMany({
       where,
       orderBy: { createdAt: 'desc' },
-      take: params.take ?? 50,
+      // Capped regardless of what the caller asks for — an ADMIN session
+      // could otherwise pass an arbitrarily large `take` and force one huge
+      // query/response. Found in the 2026-09-25 audit.
+      take: Math.min(params.take ?? 50, 200),
       skip: params.skip ?? 0,
       include: { user: { select: { id: true, name: true } } },
     });

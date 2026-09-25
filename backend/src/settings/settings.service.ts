@@ -2,8 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../audit-logs/audit-log.service';
 
-// Key/value store so company config (name, timezone, security email, etc.)
-// is never hard-coded throughout the app (spec §56).
+// Key/value store so company config (name, timezone, etc.) is never
+// hard-coded throughout the app (spec §56).
 @Injectable()
 export class SettingsService {
   constructor(
@@ -36,9 +36,5 @@ export class SettingsService {
       newValue: { key, value },
     });
     return row;
-  }
-
-  async getSecurityEmail(): Promise<string> {
-    return (await this.get('SECURITY_EMAIL')) ?? '';
   }
 }

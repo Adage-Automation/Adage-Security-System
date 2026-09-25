@@ -36,8 +36,13 @@ export class UsersService {
   }
 
   async create(dto: CreateUserDto, actingUserId: number) {
+    // Matched case-insensitively — the DB's unique constraint on email is
+    // case-sensitive, but login (AuthService.validateUser) matches email
+    // case-insensitively. Without this, "HR@adage.com" and "hr@adage.com"
+    // could both be created as distinct accounts, leaving one unreachable
+    // by email login. Found in the 2026-09-25 audit.
     const existing = await this.prisma.user.findFirst({
-      where: { OR: [{ username: dto.username }, { email: dto.email }] },
+      where: { OR: [{ username: dto.username }, { email: { equals: dto.email, mode: 'insensitive' } }] },
     });
     if (existing) {
       throw new ConflictException('Username or email already in use');
@@ -74,7 +79,7 @@ export class UsersService {
     // P2002 — a 500 with no useful message — instead of a clean 409. Found
     // in the 2026-09-21 audit.
     if (dto.email) {
-      const clash = await this.prisma.user.findFirst({ where: { email: dto.email, NOT: { id } } });
+      const clash = await this.prisma.user.findFirst({ where: { email: { equals: dto.email, mode: 'insensitive' }, NOT: { id } } });
       if (clash) {
         throw new ConflictException('That email address is already in use by another user.');
       }

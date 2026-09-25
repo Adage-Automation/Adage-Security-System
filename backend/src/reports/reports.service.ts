@@ -72,7 +72,17 @@ export class ReportsService {
       throw new BadRequestException('Employee has no registered email address');
     }
 
-    const securityEmail = await this.settings.getSecurityEmail();
+    // CC is the sending account's own login email, not a single global
+    // setting — Adage runs multiple security units (2026-09-25), each
+    // with its own shared login (e.g. securityunit1@adage-automation.com,
+    // used by several guards at that unit). Whichever account is logged
+    // in and triggers the send determines the CC. Accounts with no email
+    // on file (shouldn't happen — email is required at creation) simply
+    // send with no CC rather than a fallback address, matching how
+    // HR/Admin sends already behave (they hold SEND_EMAIL too but aren't
+    // tied to a unit).
+    const requestedByUser = await this.prisma.user.findUnique({ where: { id: requestedByUserId }, select: { email: true } });
+    const securityEmail = requestedByUser?.email;
     const senderName = (await this.settings.get('EMAIL_SENDER_NAME')) ?? 'Adage Security System';
 
     // The PENDING row is created before PNG generation, not after — a

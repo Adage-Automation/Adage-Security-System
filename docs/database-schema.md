@@ -73,7 +73,7 @@ Append-only trail of every sensitive action: `USER_LOGIN`, `USER_LOGOUT`, `ENTRY
 
 ## `settings`
 
-Plain key/value table (`key` is the primary key). Avoids hard-coding `COMPANY_NAME`, `TIMEZONE`, `SECURITY_EMAIL`, `EMAIL_SENDER_NAME` anywhere in application code — see [decisions.md](./decisions.md#securitycc-email-single-global-setting).
+Plain key/value table (`key` is the primary key). Avoids hard-coding `COMPANY_NAME`, `TIMEZONE`, `EMAIL_SENDER_NAME` anywhere in application code. (No security-email key — with multiple security units, the CC on an emailed report is the sending account's own login email, not a global setting; see [decisions.md](./decisions.md#security-cc-is-the-sending-accounts-own-email-not-a-global-setting).)
 
 ## `session` (created automatically)
 

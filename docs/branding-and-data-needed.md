@@ -13,9 +13,10 @@ Everything the app can build without you is built. This is the list of things on
 
 These populate the `settings` table (Settings screen, or I can seed them directly):
 - Official company name as it should appear on reports/emails (currently placeholder `"Adage"`)
-- The security desk's email address to CC on every employee record email (`SECURITY_EMAIL`)
 - The "from" display name for outgoing emails (`EMAIL_SENDER_NAME`, currently `"Adage Security System"`)
 - Confirm the timezone stays `Asia/Kolkata`, or tell me if operations span another timezone
+
+**Security-unit CC emails are not a Settings value** — with multiple security units (2026-09-25: `securityunit1@adage-automation.com`, `securityunit2@adage-automation.com`, each a shared login used by 2-3 guards at that unit), the CC on an emailed report is whichever unit's account actually sent it, i.e. that account's own login `email`. Set/verify this per account on the Users screen — no separate configuration needed.
 
 ## 3. Real employee data — mostly done
 
@@ -40,7 +41,7 @@ I can create these directly once you confirm the list, or an Admin can create th
 
 ✅ **Verified working end to end (2026-09-10)**: the Azure AD app is registered, admin consent for `Mail.Send` is granted, credentials are set in `backend/.env`, and a real "Email Details" send was confirmed delivered.
 
-**Still to do** (not blocking normal use): (1) run the Exchange Online application access policy restricting the app to just the security mailbox — see [email-m365-admin-handoff.md](./email-m365-admin-handoff.md) step 5; (2) once a real `security@adage-automation.com` mailbox is created, swap `MAIL_FROM_ADDRESS` in `backend/.env` and the `SECURITY_EMAIL` Settings value (Settings page — it's a database key, not an env var, despite the similar name) away from the current temporary stand-in (`shivani.naik@adage-automation.com`) to it, and re-run the access policy against the new mailbox.
+**Still to do** (not blocking normal use): (1) run the Exchange Online application access policy restricting the app to just the sending mailbox — see [email-m365-admin-handoff.md](./email-m365-admin-handoff.md) step 5; (2) once a real `security@adage-automation.com` mailbox is created, swap `MAIL_FROM_ADDRESS` in `backend/.env` away from the current temporary stand-in (`shivani.naik@adage-automation.com`) to it, and re-run the access policy against the new mailbox; (3) **confirm `securityunit1@adage-automation.com` and `securityunit2@adage-automation.com` are real, existing mailboxes** — since 2026-09-25 they're used as literal CC recipients on outgoing report emails (see "Company & configuration data" above), not just internal config values, so mail to them will silently go nowhere if they don't actually exist yet.
 
 ## 6. Storage (for emailed reports) — ✅ working
 

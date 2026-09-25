@@ -45,7 +45,7 @@ Employees may occasionally ask for their entry/exit details for a particular day
 3. Tap **EMAIL DETAILS**.
 4. Wait for "Sending…" to change to "✓ Details emailed successfully."
 
-The email is sent automatically to the employee's registered email address (you don't type it), with the configured Security email address CC'd. It includes a professionally formatted PNG attachment the employee can save, forward, or print.
+The email is sent automatically to the employee's registered email address (you don't type it), CC'd to whichever security unit's account is sending it. It includes a professionally formatted PNG attachment the employee can save, forward, or print.
 
 If an employee has no email address on file, EMAIL DETAILS isn't available for them — you'll see a clear note on their details page instead. Add their email via the Employees screen first (see the [Admin guide](./user-guide-admin.md#employee-management) — this screen is also open to HR).
 

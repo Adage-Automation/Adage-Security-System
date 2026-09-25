@@ -36,7 +36,7 @@ Send this to whoever administers Microsoft 365 / Azure for `adage-automation.com
 
 ## What this will be used for
 
-An internal security-desk web app sends, **only when a staff member explicitly clicks "Email Details"** (never automatically, never in bulk), a single PNG image of one employee's entry/exit record for one day, to that employee's own `@adage-automation.com` address, CC'd to the security mailbox above. Expected volume: at most a handful to a few dozen emails per day.
+An internal security-desk web app sends, **only when a staff member explicitly clicks "Email Details"** (never automatically, never in bulk), a single PNG image of one employee's entry/exit record for one day, to that employee's own `@adage-automation.com` address, CC'd to whichever security unit's own address (e.g. `securityunit1@`/`securityunit2@adage-automation.com`) is actually sending it — a separate address from the mailbox in step 6, which is only the technical *sending* mailbox for the Graph API. Expected volume: at most a handful to a few dozen emails per day.
 
 ## Technical details (for reference)
 

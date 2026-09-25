@@ -18,8 +18,10 @@ export function Employees() {
   const [editForm, setEditForm] = useState({ employeeName: '', email: '', carNumber: '' });
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const editModalRef = useRef<HTMLDivElement>(null);
   const editFirstFieldRef = useRef<HTMLInputElement>(null);
+  const loadSeqRef = useRef(0);
 
   // The edit form used to render inline at the top of the page, above the
   // filters and table — invisible and unreachable without scrolling back
@@ -60,17 +62,26 @@ export function Employees() {
     const params = new URLSearchParams({ skip: String(nextSkip), take: String(PAGE_SIZE) });
     if (query.trim()) params.set('q', query.trim());
 
+    // A slower response for an earlier query (or a stale "Load More" page)
+    // landing after a newer one could otherwise overwrite the list with
+    // outdated results — found in the 2026-09-25 audit.
+    const seq = ++loadSeqRef.current;
+
     api
       .get<{ rows: Employee[]; total: number }>(`/employees?${params.toString()}`)
       .then((res) => {
+        if (seq !== loadSeqRef.current) return;
         setEmployees(reset ? res.rows : [...employees, ...res.rows]);
         setTotal(res.total);
         setSkip(nextSkip + res.rows.length);
       })
       .catch(() => {
+        if (seq !== loadSeqRef.current) return;
         if (reset) setEmployees([]);
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (seq === loadSeqRef.current) setLoading(false);
+      });
   }
 
   // Reload from the top whenever the search query changes — the roster
@@ -85,7 +96,9 @@ export function Employees() {
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
+    if (creating) return;
     setError(null);
+    setCreating(true);
     try {
       // Email is optional (2026-09-09, to support employees whose address
       // isn't known yet) — but the backend's @IsEmail() rejects an empty
@@ -108,6 +121,8 @@ export function Employees() {
       load(true);
     } catch (err: any) {
       setError(err?.message ?? 'Failed to create employee.');
+    } finally {
+      setCreating(false);
     }
   }
 
@@ -191,8 +206,9 @@ export function Employees() {
             </label>
           </div>
           <div className="form-actions" style={{ display: 'flex', alignItems: 'flex-end' }}>
-            <button type="submit" className="primary-button" style={{ width: 'auto', padding: '12px 20px' }}>
-              Add Employee
+            <button type="submit" className="primary-button" style={{ width: 'auto', padding: '12px 20px' }} disabled={creating}>
+              {creating && <span className="spinner" />}
+              {creating ? 'Adding…' : 'Add Employee'}
             </button>
           </div>
         </form>
@@ -266,6 +282,34 @@ export function Employees() {
               ))}
             </tbody>
           </table>
+
+          <div className="record-cards">
+            {employees.map((emp) => (
+              <div className="record-card" key={emp.id} style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                  <div>
+                    <strong>{emp.employeeName}</strong>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{emp.employeeCode}</div>
+                  </div>
+                  <span className={`status-pill ${emp.isActive ? 'active' : 'inactive'}`}>
+                    {emp.isActive ? 'Active' : 'Inactive'}
+                  </span>
+                </div>
+                <div style={{ fontSize: 13 }}>
+                  {emp.email ?? <span style={{ color: 'var(--text-muted)' }}>No email</span>}
+                  {emp.carNumber ? ` · ${emp.carNumber}` : ''}
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="table-action-btn" onClick={() => startEditing(emp)} style={{ flex: 1 }}>
+                    Edit
+                  </button>
+                  <button className="table-action-btn" onClick={() => toggleActive(emp)} style={{ flex: 1 }}>
+                    {emp.isActive ? 'Deactivate' : 'Reactivate'}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
             <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>

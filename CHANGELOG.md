@@ -1,5 +1,52 @@
 # Changelog
 
+## 2026-09-25 (cont. 4) — Database backups and backend error tracking
+
+Closed two of the open deployment risks flagged earlier today's audit, on explicit user confirmation:
+
+- **Added `.github/workflows/db-backup.yml`** — a daily `pg_dump` (direct/session connection, not the app's pooled one) gzip-compressed and uploaded to the same Supabase Storage bucket already used for emailed reports (`db-backups/` prefix), pruned to the last 14. Supabase's free tier has no automated backups/PITR at all — before this, there was genuinely no recovery path if the project were lost or corrupted. **Needs setup**: `BACKUP_DATABASE_URL` and the `STORAGE_*` values added as GitHub Actions repo secrets — see the workflow file's header comment.
+- **Added `@sentry/node`** to the backend, initialized in `main.ts` only if `SENTRY_DSN` is set (unset = safe no-op, same pattern as every other optional config in this app). `AllExceptionsFilter` now reports every genuine 5xx to Sentry alongside its existing log line. No performance tracing (`tracesSampleRate: 0`) — error visibility only. **Needs setup**: a free Sentry account/DSN, set as `SENTRY_DSN` in Render's environment.
+
+See `docs/decisions.md`'s "Database backups: scheduled pg_dump via GitHub Actions, and backend error tracking via Sentry" entry.
+
+## 2026-09-25 (cont. 3) — Multiple security units: CC is now the sending account's own email, not a global setting
+
+Adage now operates two security units (`securityunit1@adage-automation.com`, `securityunit2@adage-automation.com`), each a single shared login account used by 2-3 guards physically at that unit. The old single global `SECURITY_EMAIL` Settings key assumed one security desk and is removed entirely.
+
+- **`ReportsService.emailDailyRecord`** now CCs whichever account actually sent the email (its own `User.email`, looked up by `requestedByUserId`), instead of a fixed Settings value. HR/Admin sends (they hold `SEND_EMAIL` too) go out with no CC, by explicit choice, rather than a fallback address.
+- **Removed**: the `SECURITY_EMAIL` Settings key end to end — `SettingsService.getSecurityEmail()`, its entry in `SETTING_KEYS`, its seed-script default, and its field on the Settings page. Existing `settings` rows for that key are simply unused now (harmless).
+- Considered adding a new, separate CC field on `User` first (since `email`'s uniqueness constraint would otherwise block multiple guards sharing one CC address) — turned out unnecessary once it was clear each unit is *one* shared login account, not several individual guard accounts, so that account's own `email` already holds the unit's address uniquely.
+- Docs swept for every "Security Email is a Settings key, not an env var" reference (many, from the earlier `SECURITY_EMAIL`-as-env-var documentation fix) and rewritten to describe the new per-account CC model — `README.md`, `docs/api-reference.md`, `docs/database-schema.md`, `docs/deployment.md`, `docs/developer-guide.md`, `docs/architecture.md`, `docs/roadmap.md`, `docs/testing.md`, `docs/user-guide-admin.md`, `docs/user-guide-hr.md`, `docs/email-m365-admin-handoff.md`, `docs/branding-and-data-needed.md`, `backend/.env`/`.env.example`.
+- **Operational follow-up flagged, not yet confirmed**: `securityunit1@`/`securityunit2@adage-automation.com` need to actually exist as real mailboxes — they're now literal CC recipients on outgoing mail, not just internal config values.
+
+See `docs/decisions.md`'s "Security CC is the sending account's own email, not a global setting" entry for full rationale.
+
+## 2026-09-25 (cont. 2) — Full-codebase audit: case-insensitive email gap, unbounded take, double-submit, stale search results
+
+A fresh audit run in parallel across backend, frontend, and deployment (see `docs/decisions.md` for full rationale on each). Deployment findings — no database backups, no error tracking — are documented as open risks pending a decision, not fixed here (they need new infrastructure/accounts, not just code). Fixed:
+
+**Backend:**
+- **`UsersService.create`/`update` and `AuthService.requestPasswordReset` matched email case-sensitively**, while login (`AuthService.validateUser`) already matches case-insensitively — the exact gap already closed for Employees in the 2026-09-21 audit, missed for Users. Two accounts differing only by email case could be created, or a user typing different casing than their stored email at "Forgot password" would get the generic response but no email. Fixed to match login's case-insensitive behavior everywhere.
+- **`GET /audit-logs`'s `take` param had no upper bound** — capped at 200 regardless of what the caller requests.
+
+**Frontend:**
+- **`Employees.tsx`/`Users.tsx` "Add" forms had no double-submit guard** — every other form in the app (Corrections, Settings) already disables its submit button while saving; these two were missed, so a fast double-click/double-Enter could fire two requests before the first resolved (caught cleanly by the backend's uniqueness checks, but with a confusing error). Fixed with the same `saving`-boolean pattern used elsewhere.
+- **`Settings.tsx`'s "Save all changes" used `Promise.all` across multiple field saves** — a mid-batch failure rejected immediately, skipping the reconciliation step even for fields that *had* persisted server-side, leaving them stuck showing "unsaved" and implying nothing saved when something did. Switched to `Promise.allSettled`, reconciling only the fields that actually succeeded and reporting a partial-failure message when relevant.
+- **No stale-response guard on any debounced employee search** (SecurityHome, Dashboard, Corrections, Employees) — the debounce only delayed sending a request, never cancelled or sequenced in-flight ones, so a slower response for an earlier query could land after a faster response for a newer one and flash stale results. Added a monotonic request-sequence counter to all four (a lower-risk fix than threading `AbortController` through the shared `api` client, which has no signal-injection point today).
+
+See `docs/decisions.md` for full detail on each fix and the deployment risks left open.
+
+## 2026-09-25 (cont.) — Fixed Audit Log/Corrections/Employees/Users showing no data on any phone
+
+A full mobile-viewport audit (360×740, 390×844, 428×926, all 3 roles, every route, every control) found the guard-facing SecurityHome/Dashboard screens are solid on mobile, but four admin/HR data-review pages were fundamentally broken on every phone size tested: `AuditLog.tsx`, `Corrections.tsx`, `Employees.tsx`, and `Users.tsx` rendered only a `<table className="records-table">`, but `global.css` hides `.records-table` and shows `.record-cards` instead at `max-width: 640px` — and none of these four pages had `.record-cards` markup. Result: the entire list silently vanished on any phone, with no error and no empty state (only Dashboard.tsx, which already had both layouts, worked correctly). Fixed by adding `.record-cards`/`.record-card` markup to all four pages, mirroring Dashboard's existing pattern (Corrections and Employees keep their per-row action buttons — Correct/Edit/Deactivate — reachable on the card too) — verified live in a mobile-viewport browser session (360px): all four pages now render full card content with the table correctly hidden, no horizontal overflow introduced.
+
+Also tightened two tap targets flagged by the same audit as under the ~44px accessibility guideline: the welcome-banner dismiss (×) button (was 28×28px, now a 44×44px hit area) and Dashboard's mobile record-card employee-name links (were ~20px tall; grown via padding with an offsetting negative margin so the tap area increases without shifting layout).
+
+## 2026-09-25 — Fixed the keep-alive gap: UptimeRobot set up as primary pinger
+
+- The backend was observed sleeping in production despite the keep-alive setup. Checked the GitHub Actions pinger's actual run history via the API and confirmed the 2026-09-22 finding still holds: it's active (not auto-disabled) but firing every 3–5 hours, not the configured 10 minutes — nowhere near tight enough to beat Render's 15-minute idle sleep.
+- Set up UptimeRobot (free tier) as the primary pinger against `https://adage-security-system.onrender.com/api/health`, checked every 8 minutes. Confirmed live: 100% uptime, 0 incidents. See `docs/decisions.md`'s keep-alive entry and `docs/roadmap.md`.
+
 ## 2026-09-24 — Migration backfill for the manually-dropped employee columns
 
 - **Added `20260924100000_drop_employee_metadata_columns`**, a follow-up Prisma migration recording (for migration-history purposes only) the `Employee.phone`/`department`/`designation` column removal that was done directly against the live Supabase database on 2026-09-22, outside Prisma's own migration flow. Against the live database this is a genuine no-op (`DROP COLUMN IF EXISTS` — the columns were already gone; verified `/employees` and `/employees/search` before and after, both clean). Its only purpose is keeping a *future* from-scratch database build honest — without it, replaying the full migration history would still recreate these columns via the original `20260903103752_init`. See `docs/decisions.md`.

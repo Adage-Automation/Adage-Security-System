@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import * as Sentry from '@sentry/node';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import helmet from 'helmet';
@@ -9,6 +10,18 @@ import { Pool } from 'pg';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { validateTimezoneConfiguration } from './common/utils/timezone';
+
+// Optional — SENTRY_DSN unset is the normal case unless it's been
+// deliberately configured (docs/decisions.md). Error tracking only, no
+// performance tracing (tracesSampleRate: 0), to stay simple and free-tier
+// friendly. Must run before anything else has a chance to throw.
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV ?? 'development',
+    tracesSampleRate: 0,
+  });
+}
 
 async function bootstrap() {
   // Nest's default logger prints every module's dependency init

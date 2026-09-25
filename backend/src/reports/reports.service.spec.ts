@@ -5,11 +5,11 @@ describe('ReportsService', () => {
     employee: { findUnique: jest.fn() },
     movementRecord: { findMany: jest.fn() },
     emailLog: { create: jest.fn(), update: jest.fn() },
+    user: { findUnique: jest.fn() },
   };
 
   const settings = {
     get: jest.fn(),
-    getSecurityEmail: jest.fn(),
   };
 
   const auditLog = { record: jest.fn() };
@@ -26,7 +26,10 @@ describe('ReportsService', () => {
       if (key === 'COMPANY_NAME') return 'Adage';
       return null;
     });
-    settings.getSecurityEmail.mockResolvedValue('security@example.com');
+    // The sending account's own login email is the CC — the unit that
+    // account belongs to (2026-09-25 multi-unit change), not a settings
+    // value.
+    prisma.user.findUnique.mockResolvedValue({ email: 'securityunit1@adage-automation.com' });
     prisma.employee.findUnique.mockResolvedValue({
       id: 1,
       employeeName: 'Test Employee',
@@ -73,7 +76,7 @@ describe('ReportsService', () => {
     expect(email.sendMovementRecordEmail).toHaveBeenCalledWith(
       expect.objectContaining({
         to: 'employee@example.com',
-        cc: 'security@example.com',
+        cc: 'securityunit1@adage-automation.com',
       }),
     );
     expect(prisma.emailLog.update).toHaveBeenCalledWith(
@@ -86,6 +89,27 @@ describe('ReportsService', () => {
       expect.objectContaining({ action: 'EMAIL_SENT' }),
     );
     expect(result.status).toBe('SENT');
+  });
+
+  it('CCs whichever unit account actually sent it, not a fixed address', async () => {
+    prisma.user.findUnique.mockResolvedValue({ email: 'securityunit2@adage-automation.com' });
+
+    await service.emailDailyRecord(1, '2026-09-10', 14);
+
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { id: 14 }, select: { email: true } });
+    expect(email.sendMovementRecordEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ cc: 'securityunit2@adage-automation.com' }),
+    );
+  });
+
+  it('sends with no CC when the sending account has no email on file', async () => {
+    prisma.user.findUnique.mockResolvedValue(null);
+
+    await service.emailDailyRecord(1, '2026-09-10', 9);
+
+    expect(email.sendMovementRecordEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ cc: undefined }),
+    );
   });
 
   it('marks the email log as FAILED when sending throws', async () => {

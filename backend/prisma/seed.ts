@@ -60,11 +60,6 @@ async function main() {
     create: { key: 'TIMEZONE', value: 'Asia/Kolkata' },
   });
   await prisma.setting.upsert({
-    where: { key: 'SECURITY_EMAIL' },
-    update: {},
-    create: { key: 'SECURITY_EMAIL', value: 'security@adage-automation.com' },
-  });
-  await prisma.setting.upsert({
     where: { key: 'EMAIL_SENDER_NAME' },
     update: {},
     create: { key: 'EMAIL_SENDER_NAME', value: 'Adage Security System' },

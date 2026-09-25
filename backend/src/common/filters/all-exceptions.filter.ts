@@ -1,5 +1,6 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { Request, Response } from 'express';
+import * as Sentry from '@sentry/node';
 
 // Spec §62 asks for backend error logging across DB failures, auth
 // failures, report-generation failures, and unexpected errors — this was
@@ -35,6 +36,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
     };
     if (status >= 500) {
       this.logger.error(`${request.method} ${request.originalUrl} -> ${status}`, exception instanceof Error ? exception.stack : String(exception));
+      // No-ops safely if SENTRY_DSN was never set (main.ts) — only a
+      // genuine 500 is worth reporting, not routine 4xx client errors.
+      Sentry.captureException(exception, { extra: logPayload });
     } else if (status >= 400) {
       this.logger.warn(`${request.method} ${request.originalUrl} -> ${status}: ${JSON.stringify(logPayload)}`);
     }

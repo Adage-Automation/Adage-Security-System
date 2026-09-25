@@ -48,7 +48,35 @@ describe('UsersService', () => {
       prisma.user.update.mockResolvedValue(makeUserRow({ id: 2, email: 'me@example.com' }));
 
       await expect(service.update(2, { email: 'me@example.com' }, 1)).resolves.toBeTruthy();
-      expect(prisma.user.findFirst).toHaveBeenCalledWith({ where: { email: 'me@example.com', NOT: { id: 2 } } });
+      expect(prisma.user.findFirst).toHaveBeenCalledWith({
+        where: { email: { equals: 'me@example.com', mode: 'insensitive' }, NOT: { id: 2 } },
+      });
+    });
+
+    // Login (AuthService.validateUser) matches email case-insensitively —
+    // without this, "HR@adage.com" and "hr@adage.com" could otherwise both
+    // be created/kept, leaving one account effectively unreachable by
+    // email login. Found in the 2026-09-25 audit.
+    it('rejects an email that differs only by case from an existing account', async () => {
+      prisma.user.findUnique.mockResolvedValue(makeUserRow({ id: 2, email: 'me@example.com' }));
+      prisma.user.findFirst.mockResolvedValue(makeUserRow({ id: 5, email: 'taken@example.com' }));
+
+      await expect(service.update(2, { email: 'TAKEN@example.com' }, 1)).rejects.toThrow(
+        'That email address is already in use by another user.',
+      );
+    });
+  });
+
+  describe('create — email/username uniqueness', () => {
+    it('rejects an email that differs only by case from an existing account', async () => {
+      prisma.user.findFirst.mockResolvedValue(makeUserRow({ email: 'taken@example.com' }));
+
+      await expect(
+        service.create({ name: 'New', email: 'TAKEN@example.com', username: 'newuser', password: 'x', roleId: 1 } as any, 1),
+      ).rejects.toThrow('Username or email already in use');
+      expect(prisma.user.findFirst).toHaveBeenCalledWith({
+        where: { OR: [{ username: 'newuser' }, { email: { equals: 'TAKEN@example.com', mode: 'insensitive' } }] },
+      });
     });
   });
 

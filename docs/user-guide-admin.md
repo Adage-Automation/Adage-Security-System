@@ -19,6 +19,7 @@ Deactivated employees still appear when correcting historical records (see below
 Navigate to **Users**.
 
 - **Add user**: Name, Email, Username, temporary Password, and Role (SECURITY / HR / ADMIN). The role determines what they can access: Security gets the recording workflow plus Dashboard; HR gets Dashboard plus Employees (no recording — HR lands on the Dashboard after login, not the recording screen); only Admin gets Users, Corrections, Audit Log, and Settings. Choose carefully — it's not just a label.
+- **Security units**: each security unit (gate/location) has one shared login account used by all guards at that unit — not one account per guard. That account's **Email** field is the unit's own address (e.g. `securityunit1@adage-automation.com`) and is automatically CC'd whenever anyone logged into that account sends "Email Details" — nothing to configure separately. Adding a new unit is just adding another shared account the same way.
 - **Disable / Enable**: disabling a user immediately blocks login (even an existing open session is re-checked on the next request and will be logged out) — use this rather than deleting a user, since audit history references them.
 - **Reset password**: sets a new password for a user who's lost theirs. Users can also use the self-service **Forgot password?** link on the login screen; it sends a single-use reset link to the registered email address.
 
@@ -28,10 +29,11 @@ Navigate to **Settings**. These values are used throughout the system instead of
 
 - **Company Name** — appears on generated reports.
 - **Timezone** — should stay `Asia/Kolkata` unless the company's operating region changes; movement timestamps are computed against this.
-- **Security Email** — automatically CC'd on every employee record email that's sent (no one has to type it manually).
 - **Email Sender Name** — the "from" display name on outgoing emails.
 
 Edit as many fields as you need, then click **Save all changes** once — it's greyed out until something's actually changed, and shows an "Unsaved changes" note while you're mid-edit so you don't lose track of what you've touched. Only the fields you actually changed are saved.
+
+There's no security-email setting here — with multiple security units (each its own shared login account on the Users screen), the CC on an emailed report is automatically whichever unit's account sent it. Nothing to configure per send.
 
 ## Correcting a movement record
 

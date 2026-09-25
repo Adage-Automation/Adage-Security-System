@@ -143,9 +143,18 @@ export function SecurityHome() {
   // otherwise a guard offline (or opening the app already offline) could
   // never find a NEW employee to record at all. Found in the 2026-09-22
   // audit.
+  // Guards against a slower response for an earlier query landing after a
+  // faster response for a newer one — the debounce only delays *sending*
+  // a request, it never cancels/sequences the ones already in flight, so
+  // without this a flaky-network reorder could flash stale results over
+  // correct ones. Found in the 2026-09-25 audit.
+  const searchSeqRef = useRef(0);
+
   const fetchResults = useCallback(
     async (q: string) => {
+      const seq = ++searchSeqRef.current;
       if (!isEffectivelyOnline) {
+        if (seq !== searchSeqRef.current) return;
         setResults(searchEmployeeCache(q));
         setSearchError(
           hasEmployeeCache() ? null : 'You are offline and no employee list has been cached on this device yet. Connect once to enable offline search.',
@@ -154,9 +163,11 @@ export function SecurityHome() {
       }
       try {
         const res = await api.get<Employee[]>(`/employees/search?q=${encodeURIComponent(q)}`);
+        if (seq !== searchSeqRef.current) return;
         setResults(res);
         setSearchError(null);
       } catch {
+        if (seq !== searchSeqRef.current) return;
         // We think we're online but the request still failed (a genuine
         // blip) — try the cache before giving up, rather than leaving the
         // guard stuck.

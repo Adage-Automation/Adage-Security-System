@@ -134,5 +134,19 @@ describe('AuditLogService', () => {
       const call = prisma.auditLog.findMany.mock.calls[0][0];
       expect(call.where.OR).toBeUndefined();
     });
+
+    // A caller could otherwise pass an arbitrarily large `take` and force
+    // one huge query/response. Found in the 2026-09-25 audit.
+    it('caps take at 200 regardless of what the caller requests', async () => {
+      const { service, prisma } = makeService();
+      await service.list({ take: 999_999 });
+      expect(prisma.auditLog.findMany.mock.calls[0][0].take).toBe(200);
+    });
+
+    it('defaults take to 50 when not specified', async () => {
+      const { service, prisma } = makeService();
+      await service.list({});
+      expect(prisma.auditLog.findMany.mock.calls[0][0].take).toBe(50);
+    });
   });
 });

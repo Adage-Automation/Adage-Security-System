@@ -51,7 +51,7 @@ The codebase now has real Jest coverage in both apps. Backend tests cover userna
 
 ## Email
 
-- `POST /reports/email` sends to the employee's registered email and CCs the configured Security email — neither is ever supplied by the caller
+- `POST /reports/email` sends to the employee's registered email and CCs the sending account's own login email (whichever security-unit account triggered the send) — neither is ever supplied by the caller
 - The email contains exactly that employee's movements for exactly the requested date — never another employee's or another date's
 - A PNG attachment is included and matches the on-screen data
 - A failed send (e.g. provider error) marks the `email_logs` row `FAILED` with `errorMessage` populated, and does not silently report success to the caller
