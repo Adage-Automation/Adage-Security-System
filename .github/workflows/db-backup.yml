@@ -85,7 +85,18 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
           sudo apt-get update
           sudo apt-get install -y postgresql-client-17
-          pg_dump --version
+          # Installing 17 is not enough on its own: /usr/bin/pg_dump is
+          # postgresql-common's `pg_wrapper`, which dispatches to the
+          # DEFAULT CLUSTER's version — and the runner image ships a
+          # PostgreSQL 16 *server* with a `main` cluster, so the wrapper
+          # kept resolving to client 16 with 17 sitting right there
+          # unused ("server version: 17.6; pg_dump version: 16.15").
+          # Put the newest installed client's real bin directory at the
+          # front of PATH for the following steps rather than trusting
+          # the wrapper. Hit on the 2026-09-25 re-run.
+          PG_BIN=$(ls -d /usr/lib/postgresql/*/bin | sort -V | tail -1)
+          echo "$PG_BIN" >> "$GITHUB_PATH"
+          "$PG_BIN/pg_dump" --version
 
       - name: Dump database
         run: |
@@ -117,6 +128,9 @@ jobs:
               exit 1
               ;;
           esac
+          # Recorded in the log so a future version mismatch is obvious
+          # from the failing run itself, without a second debug round trip.
+          pg_dump --version
           FILENAME="backup-$(date -u +%Y-%m-%dT%H-%M-%SZ).sql.gz"
           echo "FILENAME=$FILENAME" >> "$GITHUB_ENV"
           # Plain SQL format (not pg_dump's custom -Fc binary format) —

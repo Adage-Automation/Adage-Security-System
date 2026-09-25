@@ -18,9 +18,14 @@ wasn't URI-shaped.
   never echoed: it carries the database password, and a trimmed/derived value is no longer
   covered by GitHub's secret masking.
 - **Install step now pulls `postgresql-client-17` from PGDG** instead of Ubuntu's own
-  `postgresql-client`. The runner image ships client 16, and pg_dump refuses outright
-  ("aborting because of server version mismatch") against a newer server — recent Supabase
-  projects run Postgres 17. This would have been the very next failure.
+  `postgresql-client`, *and* puts that client's real bin directory at the front of `PATH`. The
+  runner image ships client 16, and pg_dump refuses outright ("aborting because of server
+  version mismatch") against a newer server — Supabase is on 17.6. Installing 17 alone turned
+  out not to be enough, which is exactly how the re-run failed: `/usr/bin/pg_dump` is
+  postgresql-common's `pg_wrapper`, which dispatches to the *default cluster's* version, and
+  the runner image also ships a PostgreSQL 16 server with a `main` cluster — so it kept
+  resolving to 16 with 17 installed and unused. The dump step now logs `pg_dump --version`
+  too, so a future mismatch is visible in the failing run itself.
 - **Corrected the connection-string guidance** (workflow header, `docs/decisions.md`,
   `docs/roadmap.md`): what `pg_dump` needs is a *session-mode* URI, which is about the port
   (5432 session, 6543 transaction), not direct-vs-pooler. Supabase's "Direct connection"
