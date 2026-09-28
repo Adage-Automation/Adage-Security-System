@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-09-28 (cont. 4) — 3 new employees; fixed a real car-number data-loss bug; active-tab nav highlight
+
+**New employees added** (`backend/data/employees.csv`, re-imported): `55793` Aditya Ganpat Desai, `55794` Fati Rama Gawas, `55797` Manoj Gajanan Khedekar (no email yet).
+
+**Incident and fix — CSV re-import wiped 34 real car numbers.** Adding the 3 rows above required re-running `npm run import:employees`. The roster CSV's `car_number` column has been blank for every employee since it was originally imported (the 34 car numbers added earlier this session were set live through the app, never written back into this CSV) — but `import-employees.ts` unconditionally upserted `carNumber: row.car_number?.trim() || null`, so the re-import silently overwrote all 34 real values with `null`. Caught immediately (Dashboard showed "0 employees with a car number"); all 34 values were recoverable from `audit_logs` (`EMPLOYEE_UPDATED` entries persist the old/new `carNumber`, per the exact audit-trail design this app relies on for disputes) and were restored via a one-off script that both updated `employees.carNumber` and wrote a matching `EMPLOYEE_UPDATED` audit-log row, so the restoration itself is traceable. Aditya's car number (`MH09 DA 1624`, from the same original list, previously unmatched — see 2026-09-25 entry) was set as new data on the newly-created `55793`.
+- **Root-cause fix**: `import-employees.ts` no longer treats a blank `car_number` column as "clear this field" — for an existing employee, a blank column now means "leave the current value alone"; only a non-blank CSV value overwrites it. A blank column still correctly leaves a *new* employee's `carNumber` as `null`. Verified idempotent: re-running the import after the fix left all 35 car numbers (the restored 34 + Aditya) untouched.
+
+**Active-tab highlight in the nav** — `AdminNav` (the shared Record Movement / Dashboard / Employees / ... links used by every role) switched from `Link` to `NavLink`, which reactrouter marks with an `active` class on whatever route currently matches; styled in `global.css` with the brand-dark fill so it's obvious at a glance which tab you're on, matching the existing "Today" toggle style on the Dashboard.
+
 ## 2026-09-28 (cont. 3) — Backend security audit + full desktop UI/UX audit
 
 Two focused passes run in parallel.

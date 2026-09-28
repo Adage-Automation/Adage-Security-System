@@ -8,6 +8,9 @@
 // Expected CSV header: employee_code,employee_name,email,car_number
 // Email may be blank until the employee's address is available.
 // car_number is optional too -- most employees don't have this on file yet.
+// A blank car_number column is treated as "no change" for an existing
+// employee (it is NOT cleared) since car numbers are often set later
+// through the app rather than kept current in this CSV.
 
 import { readFileSync } from 'fs';
 import { parse } from 'csv-parse/sync';
@@ -83,18 +86,31 @@ async function main() {
   let updated = 0;
 
   for (const row of rows) {
-    const data = {
+    const existing = await prisma.employee.findUnique({ where: { employeeCode: row.employee_code.trim() } });
+
+    // carNumber is often maintained directly through the app (Employees
+    // screen / API) rather than kept current in this CSV. A blank
+    // car_number column here must never blow away a real value already on
+    // file for an existing employee -- only set it from the CSV when the
+    // row actually carries one. (Incident 2026-09-28: a re-import with a
+    // stale, blank car_number column wiped 34 real car numbers.)
+    const carNumber = row.car_number?.trim() || undefined;
+
+    const updateData = {
       employeeName: toTitleCase(row.employee_name),
       email: row.email?.trim() || null,
-      carNumber: row.car_number?.trim() || null,
+      ...(carNumber !== undefined ? { carNumber } : {}),
     };
-
-    const existing = await prisma.employee.findUnique({ where: { employeeCode: row.employee_code.trim() } });
+    const createData = {
+      employeeName: toTitleCase(row.employee_name),
+      email: row.email?.trim() || null,
+      carNumber: carNumber ?? null,
+    };
 
     await prisma.employee.upsert({
       where: { employeeCode: row.employee_code.trim() },
-      update: data,
-      create: { employeeCode: row.employee_code.trim(), ...data },
+      update: updateData,
+      create: { employeeCode: row.employee_code.trim(), ...createData },
     });
 
     if (existing) updated++;

@@ -1363,6 +1363,17 @@ table.records-table th {
   background: var(--brand-tint);
 }
 
+.nav-links a.active {
+  background: var(--brand-dark);
+  border-color: var(--brand-dark);
+  color: white;
+}
+
+.nav-links a.active:hover {
+  background: var(--brand-dark);
+  border-color: var(--brand-dark);
+}
+
 .action-row {
   display: flex;
   gap: 10px;

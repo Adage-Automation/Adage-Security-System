@@ -20,7 +20,7 @@ These populate the `settings` table (Settings screen, or I can seed them directl
 
 ## 3. Real employee data — mostly done
 
-✅ First 6 real employees added (2026-09-03), then the full roster of 205 employees imported (2026-09-09) from `backend/data/employees.csv` — re-run `npm run import:employees -w backend -- data/employees.csv` from the repo root any time it is updated; upserts by employee code, safe to re-run. The 4 fake test employees (Rahul Sharma, Rahul Patil, Amit Patil, Priya Nair) have been permanently deleted, along with their test movement records.
+✅ First 6 real employees added (2026-09-03), then the full roster of 205 employees imported (2026-09-09) from `backend/data/employees.csv`, then 3 more added 2026-09-28 (208 total) — re-run `npm run import:employees -w backend -- data/employees.csv` from the repo root any time it is updated; upserts by employee code, safe to re-run (a blank `car_number` column no longer clears an existing employee's value — see `docs/decisions.md`'s 2026-09-28 car-number-import entry). The 4 fake test employees (Rahul Sharma, Rahul Patil, Amit Patil, Priya Nair) have been permanently deleted, along with their test movement records.
 
 **Employee metadata trimmed**: the Add/Edit Employee form and CSV import never exposed phone/department/designation fields (confirmed unused in search, filtering, and reports back on 2026-09-03) — but the underlying database columns and schema type lingered unused until 2026-09-22, when they were properly dropped (schema, DTOs, import script, and frontend types all updated to match; see [decisions.md](./decisions.md#backfill-migration-for-a-schema-change-made-directly-against-the-database)). The current schema now only keeps the employee fields the app actually uses.
 
