@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
+import { Response } from 'express';
 import { SessionAuthGuard } from '../common/guards/session-auth.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
@@ -52,6 +53,21 @@ export class EmployeesController {
       take: parseOptionalInt(take, 'take'),
       q,
     });
+  }
+
+  // Registered before ':id' below so it isn't swallowed by it (same
+  // reasoning as 'offline-cache' above). Generates the .xlsx fresh from the
+  // database on every call — see EmployeesService.exportToExcel.
+  @Get('export')
+  @RequirePermissions('MANAGE_EMPLOYEES')
+  async export(@Res() res: Response) {
+    const buffer = await this.employeesService.exportToExcel();
+    const filename = `employees-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    });
+    res.send(buffer);
   }
 
   // VIEW_EMPLOYEE_HISTORY, not MANAGE_EMPLOYEES — this single-employee

@@ -109,11 +109,26 @@ export class EmailService {
   // this only ever being visible as an ephemeral Render log line. Found in
   // the 2026-09-28 security audit.
   async sendMovementRecordEmail(input: SendMovementEmailInput): Promise<string> {
+    // Inline styles throughout, not a <style> block -- Outlook/Gmail strip
+    // or ignore <style> tags in transactional mail, so anything that must
+    // actually render (bold labels, the teal accent, spacing) has to be
+    // inline on each element. Found while improving the plain, unstyled
+    // <p>-only body (2026-09-28 formatting request).
     const html = `
-      <p>Hello ${escapeHtml(input.employeeName.split(' ')[0])},</p>
-      <p>As requested, please find attached your entry and exit records for ${escapeHtml(input.dateLabel)}.</p>
-      <p>This is an automatically generated record from the ${escapeHtml(input.senderName)}.</p>
-      <p>Regards,<br/>${escapeHtml(input.senderName)}</p>
+      <div style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1f2937; line-height: 1.6;">
+        <p>Hello ${escapeHtml(input.employeeName.split(' ')[0])},</p>
+        <p>As requested, please find attached the entry and exit records for
+          <strong>${escapeHtml(input.employeeName)}</strong> on
+          <strong>${escapeHtml(input.dateLabel)}</strong>.
+        </p>
+        <p style="margin: 20px 0; padding: 12px 16px; background: #f0f9fa; border-left: 3px solid #0d828b; color: #374151;">
+          This is an automatically generated record from the <strong>${escapeHtml(input.senderName)}</strong>.
+        </p>
+        <p style="margin-bottom: 0;">
+          Regards,<br/>
+          <strong>${escapeHtml(input.senderName)}</strong>
+        </p>
+      </div>
     `;
     const config = this.requireConfig();
     const primaryFrom = input.from ?? config.fromAddress;
@@ -153,11 +168,21 @@ export class EmailService {
   // ever called once a matching, active account has already been found.
   async sendPasswordResetEmail(input: SendPasswordResetEmailInput): Promise<void> {
     const html = `
-      <p>Hello ${escapeHtml(input.name.split(' ')[0])},</p>
-      <p>We received a request to reset your ${escapeHtml(input.senderName)} password. Click the link below to choose a new one:</p>
-      <p><a href="${escapeHtml(input.resetLink)}">${escapeHtml(input.resetLink)}</a></p>
-      <p>This link expires in 1 hour and can only be used once. If you didn't request this, you can safely ignore this email — your password hasn't been changed.</p>
-      <p>Regards,<br/>${escapeHtml(input.senderName)}</p>
+      <div style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1f2937; line-height: 1.6;">
+        <p>Hello ${escapeHtml(input.name.split(' ')[0])},</p>
+        <p>We received a request to reset your <strong>${escapeHtml(input.senderName)}</strong> password. Click the button below to choose a new one:</p>
+        <p style="margin: 20px 0;">
+          <a href="${escapeHtml(input.resetLink)}" style="display: inline-block; background: #0d828b; color: #ffffff; text-decoration: none; padding: 10px 20px; border-radius: 6px; font-weight: bold;">Reset Password</a>
+        </p>
+        <p style="color: #6b7280; font-size: 13px;">Or copy this link into your browser: <a href="${escapeHtml(input.resetLink)}">${escapeHtml(input.resetLink)}</a></p>
+        <p style="margin: 20px 0; padding: 12px 16px; background: #f0f9fa; border-left: 3px solid #0d828b; color: #374151;">
+          This link expires in <strong>1 hour</strong> and can only be used once. If you didn't request this, you can safely ignore this email — your password hasn't been changed.
+        </p>
+        <p style="margin-bottom: 0;">
+          Regards,<br/>
+          <strong>${escapeHtml(input.senderName)}</strong>
+        </p>
+      </div>
     `;
     const config = this.requireConfig();
     try {

@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import ExcelJS from 'exceljs';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../audit-logs/audit-log.service';
 import { CreateEmployeeDto, UpdateEmployeeDto } from './dto/employee.dto';
@@ -117,6 +118,46 @@ export class EmployeesService {
     ]);
 
     return { rows, total };
+  }
+
+  // Generates a fresh .xlsx of the full roster straight from the database,
+  // on demand — an alternative to hand-maintaining `backend/data/employees.csv`
+  // in sync with live edits made through this screen (Add/Edit/Deactivate).
+  // That file only ever gets read (by the one-off import script), never
+  // written back to from the running app, since the server's filesystem on
+  // Render is ephemeral and isn't the same copy as the one in git — trying
+  // to keep it "live" would mean committing to GitHub on every employee
+  // edit. This export is the safe equivalent: always-current, generated
+  // when actually needed, no ongoing sync to maintain. Includes inactive
+  // employees (with their status shown) so this can double as a full
+  // archive, not just the active roster. Found in the 2026-09-28 request.
+  async exportToExcel(): Promise<Buffer> {
+    const employees = await this.prisma.employee.findMany({ orderBy: { employeeName: 'asc' } });
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Employees');
+    sheet.columns = [
+      { header: 'Employee Code', key: 'employeeCode', width: 16 },
+      { header: 'Name', key: 'employeeName', width: 28 },
+      { header: 'Email', key: 'email', width: 32 },
+      { header: 'Car Number', key: 'carNumber', width: 16 },
+      { header: 'Status', key: 'status', width: 12 },
+    ];
+    sheet.getRow(1).font = { bold: true };
+    sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE6F4F5' } };
+
+    for (const emp of employees) {
+      sheet.addRow({
+        employeeCode: emp.employeeCode,
+        employeeName: emp.employeeName,
+        email: emp.email ?? '',
+        carNumber: emp.carNumber ?? '',
+        status: emp.isActive ? 'Active' : 'Inactive',
+      });
+    }
+
+    const arrayBuffer = await workbook.xlsx.writeBuffer();
+    return Buffer.from(arrayBuffer);
   }
 
   async findById(id: number) {

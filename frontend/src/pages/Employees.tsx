@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { Employee } from '../types';
-import { IconUsers, IconSearch, IconInbox, IconX, IconCheckCircle } from '../components/icons';
+import { IconUsers, IconSearch, IconInbox, IconX, IconCheckCircle, IconDownload } from '../components/icons';
 import { AdminNav } from '../components/AdminNav';
 import { TableSkeleton } from '../components/TableSkeleton';
 
@@ -19,6 +19,7 @@ export function Employees() {
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const editModalRef = useRef<HTMLDivElement>(null);
   const editFirstFieldRef = useRef<HTMLInputElement>(null);
   const loadSeqRef = useRef(0);
@@ -167,15 +168,49 @@ export function Employees() {
     }
   }
 
+  // The api client (frontend/src/api/client.ts) always parses JSON, so a
+  // binary .xlsx download needs its own fetch call rather than going
+  // through it — same reasoning as the PDF/PNG report downloads on the
+  // backend, just triggered from here instead of a direct link so the
+  // session cookie (credentials: 'include') is sent.
+  async function handleExport() {
+    setExporting(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/employees/export', { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to export employees.');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `employees-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err?.message ?? 'Failed to export employees.');
+    } finally {
+      setExporting(false);
+    }
+  }
+
   const hasMore = employees.length < total;
 
   return (
     <div className="page-wide">
       <AdminNav />
 
-      <div className="page-heading">
-        <IconUsers />
-        Employee Management
+      <div className="page-heading" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <IconUsers />
+          Employee Management
+        </span>
+        <button type="button" className="table-action-btn" onClick={handleExport} disabled={exporting} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {exporting && <span className="spinner" />}
+          <IconDownload style={{ width: 16, height: 16 }} />
+          {exporting ? 'Exporting…' : 'Export to Excel'}
+        </button>
       </div>
 
       <div className="section-card">

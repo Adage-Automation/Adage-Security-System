@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-09-28 (cont. 5) — Excel employee export; nicer-looking emails
+
+**Employee roster export** — new "Export to Excel" button on the Employees screen (`GET /employees/export`, `MANAGE_EMPLOYEES`) generates a `.xlsx` of the full roster (active + inactive, with status) straight from the database on demand. Answers "can UI edits (Add/Edit/Deactivate) update the CSV import file too?" — decided not to try to keep `employees.csv` live-synced (the backend's filesystem on Render is ephemeral, not the same copy as the git repo), and built this on-demand export instead. See `docs/decisions.md`.
+
+**Email formatting** — the "Employee Movement Record" and password-reset emails (`backend/src/email/email.service.ts`) were plain unstyled `<p>` tags despite already being sent as HTML. Both now bold the key facts (employee name/date, or the 1-hour expiry) and use a teal-accented callout box for the important line; the password-reset email also gets a proper button instead of a bare link. Inline styles throughout (not a `<style>` block, since Outlook/Gmail strip those in transactional mail).
+
 ## 2026-09-28 (cont. 4) — 3 new employees; fixed a real car-number data-loss bug; active-tab nav highlight
 
 **New employees added** (`backend/data/employees.csv`, re-imported): `55793` Aditya Ganpat Desai, `55794` Fati Rama Gawas, `55797` Manoj Gajanan Khedekar (no email yet).

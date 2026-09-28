@@ -26,6 +26,8 @@ These populate the `settings` table (Settings screen, or I can seed them directl
 
 **Email made optional** (2026-09-09): 54 of the 205 imported employees don't have a registered email yet — the schema, import script, and UI (Add Employee form, EMAIL DETAILS button) all handle this correctly now. **Still needed**: those 54 employees' email addresses, whenever available — update the roster CSV and re-run the import, or add them individually via the Employees screen. Until then, "EMAIL DETAILS" simply won't be available for those employees, with a clear inline explanation shown.
 
+**Exporting the current roster** (2026-09-28): an "Export to Excel" button on the Employees screen generates an always-up-to-date `.xlsx` of every employee (active and inactive) straight from the database, on demand — useful for archiving or sharing the current roster, or as a base to edit-and-reimport in bulk. The CSV import file itself is not automatically kept in sync with UI edits (Add/Edit/Deactivate) — see [decisions.md](./decisions.md#employee-roster-export-is-on-demand-xlsx-from-the-db-not-a-live-sync-back-to-the-csv) for why.
+
 ## 4. Real user accounts
 
 The seeded `admin`/`hr`/`security` logins (password `ChangeMe123!`) are for development only and must never be used in production. I need, for each real person who'll log in initially:
