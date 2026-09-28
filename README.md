@@ -22,7 +22,7 @@ Key principles carried through the whole design:
 - Duplicate-movement confirmation (e.g. pressing ENTRY when already marked inside)
 - Dashboard with date / employee / movement-type filters, daily summary stats, responsive table→card layout on mobile
 - Employee daily movement details, with on-demand **EMAIL DETAILS**; PNG/PDF report downloads remain authenticated API endpoints and are not exposed as UI buttons
-- Employee & user management, with inline edit, employee deactivation (soft, not delete), an optional car number field (searchable alongside name/code/email), and admin-only access to inactive employees for record corrections
+- Employee & user management, with inline edit, employee deactivation (soft, not delete), an optional car number field (searchable alongside name/code/email), admin-only access to inactive employees for record corrections, and an on-demand "Export to Excel" of the full roster
 - Configurable system settings (company name, timezone, sender name)
 - Multiple security units, each a shared login account — an emailed report is sent both from and CC'd to whichever account sent it
 - Full audit logging of logins, movements, corrections, emails, and admin actions

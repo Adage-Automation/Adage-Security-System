@@ -126,6 +126,23 @@ export function Settings() {
         </div>
       )}
 
+      {/* Every other admin screen (Employees, Users, Audit Log) shows a
+          skeleton while its data loads — this form fetched silently and
+          just left a blank card until it resolved, looking frozen on a
+          slow connection. Found in the 2026-09-28 admin-page audit.
+          TableSkeleton isn't a fit here (this is a field list, not a
+          table), so a small field-shaped placeholder is used instead. */}
+      {loading && (
+        <div className="section-card" aria-hidden="true">
+          {FIELDS.map((f) => (
+            <div className="field" key={f.key}>
+              <div className="skeleton skeleton-text" style={{ width: '30%', height: 12, marginBottom: 8 }} />
+              <div className="skeleton skeleton-text" style={{ width: '100%', height: 38 }} />
+            </div>
+          ))}
+        </div>
+      )}
+
       {!loading && (
         <form
           className="section-card"

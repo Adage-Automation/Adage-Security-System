@@ -96,6 +96,17 @@ export function SecurityHome() {
   const confirmDialogRef = useRef<HTMLDivElement>(null);
 
   const today = new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }).format(new Date());
+  // Ticks every second so the header shows the guard's actual current time,
+  // not just a snapshot from whenever this component last happened to
+  // re-render (2026-09-28 UX request). Display-only — never sent to the
+  // server or used for the recorded movementAt, which stays server-time
+  // (spec §20/§46).
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const interval = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+  const currentTime = new Intl.DateTimeFormat('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }).format(now);
 
   useEffect(() => {
     const goOnline = () => setIsOnline(true);
@@ -513,6 +524,9 @@ export function SecurityHome() {
       <div className="date-heading">
         <IconCalendar />
         {today}
+        <span className="date-heading-sep">·</span>
+        <IconClock />
+        {currentTime}
       </div>
 
       {!isEffectivelyOnline && (

@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-09-28 (cont. 7) — Admin-page usability pass: Users edit/reset-password/search, Settings skeleton, Corrections Enter-to-submit, test data cleared
+
+**Users screen** (`frontend/src/pages/Users.tsx`) — added Edit and Reset Password, both wired to backend endpoints (`PUT /users/:id`, `PATCH /users/:id/reset-password`) that already existed but had no UI at all; an admin previously had no way to fix a mistyped email, change a role, or reset a locked-out user's password through the app. Also added an email column to the table/cards and a client-side search box (name/username/email/role) — no backend search param needed given the small user count.
+
+**Settings screen** — added a loading skeleton matching every other admin screen instead of a blank flash while its fields load.
+
+**Corrections modal** (`frontend/src/pages/Corrections.tsx`) — was the one form in the app not wrapped in a `<form onSubmit>`, so pressing Enter after typing a correction reason did nothing; now behaves like every other modal in the app.
+
+**Considered and explicitly declined**: a "Delete user" option — real hard-delete would violate the foreign keys `movement_records` and `audit_logs` hold on `users` (recordedByUserId/correctedByUserId/userId), either failing outright or cascading away real movement/audit history. Disable remains the only removal action, same as Employee deactivation.
+
+**Test data cleared for launch** — new `backend/scripts/clear-test-data.ts` (`npm run clear:test-data -w backend`, requires `--confirm`, dry-run by default) deleted all movement records (86), email logs (27), and their related audit-log entries (140: `ENTRY_RECORDED`/`EXIT_RECORDED`/`RECORD_CORRECTED`/`MISSING_RECORD_ADDED`/`EMAIL_SENT`/`EMAIL_FAILED`/`REPORT_DOWNLOADED`) accumulated during testing, leaving all 208 employees and 5 user accounts untouched. S3/R2-stored report files for those deleted email logs are not removed — harmless orphaned objects, not a data-integrity concern.
+
+**Audit log wiped except today** — a follow-up request: after the above, 541 audit-log rows remained (logins, employee edits, settings changes, password resets — all deliberately outside the first cleanup's scope). Per explicit instruction, a one-off script deleted every row created before 2026-09-28 (IST calendar day), leaving 134 rows from today only. No other table touched.
+
+## 2026-09-28 (cont. 6) — Live clock on the Record Movement page
+
+The Record Movement page's date heading (`frontend/src/pages/SecurityHome.tsx`) now also shows a live-ticking current time next to the date, updating every second — previously date-only, and even the date was just a snapshot from whenever the component last re-rendered. Display-only (`global.css`'s `.date-heading` bumped up in size/weight for visibility); never sent to the server and has no effect on the recorded `movementAt`, which stays fully server-authoritative (spec §20/§46) — same principle as the offline-queue's `clientMovementAt`, which is trusted only on that one bounded path, never here.
+
 ## 2026-09-28 (cont. 5) — Excel employee export; nicer-looking emails
 
 **Employee roster export** — new "Export to Excel" button on the Employees screen (`GET /employees/export`, `MANAGE_EMPLOYEES`) generates a `.xlsx` of the full roster (active + inactive, with status) straight from the database on demand. Answers "can UI edits (Add/Edit/Deactivate) update the CSV import file too?" — decided not to try to keep `employees.csv` live-synced (the backend's filesystem on Render is ephemeral, not the same copy as the git repo), and built this on-demand export instead. See `docs/decisions.md`.

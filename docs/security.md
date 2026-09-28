@@ -28,7 +28,9 @@
 
 ## Audit trail
 
-Every sensitive action writes to `audit_logs` (see [database-schema.md](./database-schema.md#audit_logs) for the full action list): logins/logouts, every ENTRY/EXIT, every correction, every employee/user create-update-deactivate, every settings change, every email send attempt (success or failure). Audit rows are never deleted or edited by application code.
+Every sensitive action writes to `audit_logs` (see [database-schema.md](./database-schema.md#audit_logs) for the full action list): logins/logouts, every ENTRY/EXIT, every correction, every employee/user create-update-deactivate, every settings change, every email send attempt (success or failure). Audit rows are never deleted or edited by application code — the app itself has no delete/edit path for `audit_logs` at all.
+
+**Exception**: one-off maintenance scripts run directly against the database (outside the running app) have manually purged rows twice, both by explicit request and both logged in `CHANGELOG.md`: (1) 2026-09-28, clearing test-movement/email-related audit entries (`ENTRY_RECORDED`, `EXIT_RECORDED`, `RECORD_CORRECTED`, `MISSING_RECORD_ADDED`, `EMAIL_SENT`, `EMAIL_FAILED`, `REPORT_DOWNLOADED`) accumulated before real usage began; (2) immediately after, wiping every remaining row older than that same day per a follow-up request to start the audit log clean from 2026-09-28 onward. History before that date no longer exists in `audit_logs` for any action type. If this app is ever used somewhere audit history must be provably continuous (e.g. a compliance requirement), that constraint would need to be enforced going forward — nothing in the current design prevents a future one-off script from doing this again.
 
 Audit payloads are now compact and sanitized before they are written: the app strips sensitive fields such as passwords, tokens, session material, and raw request bodies, and it keeps only compact summaries for employee/user-shaped records where a full object is unnecessary. Audit records are intended for admin review and incident response; no automated retention purge is currently implemented in the app itself.
 

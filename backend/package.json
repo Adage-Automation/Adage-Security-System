@@ -16,7 +16,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "seed": "ts-node prisma/seed.ts",
-    "import:employees": "ts-node scripts/import-employees.ts"
+    "import:employees": "ts-node scripts/import-employees.ts",
+    "clear:test-data": "ts-node scripts/clear-test-data.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.658.1",

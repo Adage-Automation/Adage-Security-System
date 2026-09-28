@@ -8,6 +8,7 @@ Navigate to **Employees** (also available to HR, not Admin-only).
 
 - **Add employee**: fill in Employee Code (must be unique) and Name; Email and Car Number are optional — leave either blank if you don't have it yet, and use **Edit** on the same screen once you do. The email you enter is where their movement-record emails will be sent — double check it. An employee with no email on file simply can't be sent EMAIL DETAILS until one is added (shown clearly on their details page).
 - **Search**: the list is the full employee roster (200+ people), so use the search box (matches name, code, email, or car number) rather than scrolling — results load a page at a time with a **Load More** button.
+- **Export to Excel**: downloads a `.xlsx` of the full roster (active and inactive, with status shown) as it stands right now. Useful for archiving, sharing, or as a starting point to edit-and-reimport in bulk. This is a one-way snapshot, not a live-synced file — edits made here afterward won't retroactively change a file you already downloaded.
 - **Edit**: update an employee's name, optional email, or optional car number without changing the employee code.
 - **Deactivate**: marks an employee inactive instead of deleting them. They stop appearing in the Security search box, but every historical movement record stays fully intact and visible on the Dashboard. Use this when someone leaves the company — never delete an employee outright.
 - **Reactivate**: brings a deactivated employee back into the Security search box.
@@ -19,9 +20,11 @@ Deactivated employees still appear when correcting historical records (see below
 Navigate to **Users**.
 
 - **Add user**: Name, Email, Username, temporary Password, and Role (SECURITY / HR / ADMIN). The role determines what they can access: Security gets the recording workflow plus Dashboard; HR gets Dashboard plus Employees (no recording — HR lands on the Dashboard after login, not the recording screen); only Admin gets Users, Corrections, Audit Log, and Settings. Choose carefully — it's not just a label.
+- **Search**: filters the list by name, username, email, or role as you type.
+- **Edit**: change a user's name, email, or role after the fact — e.g. fixing a mistyped email or reassigning someone to a different role.
 - **Security units**: each security unit (gate/location) has one shared login account used by all guards at that unit — not one account per guard. That account's **Email** field is the unit's own address (e.g. `securityunit1@adage-automation.com`) and is used to both **send** and **CC** the account automatically whenever anyone logged into it sends "Email Details" — nothing to configure separately. The same applies to HR/Admin accounts, sending from and CC'ing their own login email too. Adding a new unit is just adding another shared account the same way — the new mailbox also needs adding to the Exchange access-policy scope group before its emails can actually send "as" it (until then, sends from that account fall back to a fixed address automatically, so nothing breaks — it just won't show the unit's own address as sender yet).
-- **Disable / Enable**: disabling a user immediately blocks login (even an existing open session is re-checked on the next request and will be logged out) — use this rather than deleting a user, since audit history references them.
-- **Reset password**: sets a new password for a user who's lost theirs. Users can also use the self-service **Forgot password?** link on the login screen; it sends a single-use reset link to the registered email address.
+- **Disable / Enable**: disabling a user immediately blocks login (even an existing open session is re-checked on the next request and will be logged out) — use this rather than deleting a user (there is no delete), since audit history and past movement records reference them permanently.
+- **Reset password**: sets a new password for a user directly — they are not notified, so share the new password with them yourself. Use this for a locked-out user who can't complete the self-service flow below. Users can also use the self-service **Forgot password?** link on the login screen; it sends a single-use reset link to the registered email address.
 
 ## Settings
 

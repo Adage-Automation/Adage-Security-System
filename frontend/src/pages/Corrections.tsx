@@ -364,37 +364,44 @@ export function Corrections() {
               {edit.mode === 'correct' ? 'Correct Movement Record' : 'Add Missing Record'}
               </span>
             </h3>
-            <div className="field">
-              <label>
-                Movement Type
-                <select value={edit.movementType} onChange={(e) => setEdit({ ...edit, movementType: e.target.value as MovementType })}>
-                  <option value="ENTRY">ENTRY</option>
-                  <option value="EXIT">EXIT</option>
-                </select>
-              </label>
-            </div>
-            <div className="field">
-              <label>
-                Time (on {date})<span className="required-mark"> *</span>
-                <input type="time" value={edit.time} onChange={(e) => setEdit({ ...edit, time: e.target.value })} required />
-              </label>
-            </div>
-            <div className="field">
-              <label>
-                Reason for correction (required, kept in audit log)
-                <input value={edit.reason} onChange={(e) => setEdit({ ...edit, reason: e.target.value })} placeholder="e.g. Guard recorded wrong type by mistake" />
-              </label>
-            </div>
-            {error && <div className="error-text">{error}</div>}
-            <div className="modal-actions">
-              <button ref={modalCloseRef} className="cancel-btn" onClick={() => setEdit(null)} disabled={saving}>
-                Cancel
-              </button>
-              <button className="confirm-btn" onClick={submitEdit} disabled={saving}>
-                {saving && <span className="spinner" />}
-                {saving ? 'Saving…' : 'Save'}
-              </button>
-            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void submitEdit();
+              }}
+            >
+              <div className="field">
+                <label>
+                  Movement Type
+                  <select value={edit.movementType} onChange={(e) => setEdit({ ...edit, movementType: e.target.value as MovementType })}>
+                    <option value="ENTRY">ENTRY</option>
+                    <option value="EXIT">EXIT</option>
+                  </select>
+                </label>
+              </div>
+              <div className="field">
+                <label>
+                  Time (on {date})<span className="required-mark"> *</span>
+                  <input type="time" value={edit.time} onChange={(e) => setEdit({ ...edit, time: e.target.value })} required />
+                </label>
+              </div>
+              <div className="field">
+                <label>
+                  Reason for correction (required, kept in audit log)
+                  <input value={edit.reason} onChange={(e) => setEdit({ ...edit, reason: e.target.value })} placeholder="e.g. Guard recorded wrong type by mistake" />
+                </label>
+              </div>
+              {error && <div className="error-text">{error}</div>}
+              <div className="modal-actions">
+                <button type="button" ref={modalCloseRef} className="cancel-btn" onClick={() => setEdit(null)} disabled={saving}>
+                  Cancel
+                </button>
+                <button type="submit" className="confirm-btn" disabled={saving}>
+                  {saving && <span className="spinner" />}
+                  {saving ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -285,17 +285,22 @@ svg {
   justify-content: center;
   gap: 8px;
   text-align: center;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-muted);
-  letter-spacing: 0.3px;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.2px;
   margin: 4px 0 24px;
 }
 
 .date-heading svg {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   color: var(--brand-light);
+}
+
+.date-heading-sep {
+  color: var(--border);
+  font-weight: 400;
 }
 
 .search-box {
