@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-09-28 (cont. 8) — Dashboard summary cards are now clickable (HR/Admin only)
+
+The four Dashboard summary cards (Total Employees, Total Entries, Total Exits, Currently Inside) now open a modal listing exactly who's counted in that number for the selected date, on click — reuses the existing `GET /movements?date=` endpoint (no new backend route). Restricted to HR and Admin (`frontend/src/pages/Dashboard.tsx`'s `canViewSummaryDetails`) — Security sees the cards as plain, non-interactive (same as before) even though it technically already has access to the same underlying data in the records table further down the same page; this is a deliberate UI simplification for the guard-facing view, not a data-access boundary, by explicit request.
+
+Self-audited before commit and fixed one real issue found: the modal's fetch had no guard against a slower response for an earlier-clicked card landing after a faster one for a card clicked right after it, which would show the wrong list — added the same monotonic-sequence guard used by every other debounced/async fetch in this app.
+
+Also fixed a stale doc: `docs/user-guide-hr.md` said the dashboard summary shows "three numbers" — it's actually four and has been since Currently Inside was added.
+
 ## 2026-09-28 (cont. 7) — Admin-page usability pass: Users edit/reset-password/search, Settings skeleton, Corrections Enter-to-submit, test data cleared
 
 **Users screen** (`frontend/src/pages/Users.tsx`) — added Edit and Reset Password, both wired to backend endpoints (`PUT /users/:id`, `PATCH /users/:id/reset-password`) that already existed but had no UI at all; an admin previously had no way to fix a mistyped email, change a role, or reset a locked-out user's password through the app. Also added an email column to the table/cards and a client-side search box (name/username/email/role) — no backend search param needed given the small user count.
@@ -13,6 +21,10 @@
 **Test data cleared for launch** — new `backend/scripts/clear-test-data.ts` (`npm run clear:test-data -w backend`, requires `--confirm`, dry-run by default) deleted all movement records (86), email logs (27), and their related audit-log entries (140: `ENTRY_RECORDED`/`EXIT_RECORDED`/`RECORD_CORRECTED`/`MISSING_RECORD_ADDED`/`EMAIL_SENT`/`EMAIL_FAILED`/`REPORT_DOWNLOADED`) accumulated during testing, leaving all 208 employees and 5 user accounts untouched. S3/R2-stored report files for those deleted email logs are not removed — harmless orphaned objects, not a data-integrity concern.
 
 **Audit log wiped except today** — a follow-up request: after the above, 541 audit-log rows remained (logins, employee edits, settings changes, password resets — all deliberately outside the first cleanup's scope). Per explicit instruction, a one-off script deleted every row created before 2026-09-28 (IST calendar day), leaving 134 rows from today only. No other table touched.
+
+**Audit log fully cleared** — a further follow-up request the same day: `audit_logs` emptied completely (`deleteMany({})`, 138 rows at the time — the 134 kept above plus 4 more from continued same-day activity). `audit_logs` now has 0 rows. No other table touched; see `docs/security.md`'s "Audit trail" section for the updated record of all three purges.
+
+**Full data-state check + remaining movements cleared** — a full row-count check across every table, at the user's request, surfaced two things: (1) `movement_records` had 2 fresh rows again (real taps recorded after the cleanup above); (2) `users` had dropped from 5 to 4 — rows for user IDs 3 and 4 no longer exist. The app has no delete path for users at all (hard-delete was explicitly declined earlier this session, see above). Both confirmed by the user as intentional — they deleted the 2 movement rows and the 2 user rows directly against the database themselves, outside the app and outside any script run in this session; not a lost account or a bug. Final confirmed state: 208 employees, 4 users (`admin`, `hr`, `securityunit1`, `securityunit2` — all active), 0 movement records, 0 email logs, 0 audit logs, settings/roles/permissions unchanged.
 
 ## 2026-09-28 (cont. 6) — Live clock on the Record Movement page
 

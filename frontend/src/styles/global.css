@@ -933,11 +933,28 @@ svg {
   border: 1px solid var(--border);
   box-shadow: var(--shadow-sm);
   transition: box-shadow 0.15s ease, transform 0.15s ease;
+  /* A clickable card renders as a <button> (HR/Admin) instead of a <div>
+     (Security) for real keyboard/screen-reader semantics — these reset the
+     browser's default button chrome so it looks identical either way. */
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  appearance: none;
 }
 
-.summary-card:hover {
+.summary-card.clickable {
+  cursor: pointer;
+}
+
+.summary-card.clickable:hover,
+.summary-card.clickable:focus-visible {
   box-shadow: var(--shadow-md);
   transform: translateY(-2px);
+}
+
+.summary-card.clickable:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
 }
 
 .summary-card svg {

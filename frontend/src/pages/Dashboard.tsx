@@ -7,9 +7,22 @@ import { AdminNav } from '../components/AdminNav';
 import { TableSkeleton } from '../components/TableSkeleton';
 import { OfflineBadge } from '../components/OfflineBadge';
 import { WelcomeBanner } from '../components/WelcomeBanner';
+import { useAuth } from '../auth/useAuth';
 import { todayIso, isoDaysAgo, formatTime } from '../utils/date';
 
+type SummaryCardKind = 'employees' | 'entries' | 'exits' | 'inside';
+
+// Who the summary cards' detail drill-down is for — Security already sees
+// the same underlying movement data in the table further down this same
+// page (both roles hold VIEW_DASHBOARD), so this isn't hiding data Security
+// couldn't otherwise reach; it's a deliberate UI restriction, by request
+// (2026-09-28), to keep the guard-facing view simpler.
+function canViewSummaryDetails(role: string | undefined): boolean {
+  return role === 'ADMIN' || role === 'HR';
+}
+
 export function Dashboard() {
+  const { user } = useAuth();
   const [date, setDate] = useState(todayIso());
   const [employeeQuery, setEmployeeQuery] = useState('');
   const [employeeResults, setEmployeeResults] = useState<Employee[]>([]);
@@ -28,7 +41,96 @@ export function Dashboard() {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const employeeSearchRef = useRef<HTMLDivElement>(null);
 
+  // Detail drill-down for a summary card — a fresh, unfiltered fetch for
+  // the selected date, independent of whatever employee/movement-type
+  // filter is currently applied to the table below. The summary counts
+  // themselves (from /dashboard/summary) are always for the whole day
+  // regardless of those filters, so the drill-down list must be too, or
+  // the modal's rows wouldn't add up to the number the user just clicked.
+  const [summaryModal, setSummaryModal] = useState<SummaryCardKind | null>(null);
+  const [summaryModalRecords, setSummaryModalRecords] = useState<MovementRecord[]>([]);
+  const [summaryModalLoading, setSummaryModalLoading] = useState(false);
+  const summaryModalCloseRef = useRef<HTMLButtonElement>(null);
+  const summaryModalRef = useRef<HTMLDivElement>(null);
+  // Guards against a slower response for an earlier-opened card landing
+  // after a faster response for one opened right after it, overwriting the
+  // modal with the wrong list — same monotonic-sequence pattern already
+  // used for every debounced search in this app (employee search, audit
+  // log, etc.). Found while self-reviewing this change before commit.
+  const summaryModalSeqRef = useRef(0);
+
   const isToday = date === todayIso();
+
+  function openSummaryModal(kind: SummaryCardKind) {
+    setSummaryModal(kind);
+    setSummaryModalLoading(true);
+    const seq = ++summaryModalSeqRef.current;
+    api
+      .get<MovementRecord[]>(`/movements?date=${date}`)
+      .then((res) => {
+        if (seq === summaryModalSeqRef.current) setSummaryModalRecords(res);
+      })
+      .catch(() => {
+        if (seq === summaryModalSeqRef.current) setSummaryModalRecords([]);
+      })
+      .finally(() => {
+        if (seq === summaryModalSeqRef.current) setSummaryModalLoading(false);
+      });
+  }
+
+  useEffect(() => {
+    if (summaryModal) summaryModalCloseRef.current?.focus();
+    if (!summaryModal) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSummaryModal(null);
+      if (event.key === 'Tab') {
+        const focusable = summaryModalRef.current?.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        );
+        if (!focusable?.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [summaryModal]);
+
+  // Same "last movement per employee" rule the backend's summaryForDate
+  // uses for currentlyInside — kept in sync deliberately rather than
+  // trusting the two to agree by coincidence.
+  function computeCurrentlyInside(records: MovementRecord[]): MovementRecord[] {
+    const lastByEmployee = new Map<number, MovementRecord>();
+    for (const r of [...records].sort((a, b) => new Date(a.movementAt).getTime() - new Date(b.movementAt).getTime())) {
+      lastByEmployee.set(r.employeeId, r);
+    }
+    return [...lastByEmployee.values()].filter((r) => r.movementType === 'ENTRY');
+  }
+
+  function uniqueEmployeesFromRecords(records: MovementRecord[]): MovementRecord[] {
+    const seen = new Set<number>();
+    const result: MovementRecord[] = [];
+    for (const r of records) {
+      if (seen.has(r.employeeId)) continue;
+      seen.add(r.employeeId);
+      result.push(r);
+    }
+    return result;
+  }
+
+  const summaryModalConfig: Record<SummaryCardKind, { title: string; rows: MovementRecord[]; showTime: boolean }> = {
+    employees: { title: 'Total Employees', rows: uniqueEmployeesFromRecords(summaryModalRecords), showTime: false },
+    entries: { title: 'Total Entries', rows: summaryModalRecords.filter((r) => r.movementType === 'ENTRY'), showTime: true },
+    exits: { title: 'Total Exits', rows: summaryModalRecords.filter((r) => r.movementType === 'EXIT'), showTime: true },
+    inside: { title: isToday ? 'Currently Inside' : 'Not Exited By End Of Day', rows: computeCurrentlyInside(summaryModalRecords), showTime: true },
+  };
 
   useEffect(() => {
     api
@@ -100,25 +202,106 @@ export function Dashboard() {
 
       {summary && (
         <div className="summary-cards summary-cards-4">
-          <div className="summary-card">
-            <IconUsers />
-            <div className="value">{summary.totalEmployees}</div>
-            <div className="label">Total Employees</div>
-          </div>
-          <div className="summary-card">
-            <IconEntry style={{ color: 'var(--entry-green)' }} />
-            <div className="value">{summary.totalEntries}</div>
-            <div className="label">Total Entries</div>
-          </div>
-          <div className="summary-card">
-            <IconExit style={{ color: 'var(--exit-red)' }} />
-            <div className="value">{summary.totalExits}</div>
-            <div className="label">Total Exits</div>
-          </div>
-          <div className="summary-card highlight">
-            <IconDoorOpen style={{ color: 'var(--brand)' }} />
-            <div className="value">{summary.currentlyInside}</div>
-            <div className="label">{isToday ? 'Currently Inside' : 'Not Exited By End Of Day'}</div>
+          {(
+            [
+              { kind: 'employees' as const, icon: <IconUsers />, value: summary.totalEmployees, label: 'Total Employees', highlight: false },
+              { kind: 'entries' as const, icon: <IconEntry style={{ color: 'var(--entry-green)' }} />, value: summary.totalEntries, label: 'Total Entries', highlight: false },
+              { kind: 'exits' as const, icon: <IconExit style={{ color: 'var(--exit-red)' }} />, value: summary.totalExits, label: 'Total Exits', highlight: false },
+              {
+                kind: 'inside' as const,
+                icon: <IconDoorOpen style={{ color: 'var(--brand)' }} />,
+                value: summary.currentlyInside,
+                label: isToday ? 'Currently Inside' : 'Not Exited By End Of Day',
+                highlight: true,
+              },
+            ]
+          ).map((card) =>
+            canViewSummaryDetails(user?.role) ? (
+              <button
+                key={card.kind}
+                type="button"
+                className={`summary-card clickable ${card.highlight ? 'highlight' : ''}`}
+                onClick={() => openSummaryModal(card.kind)}
+              >
+                {card.icon}
+                <div className="value">{card.value}</div>
+                <div className="label">{card.label}</div>
+              </button>
+            ) : (
+              <div key={card.kind} className={`summary-card ${card.highlight ? 'highlight' : ''}`}>
+                {card.icon}
+                <div className="value">{card.value}</div>
+                <div className="label">{card.label}</div>
+              </div>
+            ),
+          )}
+        </div>
+      )}
+
+      {summaryModal && (
+        <div className="modal-overlay" role="presentation">
+          <div
+            ref={summaryModalRef}
+            className="modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="summary-modal-title"
+            style={{ textAlign: 'left', maxWidth: 440, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}
+          >
+            <h3 id="summary-modal-title" style={{ marginTop: 0, textAlign: 'center' }}>
+              {summaryModalConfig[summaryModal].title}
+            </h3>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center', marginBottom: 12 }}>
+              {new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }).format(new Date(date))}
+            </div>
+
+            {summaryModalLoading && (
+              <div style={{ textAlign: 'center', padding: '24px 0' }}>
+                <span className="spinner dark" />
+              </div>
+            )}
+
+            {!summaryModalLoading && summaryModalConfig[summaryModal].rows.length === 0 && (
+              <div className="empty-state" style={{ padding: '16px 0' }}>
+                <IconInbox />
+                <div className="empty-title">Nobody here</div>
+              </div>
+            )}
+
+            {!summaryModalLoading && summaryModalConfig[summaryModal].rows.length > 0 && (
+              <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {summaryModalConfig[summaryModal].rows.map((r) => (
+                  <div
+                    key={r.id}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '8px 10px',
+                      borderRadius: 8,
+                      background: '#f4f7f6',
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 600 }}>{r.employee?.employeeName}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{r.employee?.employeeCode}</div>
+                    </div>
+                    {summaryModalConfig[summaryModal].showTime && (
+                      <span className={`movement-badge ${r.movementType}`} style={{ whiteSpace: 'nowrap' }}>
+                        {formatTime(r.movementAt)}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="modal-actions" style={{ marginTop: 16 }}>
+              <button ref={summaryModalCloseRef} type="button" className="cancel-btn" onClick={() => setSummaryModal(null)}>
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -16,7 +16,9 @@ This is your home screen. It shows historical entry/exit records for any date an
 
 ### Today's summary
 
-At the top you'll see three numbers for the selected date: total employees who moved, total entries, total exits. This is a count only — the system does **not** calculate working hours in the dashboard summary itself.
+At the top you'll see four numbers for the selected date: total employees who moved, total entries, total exits, and how many are currently inside (last movement was an ENTRY with no matching EXIT yet — for a past date this instead reads as "not exited by end of that day"). This is a count only — the system does **not** calculate working hours in the dashboard summary itself.
+
+**Tap any of these four cards** to see exactly who's counted in it — a list of names for that date. (This is HR/Admin only; Security doesn't get this drill-down, though the same information is always visible in the records table below regardless of role.)
 
 If you want the day's total working hours, open **View Employee Day** for that employee; the details page shows a **Total working hours** banner calculated from the first ENTRY to the last EXIT of the day (e.g. "7h 45m").
 
