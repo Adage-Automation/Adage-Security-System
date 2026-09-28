@@ -41,7 +41,9 @@ I can create these directly once you confirm the list, or an Admin can create th
 
 ✅ **Verified working end to end (2026-09-10)**: the Azure AD app is registered, admin consent for `Mail.Send` is granted, credentials are set in `backend/.env`, and a real "Email Details" send was confirmed delivered.
 
-**Still to do** (not blocking normal use): (1) run the Exchange Online application access policy restricting the app to just the sending mailbox — see [email-m365-admin-handoff.md](./email-m365-admin-handoff.md) step 5; (2) once a real `security@adage-automation.com` mailbox is created, swap `MAIL_FROM_ADDRESS` in `backend/.env` away from the current temporary stand-in (`shivani.naik@adage-automation.com`) to it, and re-run the access policy against the new mailbox; (3) **confirm `securityunit1@adage-automation.com` and `securityunit2@adage-automation.com` are real, existing mailboxes** — since 2026-09-25 they're used as literal CC recipients on outgoing report emails (see "Company & configuration data" above), not just internal config values, so mail to them will silently go nowhere if they don't actually exist yet.
+✅ **Confirmed 2026-09-28**: `securityunit1@adage-automation.com` and `securityunit2@adage-automation.com` — used as literal CC recipients on outgoing report emails since 2026-09-25 — are real, existing mailboxes. The CC side of email sending is fully live.
+
+**Still to do** (not blocking normal use): (1) run the Exchange Online application access policy restricting the app to just the sending mailbox — see [email-m365-admin-handoff.md](./email-m365-admin-handoff.md) step 5; (2) `security@adage-automation.com` (the *sending* mailbox, `MAIL_FROM_ADDRESS` — a separate address from the two CC mailboxes above) **still does not exist** as of 2026-09-28 — until it's created, `MAIL_FROM_ADDRESS` in `backend/.env` stays on the current temporary stand-in (`shivani.naik@adage-automation.com`); swap it and re-run the access policy against the new mailbox once it exists.
 
 ## 6. Storage (for emailed reports) — ✅ working
 

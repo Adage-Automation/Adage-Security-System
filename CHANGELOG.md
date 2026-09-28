@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-09-28 (cont.) — Reverted Sentry; both security-unit mailboxes confirmed real
+
+- **Reverted the Sentry error-tracking integration added 2026-09-25** — `@sentry/node` uninstalled, its `main.ts`/`AllExceptionsFilter` wiring removed, `SENTRY_DSN` removed from both `.env` files and all docs. The user decided against it rather than set up an account. "No error tracking beyond Render's log dashboard" is a known, accepted, open gap — not scheduled for another fix unless revisited. See `docs/decisions.md`.
+- **Confirmed `securityunit1@adage-automation.com` and `securityunit2@adage-automation.com` are real, existing mailboxes** — the CC side of the multi-unit email change (2026-09-25) is fully live. `security@adage-automation.com` (the separate *sending* mailbox, `MAIL_FROM_ADDRESS`) still does not exist — `MAIL_FROM_ADDRESS` stays on its temporary stand-in until it does.
+
+## 2026-09-28 — Confirmed the database-backup workflow is genuinely working
+
+Verified directly against Supabase Storage (not just green checkmarks in the Actions UI): `db-backups/` holds one correctly-sized (~70KB compressed) backup file per successful run, with no gaps, across three consecutive real scheduled runs (2026-09-25 through 2026-09-27) plus the manual runs during the 2026-09-25 fix session below. The workflow (`.github/workflows/db-backup.yml`) is done — no further action needed unless retention (currently 14 days) needs adjusting later.
+
 ## 2026-09-25 (cont. 5) — Fixed the database-backup workflow's first live run
 
 The backup workflow added earlier today failed on its first real run with
@@ -44,7 +53,7 @@ wasn't URI-shaped.
 
 Closed two of the open deployment risks flagged earlier today's audit, on explicit user confirmation:
 
-- **Added `.github/workflows/db-backup.yml`** — a daily `pg_dump` (direct/session connection, not the app's pooled one) gzip-compressed and uploaded to the same Supabase Storage bucket already used for emailed reports (`db-backups/` prefix), pruned to the last 14. Supabase's free tier has no automated backups/PITR at all — before this, there was genuinely no recovery path if the project were lost or corrupted. **Needs setup**: `BACKUP_DATABASE_URL` and the `STORAGE_*` values added as GitHub Actions repo secrets — see the workflow file's header comment.
+- **Added `.github/workflows/db-backup.yml`** — a daily `pg_dump` (session-mode connection, not the app's own transaction-mode pooled one) gzip-compressed and uploaded to the same Supabase Storage bucket already used for emailed reports (`db-backups/` prefix), pruned to the last 14. Supabase's free tier has no automated backups/PITR at all — before this, there was genuinely no recovery path if the project were lost or corrupted. **Needs setup**: `BACKUP_DATABASE_URL` and the `STORAGE_*` values added as GitHub Actions repo secrets — see the workflow file's header comment. (See the 2026-09-25 (cont. 5) entry and the 2026-09-28 entry, both above, for the real issues hit getting this working and confirmation it's now actually running.)
 - **Added `@sentry/node`** to the backend, initialized in `main.ts` only if `SENTRY_DSN` is set (unset = safe no-op, same pattern as every other optional config in this app). `AllExceptionsFilter` now reports every genuine 5xx to Sentry alongside its existing log line. No performance tracing (`tracesSampleRate: 0`) — error visibility only. **Needs setup**: a free Sentry account/DSN, set as `SENTRY_DSN` in Render's environment.
 
 See `docs/decisions.md`'s "Database backups: scheduled pg_dump via GitHub Actions, and backend error tracking via Sentry" entry.

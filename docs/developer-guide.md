@@ -144,7 +144,6 @@ Full reference lives in `backend/.env.example`. Never commit a real `.env`. Key 
 | `MAIL_FROM_ADDRESS` | Sending mailbox |
 | `STORAGE_*` | S3-compatible bucket for persisted emailed reports |
 | `FRONTEND_URL` | Used for CORS allow-list |
-| `SENTRY_DSN` | Optional — error tracking (2026-09-25). Unset is a safe no-op; a crash just isn't reported anywhere but logs until this is set |
 
 There is no CC-address env var or Settings key. With multiple security units (2026-09-25, each a shared login used by 2-3 guards), the CC on an emailed report is whichever account sent it — its own `User.email`, set per account on the Users screen. See [decisions.md](./decisions.md#security-cc-is-the-sending-accounts-own-email-not-a-global-setting).
 
