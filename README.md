@@ -24,7 +24,7 @@ Key principles carried through the whole design:
 - Employee daily movement details, with on-demand **EMAIL DETAILS**; PNG/PDF report downloads remain authenticated API endpoints and are not exposed as UI buttons
 - Employee & user management, with inline edit, employee deactivation (soft, not delete), an optional car number field (searchable alongside name/code/email), and admin-only access to inactive employees for record corrections
 - Configurable system settings (company name, timezone, sender name)
-- Multiple security units, each a shared login account — the CC on an emailed report is whichever unit's account sent it
+- Multiple security units, each a shared login account — an emailed report is sent both from and CC'd to whichever account sent it
 - Full audit logging of logins, movements, corrections, emails, and admin actions
 - Offline queueing: a movement tapped while offline is queued client-side and synced automatically once connectivity returns, always shown distinctly as "pending sync"
 - Installable PWA (manifest + service worker)
@@ -73,7 +73,7 @@ The seed script creates one ADMIN, one HR, and one SECURITY user (all with passw
 
 ## Environment Variables
 
-See `backend/.env.example` for the full list: `DATABASE_URL`, `SESSION_SECRET`, `APP_TIMEZONE`, `TZ` (set to `Asia/Kolkata` in the host/container runtime), `AZURE_TENANT_ID`/`AZURE_CLIENT_ID`/`AZURE_CLIENT_SECRET`/`MAIL_FROM_ADDRESS`, and `STORAGE_*` for the S3-compatible bucket used to persist emailed reports. Never commit a real `.env` file. There is no security-email env var or Settings key — with multiple security units, each a shared account login, the CC on an emailed report is whichever account sent it (see `docs/decisions.md`).
+See `backend/.env.example` for the full list: `DATABASE_URL`, `SESSION_SECRET`, `APP_TIMEZONE`, `TZ` (set to `Asia/Kolkata` in the host/container runtime), `AZURE_TENANT_ID`/`AZURE_CLIENT_ID`/`AZURE_CLIENT_SECRET`/`MAIL_FROM_ADDRESS` (a fixed fallback sender, not the only sender — see below), and `STORAGE_*` for the S3-compatible bucket used to persist emailed reports. Never commit a real `.env` file. There is no security-email env var or Settings key — with multiple security units, each a shared account login, an emailed report is sent both from and CC'd to whichever account sent it, falling back to `MAIL_FROM_ADDRESS` only if that fails (see `docs/decisions.md`).
 
 ## Local Development
 

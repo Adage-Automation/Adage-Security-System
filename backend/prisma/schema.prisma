@@ -179,6 +179,18 @@ model EmailLog {
   recipient        String
   cc               String?
   status           EmailStatus @default(PENDING)
+  // The mailbox actually used as the Graph API sender once the send
+  // resolves — not necessarily the same as `cc` above. `cc` is always the
+  // *intended* sending account; `senderAddress` records what actually
+  // happened, since EmailService silently falls back to the fixed
+  // MAIL_FROM_ADDRESS if that account's mailbox isn't yet covered by the
+  // Exchange application access policy (2026-09-28 dynamic-sender change).
+  // Null until the send succeeds or fails; a FAILED row's null value here
+  // just means neither attempt got far enough to know. Found in the
+  // 2026-09-28 security audit — the fallback firing was previously only
+  // ever a Render console log line, with no way to reconstruct after the
+  // fact which address a given email actually came from.
+  senderAddress    String?     @map("sender_address")
   // Persisted report file actually sent (S3/R2), so a dispute can be
   // resolved by re-serving exactly what was emailed — see decision log.
   reportFileUrl    String?     @map("report_file_url")

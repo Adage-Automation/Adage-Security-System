@@ -1,5 +1,34 @@
 # Changelog
 
+## 2026-09-28 (cont. 3) — Backend security audit + full desktop UI/UX audit
+
+Two focused passes run in parallel.
+
+**Security** — found and fixed two real issues, everything else checked out clean:
+- **`email_logs` had no persisted record of which mailbox actually sent an email.** `cc` stores the *intended* sending account, but when `EmailService`'s dynamic-from fallback fires (see the previous entry), the actual sender was only ever visible as an ephemeral Render log line. Added `email_logs.senderAddress` (migration `20260928120000_add_email_log_sender_address`); `EmailService.sendMovementRecordEmail` now returns the address it actually used instead of `Promise<void>`, and `ReportsService` persists it. Matters specifically because `email_logs` is the table this app already relies on for "prove what was actually sent" disputes.
+- **`EmployeesService.findAll`'s `take` had no upper bound** — the identical gap already fixed for `GET /audit-logs` (2026-09-25) was missed here. Capped at 200.
+- Checked and confirmed fine: no email header-injection surface (Graph's REST API takes structured JSON, not raw SMTP headers), `@IsEmail()` enforced on every path that sets a `User`/`Employee` email, cross-origin cookie/CORS setup (verified same-origin via Vercel's `/api/*` rewrite — `SameSite=Lax` is not a gap here), raw Prisma queries parameterized, secrets never committed, audit-log sanitization strips sensitive fields, `npm audit`'s 27 findings all unreachable in this app's actual usage (unused `multer`/dev-only build tooling).
+
+**UI/UX** — drove a real desktop browser (1280×800, Puppeteer) through every page as every role (Admin/Security/HR): Dashboard, Employees, Users, Corrections, Audit Log, Settings, EmployeeDetails, SecurityHome's full search→select→ENTRY/EXIT flow including a real duplicate-confirmation trigger. No genuine bugs found — zero console errors/warnings beyond benign pre-auth 401 probes. One design question surfaced (Admin lands on the recording screen after login, same as Security, rather than the Dashboard like HR) — confirmed intentional with the user, left as-is.
+
+New tests: `backend/src/reports/reports.service.spec.ts` (senderAddress persistence, including the differs-from-intended case), `backend/src/employees/employees.service.spec.ts` (take cap). All 87 backend tests pass.
+
+See `docs/decisions.md`'s "Backend security audit" entry for full detail.
+
+## 2026-09-28 (cont. 2) — Emails now send "from" the triggering account too, not just CC it
+
+Requested directly by the user, now that both security-unit mailboxes are confirmed real. Previously only the CC reflected which unit sent an email; the actual "From" header always showed the fixed `MAIL_FROM_ADDRESS` regardless of who sent it.
+
+- **`ReportsService.emailDailyRecord`** now passes the sending account's own login email as `from` (same value already used for `cc`) to `EmailService.sendMovementRecordEmail`.
+- **`EmailService`** uses it as the Graph API mailbox path (`POST /users/{from}/sendMail`). If that specific attempt fails, it **silently retries once with the fixed `MAIL_FROM_ADDRESS`** before giving up — per explicit instruction, the send must never fail just because one unit's mailbox isn't yet covered by the Exchange application access policy. `sendPasswordResetEmail` is unaffected — always sends from the fixed address, since that flow isn't triggered by a security-unit account acting on the desk's behalf.
+- **Two explicit decisions, not assumed**: (1) all roles — including HR/Admin — try to send from their own login email too, not just Security; (2) a failed dynamic-send falls back silently rather than surfacing an error, trading a small chance of an unnoticed misconfiguration for guaranteeing "Email Details" always works.
+- **Fallback address set to `shivani.naik@adage-automation.com`** (explicit instruction) — already the value in local `backend/.env`; `security@adage-automation.com` still doesn't exist yet.
+- **Operational follow-up needed**: the Exchange access-policy scope group must now cover *every* mailbox that could ever be a sender (the fixed fallback, both security units, every HR/Admin account) — not just one, as originally set up. See `docs/email-m365-admin-handoff.md`'s updated step 5.
+
+New tests in `backend/src/email/email.service.spec.ts` cover: sending from the dynamic address when Graph accepts it, falling back on rejection, throwing when both attempts fail, and the unaffected fixed-address-only path when no dynamic sender is given. All 84 backend tests pass.
+
+See `docs/decisions.md`'s "Dynamic email sender" entry for full rationale.
+
 ## 2026-09-28 (cont.) — Reverted Sentry; both security-unit mailboxes confirmed real
 
 - **Reverted the Sentry error-tracking integration added 2026-09-25** — `@sentry/node` uninstalled, its `main.ts`/`AllExceptionsFilter` wiring removed, `SENTRY_DSN` removed from both `.env` files and all docs. The user decided against it rather than set up an account. "No error tracking beyond Render's log dashboard" is a known, accepted, open gap — not scheduled for another fix unless revisited. See `docs/decisions.md`.

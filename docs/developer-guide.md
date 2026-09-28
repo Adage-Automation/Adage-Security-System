@@ -141,11 +141,11 @@ Full reference lives in `backend/.env.example`. Never commit a real `.env`. Key 
 | `APP_TIMEZONE` | Should stay `Asia/Kolkata`; also set the OS-level `TZ` on the backend process (see architecture doc's timezone note) |
 | `TZ` | Runtime environment variable for the backend process; set it to `Asia/Kolkata` in the container/host environment, not just in the app config |
 | `AZURE_TENANT_ID` / `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` | OAuth2 app registration for the Microsoft Graph API — Adage's Microsoft 365 tenant, see `docs/email-m365-admin-handoff.md` |
-| `MAIL_FROM_ADDRESS` | Sending mailbox |
+| `MAIL_FROM_ADDRESS` | Fixed fallback sending mailbox — **not** always the actual sender as of 2026-09-28, see below |
 | `STORAGE_*` | S3-compatible bucket for persisted emailed reports |
 | `FRONTEND_URL` | Used for CORS allow-list |
 
-There is no CC-address env var or Settings key. With multiple security units (2026-09-25, each a shared login used by 2-3 guards), the CC on an emailed report is whichever account sent it — its own `User.email`, set per account on the Users screen. See [decisions.md](./decisions.md#security-cc-is-the-sending-accounts-own-email-not-a-global-setting).
+There is no CC-address env var or Settings key. With multiple security units (2026-09-25, each a shared login used by 2-3 guards), an emailed report is both sent **from** and **CC'd to** whichever account sent it — its own `User.email`, set per account on the Users screen (2026-09-28 — previously only the CC used this, the "from" was always the fixed `MAIL_FROM_ADDRESS`). `MAIL_FROM_ADDRESS` is used only as a fallback: if Graph rejects the account's own mailbox as sender (most likely not yet in the Exchange access-policy scope group) or the account has no email on file, the send silently retries as the fixed address instead. See [decisions.md](./decisions.md#security-cc-is-the-sending-accounts-own-email-not-a-global-setting) and [decisions.md](./decisions.md#dynamic-email-sender-from-is-also-the-sending-accounts-own-email-not-just-cc).
 
 ## Where things live if you're debugging
 

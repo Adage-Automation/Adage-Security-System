@@ -98,7 +98,7 @@ Same body shape as above. Adds a brand-new record (no `correctionOf` link) for a
 |---|---|---|---|
 | GET | `/reports/image?employeeId=&date=` | `DOWNLOAD_REPORT` | Streams a freshly generated PNG, not persisted. API-only — no download button in the current UI (removed by design decision, 2026-09-03) |
 | GET | `/reports/pdf?employeeId=&date=` | `DOWNLOAD_REPORT` | Streams a freshly generated PDF, not persisted. API-only — same as above |
-| POST | `/reports/email?employeeId=&date=` | `SEND_EMAIL` | The **only** endpoint that ever sends an email. Persists the PNG to storage, sends via the Microsoft Graph API (Adage's Microsoft 365 tenant, OAuth2), writes an `email_logs` row. CCs the sending account's own login email (each security unit logs in with its own shared account, e.g. `securityunit1@adage-automation.com` — no separate CC setting) — omitted if the sending account has no email on file |
+| POST | `/reports/email?employeeId=&date=` | `SEND_EMAIL` | The **only** endpoint that ever sends an email. Persists the PNG to storage, sends via the Microsoft Graph API (Adage's Microsoft 365 tenant, OAuth2), writes an `email_logs` row. Sends **from and CCs** the sending account's own login email (each security unit logs in with its own shared account, e.g. `securityunit1@adage-automation.com` — no separate setting for either) — falls back to the fixed `MAIL_FROM_ADDRESS` with no CC if the sending account has no email on file, or if Graph rejects that mailbox as the sender (2026-09-28) |
 | GET | `/reports/email-logs?employeeId=` | `SEND_EMAIL` | Audit trail of send attempts |
 | GET | `/reports/email-logs/:id/download` | `SEND_EMAIL` | Returns a short-lived signed URL for the exact PNG previously attached to that email |
 

@@ -108,7 +108,10 @@ export class EmployeesService {
         where,
         orderBy: { employeeName: 'asc' },
         skip: params.skip ?? 0,
-        take: params.take ?? 50,
+        // Capped regardless of what the caller asks for — same gap already
+        // fixed for GET /audit-logs (2026-09-25), missed here. Found in
+        // the 2026-09-28 security audit.
+        take: Math.min(params.take ?? 50, 200),
       }),
       this.prisma.employee.count({ where }),
     ]);

@@ -72,17 +72,22 @@ export class ReportsService {
       throw new BadRequestException('Employee has no registered email address');
     }
 
-    // CC is the sending account's own login email, not a single global
-    // setting — Adage runs multiple security units (2026-09-25), each
-    // with its own shared login (e.g. securityunit1@adage-automation.com,
-    // used by several guards at that unit). Whichever account is logged
-    // in and triggers the send determines the CC. Accounts with no email
-    // on file (shouldn't happen — email is required at creation) simply
-    // send with no CC rather than a fallback address, matching how
-    // HR/Admin sends already behave (they hold SEND_EMAIL too but aren't
-    // tied to a unit).
+    // Both the CC and the "from" mailbox are the sending account's own
+    // login email, not a fixed setting — Adage runs multiple security
+    // units (2026-09-25), each with its own shared login (e.g.
+    // securityunit1@adage-automation.com, used by several guards at that
+    // unit). Whichever account is logged in and triggers the send
+    // determines both. Accounts with no email on file (shouldn't happen —
+    // email is required at creation) simply send with no CC and the fixed
+    // MAIL_FROM_ADDRESS, matching how HR/Admin sends already behave (they
+    // hold SEND_EMAIL too but aren't tied to a unit). If Graph rejects the
+    // dynamic "from" (most likely because that mailbox isn't yet in the
+    // Exchange access policy's scope group), EmailService silently retries
+    // as the fixed address rather than failing the send — see
+    // email.service.ts and docs/decisions.md. Found in the 2026-09-28
+    // dynamic-sender change.
     const requestedByUser = await this.prisma.user.findUnique({ where: { id: requestedByUserId }, select: { email: true } });
-    const securityEmail = requestedByUser?.email;
+    const sendingAccountEmail = requestedByUser?.email;
     const senderName = (await this.settings.get('EMAIL_SENDER_NAME')) ?? 'Adage Security System';
 
     // The PENDING row is created before PNG generation, not after — a
@@ -95,7 +100,7 @@ export class ReportsService {
         employeeId,
         movementDate: new Date(date),
         recipient: data.employee.email,
-        cc: securityEmail,
+        cc: sendingAccountEmail,
         status: 'PENDING',
         createdByUserId: requestedByUserId,
       },
@@ -114,9 +119,16 @@ export class ReportsService {
 
       await this.storage.uploadReport(storageKey, pngBuffer, 'image/png');
 
-      await this.email.sendMovementRecordEmail({
+      // The returned address is what actually sent it, which can differ
+      // from `sendingAccountEmail` (`cc`, the *intended* sender) if the
+      // dynamic "from" was rejected and EmailService silently fell back to
+      // the fixed MAIL_FROM_ADDRESS — persisted below so that fallback is
+      // visible after the fact, not just an ephemeral Render log line.
+      // Found in the 2026-09-28 security audit.
+      const actualSenderAddress = await this.email.sendMovementRecordEmail({
         to: data.employee.email,
-        cc: securityEmail,
+        cc: sendingAccountEmail,
+        from: sendingAccountEmail,
         employeeName: data.employee.employeeName,
         dateLabel: data.dateLabel,
         senderName,
@@ -130,6 +142,7 @@ export class ReportsService {
           sentAt: new Date(),
           reportFileUrl: storageKey,
           reportFileFormat: 'PNG',
+          senderAddress: actualSenderAddress,
         },
       });
 

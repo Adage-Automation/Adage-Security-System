@@ -65,7 +65,7 @@ Indexes: `(employeeId, movementAt)` composite (the hot path — "this employee's
 
 ## `email_logs`
 
-One row per **on-demand** email send attempt (never per movement — email is strictly on-demand throughout this system, see spec §29/§66 and `docs/architecture.md`'s key design decisions). `status` moves `PENDING → SENT` or `PENDING → FAILED` on any send failure, including a rejected Microsoft Graph send, not just a network-level exception — see `CHANGELOG.md`. `reportFileUrl` points at the S3-compatible object that was actually attached to the email, persisted specifically so a "I never got that email" dispute can be resolved by re-serving the exact file that was sent — see [decisions.md](./decisions.md#report-storage-persist-emailed-reports).
+One row per **on-demand** email send attempt (never per movement — email is strictly on-demand throughout this system, see spec §29/§66 and `docs/architecture.md`'s key design decisions). `status` moves `PENDING → SENT` or `PENDING → FAILED` on any send failure, including a rejected Microsoft Graph send, not just a network-level exception — see `CHANGELOG.md`. `reportFileUrl` points at the S3-compatible object that was actually attached to the email, persisted specifically so a "I never got that email" dispute can be resolved by re-serving the exact file that was sent — see [decisions.md](./decisions.md#report-storage-persist-emailed-reports). `cc` is the *intended* sending account's email; `senderAddress` (added 2026-09-28) is whichever mailbox actually ended up sending it, which can differ if the dynamic-from attempt was rejected and silently fell back to the fixed `MAIL_FROM_ADDRESS` — see [decisions.md](./decisions.md#backend-security-audit-2026-09-28-sender-address-audit-trail-unbounded-employee-list).
 
 ## `audit_logs`
 
@@ -73,7 +73,7 @@ Append-only trail of every sensitive action: `USER_LOGIN`, `USER_LOGOUT`, `ENTRY
 
 ## `settings`
 
-Plain key/value table (`key` is the primary key). Avoids hard-coding `COMPANY_NAME`, `TIMEZONE`, `EMAIL_SENDER_NAME` anywhere in application code. (No security-email key — with multiple security units, the CC on an emailed report is the sending account's own login email, not a global setting; see [decisions.md](./decisions.md#security-cc-is-the-sending-accounts-own-email-not-a-global-setting).)
+Plain key/value table (`key` is the primary key). Avoids hard-coding `COMPANY_NAME`, `TIMEZONE`, `EMAIL_SENDER_NAME` anywhere in application code. (No security-email key — with multiple security units, both the "from" and the CC on an emailed report are the sending account's own login email, not a global setting; see [decisions.md](./decisions.md#security-cc-is-the-sending-accounts-own-email-not-a-global-setting) and [decisions.md](./decisions.md#dynamic-email-sender-from-is-also-the-sending-accounts-own-email-not-just-cc).)
 
 ## `session` (created automatically)
 

@@ -41,9 +41,13 @@ I can create these directly once you confirm the list, or an Admin can create th
 
 ✅ **Verified working end to end (2026-09-10)**: the Azure AD app is registered, admin consent for `Mail.Send` is granted, credentials are set in `backend/.env`, and a real "Email Details" send was confirmed delivered.
 
-✅ **Confirmed 2026-09-28**: `securityunit1@adage-automation.com` and `securityunit2@adage-automation.com` — used as literal CC recipients on outgoing report emails since 2026-09-25 — are real, existing mailboxes. The CC side of email sending is fully live.
+✅ **Confirmed 2026-09-28**: `securityunit1@adage-automation.com` and `securityunit2@adage-automation.com` — used as literal CC recipients on outgoing report emails since 2026-09-25 — are real, existing mailboxes.
 
-**Still to do** (not blocking normal use): (1) run the Exchange Online application access policy restricting the app to just the sending mailbox — see [email-m365-admin-handoff.md](./email-m365-admin-handoff.md) step 5; (2) `security@adage-automation.com` (the *sending* mailbox, `MAIL_FROM_ADDRESS` — a separate address from the two CC mailboxes above) **still does not exist** as of 2026-09-28 — until it's created, `MAIL_FROM_ADDRESS` in `backend/.env` stays on the current temporary stand-in (`shivani.naik@adage-automation.com`); swap it and re-run the access policy against the new mailbox once it exists.
+**Updated (2026-09-28)**: emails now send **from** the triggering account's own login email too, not just CC it — a guard at Unit 1 sends as `securityunit1@`, a guard at Unit 2 as `securityunit2@`, falling back to the fixed `MAIL_FROM_ADDRESS` (currently `shivani.naik@adage-automation.com`, per explicit instruction) if that mailbox isn't yet covered by the Exchange access policy, or the sender is HR/Admin. See [decisions.md](./decisions.md#dynamic-email-sender-from-is-also-the-sending-accounts-own-email-not-just-cc).
+
+✅ **Confirmed 2026-09-28**: Render's production `MAIL_FROM_ADDRESS` matches local `backend/.env` (`shivani.naik@adage-automation.com`).
+
+**Still to do** (not blocking normal use): (1) run the Exchange Online application access policy — its scope group must now cover **every possible sender mailbox** (the fixed fallback, both security units, and every HR/Admin account), not just one — see [email-m365-admin-handoff.md](./email-m365-admin-handoff.md) step 5; (2) `security@adage-automation.com` (the long-term fixed fallback mailbox, `MAIL_FROM_ADDRESS`) **still does not exist** as of 2026-09-28 — until it's created, `MAIL_FROM_ADDRESS` stays on `shivani.naik@adage-automation.com`; swap it (both local `.env` and Render) and re-run the access policy against the new mailbox once it exists.
 
 ## 6. Storage (for emailed reports) — ✅ working
 

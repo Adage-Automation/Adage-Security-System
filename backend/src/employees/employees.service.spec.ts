@@ -48,6 +48,27 @@ describe('EmployeesService search', () => {
   });
 });
 
+// A caller could otherwise pass an arbitrarily large `take` and force one
+// huge query/response — same class of gap already fixed for GET
+// /audit-logs (2026-09-25), missed here. Found in the 2026-09-28 security
+// audit.
+describe('EmployeesService findAll — take cap', () => {
+  const prisma = { employee: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) } };
+  const service = new EmployeesService(prisma as any, {} as any);
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('caps take at 200 regardless of what the caller requests', async () => {
+    await service.findAll({ take: 999_999 });
+    expect(prisma.employee.findMany.mock.calls[0][0].take).toBe(200);
+  });
+
+  it('defaults take to 50 when not specified', async () => {
+    await service.findAll({});
+    expect(prisma.employee.findMany.mock.calls[0][0].take).toBe(50);
+  });
+});
+
 // Case-insensitive employeeCode/email collision checks — found in the
 // 2026-09-21 audit: the DB's uniqueness constraint on employeeCode is
 // case-sensitive while every search matches case-insensitively, so
