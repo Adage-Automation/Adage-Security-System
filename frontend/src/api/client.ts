@@ -23,6 +23,36 @@ export class ApiTimeoutError extends Error {
   }
 }
 
+// The backend only ever returns 401 from SessionAuthGuard ("Not
+// authenticated" — the session cookie is missing/expired) or the login
+// endpoint itself ("Invalid username or password"). Everywhere else, a 401
+// means a previously-valid session died mid-use (expired past its 12h
+// cookie lifetime, or was invalidated). Without this, every page's own
+// catch block just showed its own generic "Failed to ..." error — a HR
+// user whose session expired mid-form had no indication they needed to log
+// in again, and retrying just failed the same way forever. Found in the
+// 2026-10-05 HR-flow audit. `/auth/login` is excluded because Login.tsx
+// already turns its own 401 into "Invalid username or password" (redirecting
+// away would just replace that message with a blank login page). `/auth/me`
+// is excluded because AuthContext already handles its 401 by setting the
+// user to null, which every route's ProtectedRoute already reacts to with
+// its own in-app redirect — a hard reload here would also misfire on every
+// page load for a genuinely-never-logged-in visitor, not just an expired one.
+const SKIP_401_REDIRECT_PATHS = ['/auth/login', '/auth/me'];
+
+// Exported so the handful of callers that bypass `request()` entirely —
+// the binary file download/upload endpoints in Employees.tsx (export,
+// import template, import), which need raw `fetch` for blob/FormData
+// handling instead of this module's always-JSON wrapper — get the exact
+// same session-expiry redirect instead of silently missing it. Those
+// endpoints are never `/auth/login` or `/auth/me`, so this is always
+// correct to call unconditionally for them.
+export function redirectOnSessionExpired(status: number, path: string = ''): void {
+  if (status === 401 && !SKIP_401_REDIRECT_PATHS.includes(path.split('?')[0])) {
+    window.location.assign('/login');
+  }
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -63,6 +93,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     } catch {
       // ignore — no JSON body
     }
+    redirectOnSessionExpired(res.status, path);
     throw new ApiError(res.status, message);
   }
 

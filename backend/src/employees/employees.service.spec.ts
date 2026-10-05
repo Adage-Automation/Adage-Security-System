@@ -122,6 +122,49 @@ describe('EmployeesService create/update — case-insensitive uniqueness', () =>
     await expect(service.update(1, { email: 'same@example.com' } as any, 1)).resolves.toBeTruthy();
   });
 
+  // Prisma treats an `undefined` field as "not provided" and leaves the
+  // existing value alone — so a frontend that collapsed a blank Email/Car
+  // Number input to `undefined` on save looked like it worked (200 OK)
+  // but silently never cleared the field. `null` is the only value that
+  // actually clears it. Found in the 2026-10-05 Employees-page audit.
+  it('clears email and carNumber when the update sends null, not undefined', async () => {
+    prisma.employee.findUnique.mockResolvedValue({ id: 1, employeeCode: 'EMP001', employeeName: 'Someone' });
+    prisma.employee.update.mockResolvedValue({ id: 1 });
+
+    await service.update(1, { email: null, carNumber: null } as any, 1);
+
+    expect(prisma.employee.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { email: null, carNumber: null },
+    });
+    // Clearing isn't a duplicate — the uniqueness check must not run.
+    expect(prisma.employee.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('leaves email untouched when the field is omitted from the update entirely', async () => {
+    prisma.employee.findUnique.mockResolvedValue({ id: 1, employeeCode: 'EMP001', employeeName: 'Someone', email: 'old@example.com' });
+    prisma.employee.update.mockResolvedValue({ id: 1 });
+
+    await service.update(1, { employeeName: 'New Name' } as any, 1);
+
+    expect(prisma.employee.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { employeeName: 'New Name', email: undefined, carNumber: undefined },
+    });
+  });
+
+  it('treats a whitespace-only email/carNumber the same as an explicit clear', async () => {
+    prisma.employee.findUnique.mockResolvedValue({ id: 1, employeeCode: 'EMP001', employeeName: 'Someone' });
+    prisma.employee.update.mockResolvedValue({ id: 1 });
+
+    await service.update(1, { email: '   ', carNumber: '   ' } as any, 1);
+
+    expect(prisma.employee.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { email: null, carNumber: null },
+    });
+  });
+
   // Untrimmed whitespace would defeat the case-insensitive checks above —
   // "EMP001" and "EMP001 " aren't equal strings even though they look
   // identical to HR typing/pasting the code. Found in the 2026-10-05

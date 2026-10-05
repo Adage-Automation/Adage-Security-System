@@ -40,7 +40,7 @@ Body: `{ token: string, newPassword: string }` (`newPassword` min 8 characters).
 | POST | `/employees/import` | `MANAGE_EMPLOYEES` | Multipart upload, field name `file`, `.xlsx` only, 2MB limit (`FileInterceptor`, memory storage — never written to disk). Parses the sheet by header name (column order doesn't matter) and processes rows one at a time, reusing the exact same `create()` path (and its validation/duplicate-check/trim/audit-log) as `POST /employees` below — a bad row (missing code/name, invalid email, a code already taken) is recorded as skipped with a reason and the rest of the file still imports. Fully blank rows are ignored without being reported. Capped at 1000 data rows per upload. Returns `{ created: number, skipped: number, results: Array<{ row, employeeCode, employeeName, status: 'created' \| 'skipped', reason? }> }`. See `docs/decisions.md`. |
 | GET | `/employees/:id` | `VIEW_EMPLOYEE_HISTORY` | Single-employee lookup — intentionally not gated behind `MANAGE_EMPLOYEES`, since it backs the Employee Details page that Security/HR reach via the Dashboard even though they lack `MANAGE_EMPLOYEES` |
 | POST | `/employees` | `MANAGE_EMPLOYEES` | Body: `CreateEmployeeDto` |
-| PUT | `/employees/:id` | `MANAGE_EMPLOYEES` | Body: `UpdateEmployeeDto` |
+| PUT | `/employees/:id` | `MANAGE_EMPLOYEES` | Body: `UpdateEmployeeDto`. For `email`/`carNumber`: omit the key to leave the field untouched, send `null` (or a whitespace-only string) to clear it, send a value to set it. See `docs/decisions.md`. |
 | PATCH | `/employees/:id/deactivate` | `MANAGE_EMPLOYEES` | Soft — sets `isActive: false` |
 | PATCH | `/employees/:id/reactivate` | `MANAGE_EMPLOYEES` | |
 

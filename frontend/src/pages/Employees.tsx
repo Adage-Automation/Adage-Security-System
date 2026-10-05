@@ -1,9 +1,10 @@
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from 'react';
-import { api } from '../api/client';
+import { api, redirectOnSessionExpired } from '../api/client';
 import { Employee } from '../types';
 import { IconUsers, IconSearch, IconInbox, IconX, IconCheckCircle, IconDownload, IconUpload } from '../components/icons';
 import { AdminNav } from '../components/AdminNav';
 import { TableSkeleton } from '../components/TableSkeleton';
+import { BackToTop } from '../components/BackToTop';
 
 const PAGE_SIZE = 50;
 
@@ -36,6 +37,7 @@ export function Employees() {
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [togglingId, setTogglingId] = useState<number | null>(null);
   const editModalRef = useRef<HTMLDivElement>(null);
   const editFirstFieldRef = useRef<HTMLInputElement>(null);
   const importModalRef = useRef<HTMLDivElement>(null);
@@ -51,11 +53,22 @@ export function Employees() {
   // of scroll position, so there's never a "where do I type" moment.
   // Matches the same modal pattern already used by Corrections.tsx and the
   // ENTRY/EXIT duplicate-confirm dialog. Found in the 2026-09-21 UX pass.
+  // Dismissing the modal without saving (Cancel or Escape) used to leave a
+  // failed save's error message behind in `error` — closing the modal
+  // didn't clear it, so a duplicate-email rejection shown inside the modal
+  // would still be sitting there under the Add Employee form on the main
+  // page after Cancel, confusingly unrelated to anything the user was now
+  // looking at. Found in the 2026-10-05 Employees-page audit.
+  function closeEditModal() {
+    setEditing(null);
+    setError(null);
+  }
+
   useEffect(() => {
     if (editing) editFirstFieldRef.current?.focus();
     if (!editing) return;
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setEditing(null);
+      if (event.key === 'Escape') closeEditModal();
       if (event.key === 'Tab') {
         const focusable = editModalRef.current?.querySelectorAll<HTMLElement>(
           'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
@@ -166,7 +179,18 @@ export function Employees() {
       // Found in the 2026-09-21 UX pass.
       setSuccessMsg(`${created.employeeName} added successfully.`);
       setTimeout(() => setSuccessMsg(null), 4000);
-      load(true);
+      // If a search filter was active, the just-added employee likely
+      // doesn't match it — reloading with the filter still applied would
+      // show "added successfully" with the new row nowhere in the list,
+      // no visible reason why. Clear the filter so the new row is
+      // actually visible (the query-change effect below handles the
+      // reload in that case); otherwise reload directly. Found in the
+      // 2026-10-05 Add-Employee audit.
+      if (query) {
+        setQuery('');
+      } else {
+        load(true);
+      }
     } catch (err: any) {
       setError(err?.message ?? 'Failed to create employee.');
     } finally {
@@ -175,7 +199,15 @@ export function Employees() {
   }
 
   async function toggleActive(emp: Employee) {
+    // Without this, a quick double-click fired the PATCH twice before the
+    // first response updated the row's isActive in local state — same
+    // "Deactivate" label both times, so the second click also deactivated
+    // (idempotent, no data corruption) but wrote a second, redundant
+    // EMPLOYEE_DEACTIVATED audit-log entry for the exact same action.
+    // Found in the 2026-10-05 Employees-page audit.
+    if (togglingId === emp.id) return;
     const path = emp.isActive ? 'deactivate' : 'reactivate';
+    setTogglingId(emp.id);
     try {
       const updated = await api.patch<Employee>(`/employees/${emp.id}/${path}`);
       // Patch this one row in place rather than reloading from page 1 —
@@ -187,6 +219,8 @@ export function Employees() {
       setEmployees((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
     } catch (err: any) {
       setError(err?.message ?? `Failed to ${path} employee.`);
+    } finally {
+      setTogglingId(null);
     }
   }
 
@@ -203,8 +237,12 @@ export function Employees() {
     try {
       const updated = await api.put<Employee>(`/employees/${editing.id}`, {
         employeeName: editForm.employeeName.trim(),
-        email: editForm.email.trim() || undefined,
-        carNumber: editForm.carNumber.trim() || undefined,
+        // null (not undefined) when blank — the backend needs to tell
+        // "clear this field" apart from "field not sent," and `undefined`
+        // would silently leave the old value in place instead of clearing
+        // it. See EmployeesService.update.
+        email: editForm.email.trim() || null,
+        carNumber: editForm.carNumber.trim() || null,
       });
       // Same reasoning as toggleActive above — patch this one row instead
       // of reloading from page 1 and losing "Load More" progress.
@@ -225,7 +263,10 @@ export function Employees() {
     setError(null);
     try {
       const res = await fetch('/api/employees/export', { credentials: 'include' });
-      if (!res.ok) throw new Error('Failed to export employees.');
+      if (!res.ok) {
+        redirectOnSessionExpired(res.status);
+        throw new Error('Failed to export employees.');
+      }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -246,7 +287,10 @@ export function Employees() {
     setError(null);
     try {
       const res = await fetch('/api/employees/import-template', { credentials: 'include' });
-      if (!res.ok) throw new Error('Failed to download import template.');
+      if (!res.ok) {
+        redirectOnSessionExpired(res.status);
+        throw new Error('Failed to download import template.');
+      }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -272,7 +316,10 @@ export function Employees() {
       formData.append('file', file);
       const res = await fetch('/api/employees/import', { method: 'POST', credentials: 'include', body: formData });
       const body = await res.json();
-      if (!res.ok) throw new Error(body?.message ?? 'Import failed.');
+      if (!res.ok) {
+        redirectOnSessionExpired(res.status);
+        throw new Error(body?.message ?? 'Import failed.');
+      }
       setImportResult(body);
       // Only reload the roster when something actually changed — an
       // all-skipped import shouldn't reset "Load More" progress for nothing.
@@ -422,8 +469,8 @@ export function Employees() {
                     <button className="table-action-btn" onClick={() => startEditing(emp)} style={{ marginRight: 8 }}>
                       Edit
                     </button>
-                    <button className="table-action-btn" onClick={() => toggleActive(emp)}>
-                      {emp.isActive ? 'Deactivate' : 'Reactivate'}
+                    <button className="table-action-btn" onClick={() => toggleActive(emp)} disabled={togglingId === emp.id}>
+                      {togglingId === emp.id ? 'Working…' : emp.isActive ? 'Deactivate' : 'Reactivate'}
                     </button>
                   </td>
                 </tr>
@@ -451,8 +498,8 @@ export function Employees() {
                   <button className="table-action-btn" onClick={() => startEditing(emp)} style={{ flex: 1 }}>
                     Edit
                   </button>
-                  <button className="table-action-btn" onClick={() => toggleActive(emp)} style={{ flex: 1 }}>
-                    {emp.isActive ? 'Deactivate' : 'Reactivate'}
+                  <button className="table-action-btn" onClick={() => toggleActive(emp)} disabled={togglingId === emp.id} style={{ flex: 1 }}>
+                    {togglingId === emp.id ? 'Working…' : emp.isActive ? 'Deactivate' : 'Reactivate'}
                   </button>
                 </div>
               </div>
@@ -519,7 +566,7 @@ export function Employees() {
               </div>
               {error && <div className="error-text">{error}</div>}
               <div className="modal-actions">
-                <button type="button" className="cancel-btn" onClick={() => setEditing(null)}>
+                <button type="button" className="cancel-btn" onClick={closeEditModal}>
                   Cancel
                 </button>
                 <button type="submit" className="confirm-btn">
@@ -572,6 +619,8 @@ export function Employees() {
           </div>
         </div>
       )}
+
+      <BackToTop />
     </div>
   );
 }

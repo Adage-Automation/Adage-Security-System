@@ -1,5 +1,37 @@
 # Changelog
 
+## 2026-10-05 (cont. 7) — Add Employee directly: a new employee could vanish behind an active search filter
+
+Asked specifically to re-check adding a new employee directly (not via import). Backend `create()` was already solid (trims input, case-insensitive duplicate check, audit log — confirmed again). Found one real frontend gap: if HR had an active search filter in the box (e.g. reviewing employees matching "John") and added a brand-new employee who doesn't match that filter (e.g. "Priya"), the success message said "Priya added successfully" but the reloaded list stayed filtered to "John" — Priya was nowhere in the list, with no visible explanation why. Fixed: a successful add now clears the search filter if one was active, so the new employee is actually visible in the reloaded list.
+
+## 2026-10-05 (cont. 6) — Edit/Deactivate audit: clearing Email/Car Number never actually worked, plus two smaller UI fixes
+
+Asked specifically to check Edit and Deactivate on the Employees page for bugs. Found a real one: clearing the Email or Car Number field in the Edit modal and clicking Save returned `200 OK` with no error, but silently had **no effect** — the old value stayed in the database. Root cause: the frontend collapsed a blank input to `undefined` (to avoid the backend's `@IsEmail()` rejecting an empty string), and `EmployeesService.update` then passed that `undefined` straight into Prisma's `data`, which Prisma treats as "field not provided, leave it alone" — exactly the opposite of what "I cleared this field and hit Save" means. Fixed by having `UpdateEmployeeDto.email`/`carNumber` accept `string | null`, with `null` now meaning "clear it" and the key being omitted meaning "leave it alone"; the Edit form sends `null` (not `undefined`) when blank. See `docs/decisions.md`.
+
+Two smaller fixes found in the same pass:
+- **Stale error bleed**: closing the Edit modal via Cancel or Escape after a failed save (e.g. a duplicate-email rejection) didn't clear the error message — it kept showing under the Add Employee form on the main page after the modal closed, with no visible connection to what caused it. Both close paths now clear it.
+- **Double-click audit noise**: clicking Deactivate/Reactivate twice quickly (before the first request's response updated the row) fired the PATCH twice — harmless to the data (idempotent) but wrote a redundant audit-log entry for the same action. The button now disables itself (shows "Working…") for that row while its own request is in flight.
+
+3 new backend tests (employees module now 27/27) — 99/99 backend and 21/21 frontend tests pass; both builds clean.
+
+## 2026-10-05 (cont. 5) — Back-to-top button on Employees
+
+With 200+ employees and "Load More" pagination, scrolling through a large result and then needing to get back to the search/filter bar meant a long manual scroll back up. Added a floating "Back to top" button (`frontend/src/components/BackToTop.tsx`) that appears once scrolled down ~400px and smooth-scrolls to the top on click — a small, reusable component, not Employees-specific, so any other page that grows long enough can use it the same way.
+
+## 2026-10-05 (cont. 4) — Session-expiry redirect: closed the same gap for Export/Import and confirmed it covers every role
+
+Follow-up to the previous entry, after being asked to re-check the session-expiry fix across all roles: the fix in `request()` covers every page for every role (Security, HR, Admin) since there's only one shared API client — but three raw-`fetch` calls in `Employees.tsx` (`/employees/export`, `/employees/import-template`, `/employees/import`, used by HR and Admin) bypass `request()` entirely for blob/FormData handling, so they'd quietly missed the fix. Exported `redirectOnSessionExpired` from `client.ts` for `request()` and these three call sites to share, rather than duplicating the redirect logic. 3 new tests for the exported helper (21/21 frontend tests total).
+
+Also made explicit (with a comment, not a behavior change) why `frontend/src/offline/employeeCache.ts`'s background roster-refresh poll is deliberately excluded: it's a silent background sync for Security's offline search fallback, not a user-initiated action, and forcing a redirect there would yank a guard away from a mid-tap recording screen over a background refresh failure rather than their own actual action.
+
+## 2026-10-05 (cont. 3) — Full HR-flow audit: session expiry now redirects to login instead of failing silently
+
+Audited the entire HR-visible flow end to end (login → Dashboard → Employees → logout) for errors, crashes, and edge cases. Found one real gap: `frontend/src/api/client.ts` had no handling at all for a `401` response outside of login/the initial session check — if a user's 12-hour session cookie expired while they had a page open (mid Add-Employee form, mid bulk import, Dashboard left open overnight), every subsequent action just showed that page's own generic "Failed to ..." error, with no indication the real cause was an expired session, and no way out except manually navigating back to `/login`.
+
+Fixed at the shared `request()` function every API call already goes through: a 401 from any endpoint other than `/auth/login` (which needs its own "Invalid username or password" message) or `/auth/me` (already handled by `AuthContext`/`ProtectedRoute`) now redirects the page to `/login`. See `docs/decisions.md`. 4 new tests in a new `frontend/src/api/client.spec.ts` (redirects on an ordinary 401, doesn't redirect on `/auth/login` or `/auth/me`, doesn't redirect on a non-401 error) — 18/18 frontend tests and 96/96 backend tests pass, both builds clean.
+
+Everything else checked in this pass (routing/nav visibility per role, Dashboard filters and summary-card drill-down, Employees CRUD/export/import, EmployeeDetails email flow, modal focus-trap/Escape behavior, malformed-date handling) was already correct — the backend's existing `dayRange()` validation (`docs/decisions.md`) already turns a cleared/invalid date filter into a clean `400` before it can reach any client-side `Intl.DateTimeFormat` call, so that particular crash risk I suspected doesn't actually reach the frontend.
+
 ## 2026-10-05 (cont. 2) — Bulk employee import from Excel
 
 HR can now add several new joiners at once instead of one-by-one. Two new `MANAGE_EMPLOYEES` endpoints on `EmployeesController`: `GET /employees/import-template` (a blank, headers-only `.xlsx` — Employee Code, Name, Email, Car Number — plus a separate "Instructions" sheet with the format and one reference example row that lives off the data sheet so it can never accidentally get imported as a real employee) and `POST /employees/import` (multipart upload via `FileInterceptor`, 2MB cap).

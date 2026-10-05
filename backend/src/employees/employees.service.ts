@@ -295,7 +295,7 @@ export class EmployeesService {
   // surfacing together in every search and making report filenames/emails
   // ambiguous. Checked case-insensitively here so the DB constraint is
   // never actually relied on to catch this. Found in the 2026-09-21 audit.
-  private async assertCodeAndEmailAvailable(employeeCode: string, email: string | undefined, excludingId?: number) {
+  private async assertCodeAndEmailAvailable(employeeCode: string, email: string | null | undefined, excludingId?: number) {
     const codeClash = await this.prisma.employee.findFirst({
       where: { employeeCode: { equals: employeeCode, mode: 'insensitive' }, ...(excludingId ? { id: { not: excludingId } } : {}) },
     });
@@ -343,11 +343,21 @@ export class EmployeesService {
 
   async update(id: number, dto: UpdateEmployeeDto, actingUserId: number) {
     const before = await this.findById(id);
+    // `undefined` (key omitted) means "leave this field alone" — Prisma
+    // drops undefined keys from the update entirely, so they're passed
+    // through as-is. `null` (explicitly sent by the Edit form when the
+    // user clears the field) means "clear it," and a non-null string gets
+    // trimmed, collapsing to `null` too if it's blank after trimming
+    // (whitespace-only input isn't meaningfully different from "cleared").
+    // Previously both cases collapsed to `undefined`, so clearing the
+    // Email or Car Number field in the Edit modal silently had no effect —
+    // the request succeeded but the old value stayed in the database.
+    // Found in the 2026-10-05 Employees-page audit.
     const data = {
       ...dto,
       employeeName: dto.employeeName?.trim(),
-      email: dto.email?.trim() || undefined,
-      carNumber: dto.carNumber?.trim() || undefined,
+      email: dto.email === undefined ? undefined : dto.email?.trim() || null,
+      carNumber: dto.carNumber === undefined ? undefined : dto.carNumber?.trim() || null,
     };
     if (data.email) {
       await this.assertCodeAndEmailAvailable(before.employeeCode, data.email, id);

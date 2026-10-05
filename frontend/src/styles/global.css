@@ -1435,3 +1435,31 @@ table.records-table th {
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+.back-to-top-btn {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: var(--brand);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-lg);
+  cursor: pointer;
+  z-index: 40;
+  animation: fadeIn 0.15s ease;
+}
+
+.back-to-top-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+.back-to-top-btn:hover {
+  background: var(--brand-dark);
+}

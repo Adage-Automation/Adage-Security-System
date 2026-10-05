@@ -25,6 +25,15 @@ function readCache(): CachedRoster | null {
 }
 
 export async function refreshEmployeeCache(): Promise<void> {
+  // Deliberately does NOT use api/client.ts's redirectOnSessionExpired for
+  // a 401 here (unlike every other authenticated call, including the
+  // similar raw-fetch downloads in Employees.tsx) — this is a silent
+  // background poll, not a user-initiated action. Yanking a guard away
+  // from a mid-tap recording screen into a forced /login redirect because
+  // a background cache refresh happened to 401 would be actively harmful;
+  // the guard's own next real action (an ENTRY/EXIT tap) will correctly
+  // trigger the redirect through the normal api client if their session
+  // has genuinely expired. Confirmed deliberate in the 2026-10-05 audit.
   const res = await fetch('/api/employees/offline-cache', { credentials: 'include' });
   if (!res.ok) return;
   const employees = (await res.json()) as Employee[];
