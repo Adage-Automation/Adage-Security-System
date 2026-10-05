@@ -26,7 +26,9 @@ These populate the `settings` table (Settings screen, or I can seed them directl
 
 **Email made optional** (2026-09-09): 54 of the 205 imported employees don't have a registered email yet — the schema, import script, and UI (Add Employee form, EMAIL DETAILS button) all handle this correctly now. **Still needed**: those 54 employees' email addresses, whenever available — update the roster CSV and re-run the import, or add them individually via the Employees screen. Until then, "EMAIL DETAILS" simply won't be available for those employees, with a clear inline explanation shown.
 
-**Exporting the current roster** (2026-09-28): an "Export to Excel" button on the Employees screen generates an always-up-to-date `.xlsx` of every employee (active and inactive) straight from the database, on demand — useful for archiving or sharing the current roster, or as a base to edit-and-reimport in bulk. The CSV import file itself is not automatically kept in sync with UI edits (Add/Edit/Deactivate) — see [decisions.md](./decisions.md#employee-roster-export-is-on-demand-xlsx-from-the-db-not-a-live-sync-back-to-the-csv) for why.
+**Exporting the current roster** (2026-09-28): an "Export to Excel" button on the Employees screen generates an always-up-to-date `.xlsx` of every employee (active and inactive) straight from the database, on demand — useful for archiving or sharing the current roster. The CSV import file itself is not automatically kept in sync with UI edits (Add/Edit/Deactivate) — see [decisions.md](./decisions.md#employee-roster-export-is-on-demand-xlsx-from-the-db-not-a-live-sync-back-to-the-csv) for why.
+
+**Bulk-adding new joiners** (2026-10-05): a separate "Download Import Template"/"Import from Excel" pair on the same screen lets HR/Admin add several new employees at once instead of one-by-one through the Add Employee form — see [decisions.md](./decisions.md#bulk-employee-import-is-row-by-row-with-a-per-row-result-not-all-or-nothing). This is distinct from the roster export above (which lists *existing* employees) and from the command-line CSV import script (an admin/ops tool, not a screen feature).
 
 ## 4. Real user accounts
 

@@ -1,11 +1,25 @@
-import { FormEvent, useEffect, useRef, useState } from 'react';
+import { ChangeEvent, FormEvent, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { Employee } from '../types';
-import { IconUsers, IconSearch, IconInbox, IconX, IconCheckCircle, IconDownload } from '../components/icons';
+import { IconUsers, IconSearch, IconInbox, IconX, IconCheckCircle, IconDownload, IconUpload } from '../components/icons';
 import { AdminNav } from '../components/AdminNav';
 import { TableSkeleton } from '../components/TableSkeleton';
 
 const PAGE_SIZE = 50;
+
+interface ImportRowResult {
+  row: number;
+  employeeCode: string;
+  employeeName: string;
+  status: 'created' | 'skipped';
+  reason?: string;
+}
+
+interface ImportResult {
+  created: number;
+  skipped: number;
+  results: ImportRowResult[];
+}
 
 export function Employees() {
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -20,8 +34,13 @@ export function Employees() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const editModalRef = useRef<HTMLDivElement>(null);
   const editFirstFieldRef = useRef<HTMLInputElement>(null);
+  const importModalRef = useRef<HTMLDivElement>(null);
+  const importModalCloseRef = useRef<HTMLButtonElement>(null);
+  const importFileInputRef = useRef<HTMLInputElement>(null);
   const loadSeqRef = useRef(0);
 
   // The edit form used to render inline at the top of the page, above the
@@ -56,6 +75,33 @@ export function Employees() {
     document.addEventListener('keydown', closeOnEscape);
     return () => document.removeEventListener('keydown', closeOnEscape);
   }, [editing]);
+
+  // Same modal-focus pattern as the edit modal above, for the import
+  // results summary.
+  useEffect(() => {
+    if (importResult) importModalCloseRef.current?.focus();
+    if (!importResult) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setImportResult(null);
+      if (event.key === 'Tab') {
+        const focusable = importModalRef.current?.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        );
+        if (!focusable?.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [importResult]);
 
   function load(reset: boolean) {
     setLoading(true);
@@ -106,7 +152,8 @@ export function Employees() {
       // string outright (only @IsOptional() skips undefined/null), so a
       // blank field must be omitted from the payload, not sent as "".
       const created = await api.post<Employee>('/employees', {
-        ...form,
+        employeeCode: form.employeeCode.trim(),
+        employeeName: form.employeeName.trim(),
         email: form.email.trim() || undefined,
         carNumber: form.carNumber.trim() || undefined,
       });
@@ -195,6 +242,48 @@ export function Employees() {
     }
   }
 
+  async function handleDownloadTemplate() {
+    setError(null);
+    try {
+      const res = await fetch('/api/employees/import-template', { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to download import template.');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'employee-import-template.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err?.message ?? 'Failed to download import template.');
+    }
+  }
+
+  async function handleImportFile(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same filename after fixing it
+    if (!file) return;
+    setImporting(true);
+    setError(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/employees/import', { method: 'POST', credentials: 'include', body: formData });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body?.message ?? 'Import failed.');
+      setImportResult(body);
+      // Only reload the roster when something actually changed — an
+      // all-skipped import shouldn't reset "Load More" progress for nothing.
+      if (body.created > 0) load(true);
+    } catch (err: any) {
+      setError(err?.message ?? 'Failed to import employees.');
+    } finally {
+      setImporting(false);
+    }
+  }
+
   const hasMore = employees.length < total;
 
   return (
@@ -206,11 +295,35 @@ export function Employees() {
           <IconUsers />
           Employee Management
         </span>
-        <button type="button" className="table-action-btn" onClick={handleExport} disabled={exporting} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          {exporting && <span className="spinner" />}
-          <IconDownload style={{ width: 16, height: 16 }} />
-          {exporting ? 'Exporting…' : 'Export to Excel'}
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button type="button" className="table-action-btn" onClick={handleDownloadTemplate} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <IconDownload style={{ width: 16, height: 16 }} />
+            Download Import Template
+          </button>
+          <button
+            type="button"
+            className="table-action-btn"
+            onClick={() => importFileInputRef.current?.click()}
+            disabled={importing}
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            {importing && <span className="spinner" />}
+            <IconUpload style={{ width: 16, height: 16 }} />
+            {importing ? 'Importing…' : 'Import from Excel'}
+          </button>
+          <input
+            ref={importFileInputRef}
+            type="file"
+            accept=".xlsx"
+            onChange={handleImportFile}
+            style={{ display: 'none' }}
+          />
+          <button type="button" className="table-action-btn" onClick={handleExport} disabled={exporting} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {exporting && <span className="spinner" />}
+            <IconDownload style={{ width: 16, height: 16 }} />
+            {exporting ? 'Exporting…' : 'Export to Excel'}
+          </button>
+        </div>
       </div>
 
       <div className="section-card">
@@ -219,7 +332,7 @@ export function Employees() {
           <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
             <label>
               Employee Code<span className="required-mark"> *</span>
-              <input value={form.employeeCode} onChange={(e) => setForm({ ...form, employeeCode: e.target.value })} required />
+              <input value={form.employeeCode} onChange={(e) => setForm({ ...form, employeeCode: e.target.value })} placeholder="Must be unique, e.g. EMP206" required />
             </label>
           </div>
           <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
@@ -414,6 +527,48 @@ export function Employees() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {importResult && (
+        <div className="modal-overlay" role="presentation">
+          <div
+            ref={importModalRef}
+            className="modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="import-result-title"
+            style={{ textAlign: 'left', maxWidth: 520, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}
+          >
+            <h3 id="import-result-title" style={{ marginTop: 0, textAlign: 'center' }}>
+              Import complete
+            </h3>
+            <div className={`status-banner ${importResult.skipped > 0 ? 'pending' : 'success'}`} style={{ marginBottom: 12 }} role="status" aria-live="polite">
+              {importResult.created > 0 && <IconCheckCircle />}
+              {importResult.created} added, {importResult.skipped} skipped.
+            </div>
+
+            {importResult.skipped > 0 && (
+              <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {importResult.results
+                  .filter((r) => r.status === 'skipped')
+                  .map((r) => (
+                    <div key={r.row} style={{ padding: '8px 10px', borderRadius: 8, background: '#f4f7f6' }}>
+                      <div style={{ fontWeight: 600 }}>
+                        Row {r.row}: {r.employeeCode || '(blank)'} {r.employeeName && `· ${r.employeeName}`}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{r.reason}</div>
+                    </div>
+                  ))}
+              </div>
+            )}
+
+            <div className="modal-actions" style={{ marginTop: 16 }}>
+              <button ref={importModalCloseRef} type="button" className="cancel-btn" onClick={() => setImportResult(null)}>
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

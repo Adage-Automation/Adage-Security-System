@@ -1,4 +1,6 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { Response } from 'express';
 import { SessionAuthGuard } from '../common/guards/session-auth.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
@@ -68,6 +70,33 @@ export class EmployeesController {
       'Content-Disposition': `attachment; filename="${filename}"`,
     });
     res.send(buffer);
+  }
+
+  // Registered before ':id' below so it isn't swallowed by it (same
+  // reasoning as 'export' above). Blank-headers-only workbook — see
+  // EmployeesService.importTemplate for why no filled-in example row.
+  @Get('import-template')
+  @RequirePermissions('MANAGE_EMPLOYEES')
+  async importTemplate(@Res() res: Response) {
+    const buffer = await this.employeesService.importTemplate();
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': 'attachment; filename="employee-import-template.xlsx"',
+    });
+    res.send(buffer);
+  }
+
+  // 2MB comfortably covers a few thousand rows of plain text — far more
+  // than the 1000-row cap importFromExcel itself enforces, so this is just
+  // a cheap first line of defense against an accidental/oversized upload.
+  @Post('import')
+  @RequirePermissions('MANAGE_EMPLOYEES')
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } }))
+  async import(@UploadedFile() file: Express.Multer.File, @CurrentUser() user: any) {
+    if (!file) {
+      throw new BadRequestException('No file uploaded.');
+    }
+    return this.employeesService.importFromExcel(file.buffer, user.id);
   }
 
   // VIEW_EMPLOYEE_HISTORY, not MANAGE_EMPLOYEES — this single-employee

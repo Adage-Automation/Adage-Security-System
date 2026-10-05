@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-10-05 (cont. 2) — Bulk employee import from Excel
+
+HR can now add several new joiners at once instead of one-by-one. Two new `MANAGE_EMPLOYEES` endpoints on `EmployeesController`: `GET /employees/import-template` (a blank, headers-only `.xlsx` — Employee Code, Name, Email, Car Number — plus a separate "Instructions" sheet with the format and one reference example row that lives off the data sheet so it can never accidentally get imported as a real employee) and `POST /employees/import` (multipart upload via `FileInterceptor`, 2MB cap).
+
+`EmployeesService.importFromExcel` parses the sheet by header name (not fixed column position) and processes rows one at a time — a bad row (missing code/name, invalid email, a code that's already taken) is recorded as skipped with a reason and the rest of the file still imports, rather than one typo blocking the whole batch. Each row reuses the exact same `create()` path as the single Add Employee form (same trimming, same case-insensitive duplicate check, same `EMPLOYEE_CREATED` audit-log entry) — this is a second caller of the existing logic, not a parallel implementation. Fully blank rows are ignored silently rather than reported as "skipped."
+
+Frontend (`Employees.tsx`): "Download Import Template" and "Import from Excel" buttons next to the existing "Export to Excel"; the upload drives a results modal showing `N added, M skipped` plus the reason for every skipped row, matching the app's existing modal pattern (focus trap, Escape to close). The template-download button was initially labeled "Import Template" with a download-arrow icon — contradictory, since it downloads rather than imports — renamed to match the icon.
+
+Also fixed, while building this: `EmployeesService.create`/`update` didn't trim `employeeCode`/`employeeName`/`email`/`carNumber` before the case-insensitive duplicate check — a stray trailing space (e.g. a pasted code) could silently defeat it, creating a second, visually-identical employee. Fixed at the shared service methods so every caller (single-add form and the new bulk import) benefits.
+
+9 new backend tests (employees module now 24/24: header validation, per-row skip reasons for missing fields/invalid email/duplicate code, blank-row handling, the trim fix, both new controller endpoints) — 96/96 backend tests and 14/14 frontend tests pass; both builds clean. No database write made outside of this feature's own normal operation (tested only against mocked Prisma).
+
 ## 2026-10-05 — Full audit: "Recorded By" gap on two pages, a real timer leak, an uncommitted test file
 
 **`EmployeeDetails.tsx` and `Corrections.tsx` were missing "Recorded By"** — who recorded a movement (e.g. `securityunit1`/`securityunit2`) already showed on the Dashboard (table and the summary-card drill-down modal) but not on the other two internal pages that list movement records. The backend's `GET /movements/employee/:id` already included `recordedBy` in its response — this was a frontend display gap only, not a data gap. Both pages now show it (a table column, plus the mobile card view). The emailed/downloaded PNG/PDF report was deliberately left alone — that document goes to the employee themselves, not internal staff, so naming which security unit recorded it doesn't belong there.

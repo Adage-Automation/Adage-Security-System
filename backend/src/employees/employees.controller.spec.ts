@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { EmployeesController } from './employees.controller';
 import { EmployeesService } from './employees.service';
 
@@ -11,6 +12,7 @@ describe('EmployeesController', () => {
     create: jest.Mock;
     update: jest.Mock;
     setActive: jest.Mock;
+    importFromExcel: jest.Mock;
   };
 
   beforeEach(() => {
@@ -22,6 +24,7 @@ describe('EmployeesController', () => {
       create: jest.fn(),
       update: jest.fn(),
       setActive: jest.fn(),
+      importFromExcel: jest.fn(),
     };
 
     controller = new EmployeesController(employeesService as unknown as EmployeesService);
@@ -93,5 +96,19 @@ describe('EmployeesController', () => {
 
     await expect(controller.reactivate(5, { id: 9 })).resolves.toEqual({ id: 5, isActive: true });
     expect(employeesService.setActive).toHaveBeenCalledWith(5, true, 9);
+  });
+
+  it('imports employees from the uploaded file buffer', async () => {
+    const summary = { created: 1, skipped: 0, results: [] };
+    employeesService.importFromExcel.mockResolvedValue(summary);
+    const file = { buffer: Buffer.from('fake-xlsx') } as Express.Multer.File;
+
+    await expect(controller.import(file, { id: 9 })).resolves.toEqual(summary);
+    expect(employeesService.importFromExcel).toHaveBeenCalledWith(file.buffer, 9);
+  });
+
+  it('rejects an import request with no file attached', async () => {
+    await expect(controller.import(undefined as any, { id: 9 })).rejects.toThrow(BadRequestException);
+    expect(employeesService.importFromExcel).not.toHaveBeenCalled();
   });
 });

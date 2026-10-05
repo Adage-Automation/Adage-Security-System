@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import { isEmail } from 'class-validator';
 import ExcelJS from 'exceljs';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../audit-logs/audit-log.service';
@@ -160,6 +161,126 @@ export class EmployeesService {
     return Buffer.from(arrayBuffer);
   }
 
+  // Blank Employees tab (headers only — no filled-in example row) so a
+  // forgotten/not-deleted example row can never get imported as a real
+  // employee. The example lives on a separate "Instructions" tab instead,
+  // for reference only. HR downloads this, fills in new joiners, and
+  // uploads it back via importFromExcel below. Found in the 2026-10-05
+  // bulk-add request.
+  async importTemplate(): Promise<Buffer> {
+    const workbook = new ExcelJS.Workbook();
+
+    const sheet = workbook.addWorksheet('Employees');
+    sheet.columns = [
+      { header: 'Employee Code', key: 'employeeCode', width: 18 },
+      { header: 'Name', key: 'employeeName', width: 28 },
+      { header: 'Email', key: 'email', width: 32 },
+      { header: 'Car Number', key: 'carNumber', width: 16 },
+    ];
+    sheet.getRow(1).font = { bold: true };
+    sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE6F4F5' } };
+
+    const instructions = workbook.addWorksheet('Instructions');
+    instructions.columns = [{ width: 95 }];
+    instructions.addRows([
+      ['How to use this template'],
+      ['1. Fill in one row per new employee on the "Employees" tab. Do not change the header row or column order.'],
+      ['2. "Employee Code" and "Name" are required for every row. Leave "Email" or "Car Number" blank if not known yet.'],
+      ['3. Employee Code must be unique and cannot match an existing employee (not case-sensitive).'],
+      ['4. Save the file, then upload it via "Import from Excel" on the Employees page.'],
+      ['5. Example row for reference only — do not add this row to the Employees tab:'],
+      ['   EMP206   |   Jane Doe   |   jane.doe@example.com   |   MH12AB1234'],
+    ]);
+    instructions.getRow(1).font = { bold: true, size: 13 };
+
+    const arrayBuffer = await workbook.xlsx.writeBuffer();
+    return Buffer.from(arrayBuffer);
+  }
+
+  // Row-by-row bulk import so one bad row (a typo, a code that already
+  // exists) doesn't block the other 9 — each row is validated and created
+  // independently and reported back with its own created/skipped+reason
+  // result, rather than all-or-nothing. Deliberately reuses `create()`
+  // (same trimming, same case-insensitive duplicate check, same audit log
+  // entry) so this is a second caller of the existing single-add path, not
+  // a parallel implementation that could drift from it. Rows are processed
+  // sequentially (not Promise.all) so a duplicate code repeated twice in
+  // the same file is caught by the second row's own DB check, the same way
+  // it already would be via two separate manual Add-Employee submissions.
+  // Found in the 2026-10-05 bulk-add request.
+  async importFromExcel(buffer: Buffer, actingUserId: number) {
+    const workbook = new ExcelJS.Workbook();
+    try {
+      // exceljs's bundled types predate Node 22's generic Buffer<T> —
+      // harmless cast, not a real type mismatch.
+      await workbook.xlsx.load(buffer as any);
+    } catch {
+      throw new BadRequestException('Could not read this file — make sure it is a valid .xlsx file (download the import template for the exact format).');
+    }
+
+    const sheet = workbook.worksheets[0];
+    if (!sheet) {
+      throw new BadRequestException('The uploaded file has no sheets.');
+    }
+
+    const headerMap: Record<string, number> = {};
+    sheet.getRow(1).eachCell((cell, colNumber) => {
+      headerMap[String(cell.value ?? '').trim().toLowerCase()] = colNumber;
+    });
+    const codeCol = headerMap['employee code'];
+    const nameCol = headerMap['name'];
+    const emailCol = headerMap['email'];
+    const carCol = headerMap['car number'];
+    if (!codeCol || !nameCol) {
+      throw new BadRequestException('The file must have "Employee Code" and "Name" columns — download the import template for the exact format.');
+    }
+
+    // Generous enough for any realistic batch (a department, a site, even a
+    // whole year of joiners) while still bounding one request's work —
+    // same reasoning as the `take` caps already enforced elsewhere.
+    const MAX_ROWS = 1000;
+    if (sheet.rowCount - 1 > MAX_ROWS) {
+      throw new BadRequestException(`Too many rows — split into batches of ${MAX_ROWS} or fewer.`);
+    }
+
+    const cellText = (row: ExcelJS.Row, col: number | undefined) =>
+      col ? String(row.getCell(col).value ?? '').trim() : '';
+
+    const results: Array<{ row: number; employeeCode: string; employeeName: string; status: 'created' | 'skipped'; reason?: string }> = [];
+
+    for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber++) {
+      const row = sheet.getRow(rowNumber);
+      const employeeCode = cellText(row, codeCol);
+      const employeeName = cellText(row, nameCol);
+      const email = cellText(row, emailCol);
+      const carNumber = cellText(row, carCol);
+
+      if (!employeeCode && !employeeName && !email && !carNumber) continue; // fully blank row — skip silently, don't report
+
+      if (!employeeCode || !employeeName) {
+        results.push({ row: rowNumber, employeeCode, employeeName, status: 'skipped', reason: 'Employee Code and Name are both required' });
+        continue;
+      }
+      if (email && !isEmail(email)) {
+        results.push({ row: rowNumber, employeeCode, employeeName, status: 'skipped', reason: 'Invalid email format' });
+        continue;
+      }
+
+      try {
+        await this.create({ employeeCode, employeeName, email: email || undefined, carNumber: carNumber || undefined }, actingUserId);
+        results.push({ row: rowNumber, employeeCode, employeeName, status: 'created' });
+      } catch (err: any) {
+        results.push({ row: rowNumber, employeeCode, employeeName, status: 'skipped', reason: err?.message ?? 'Failed to create' });
+      }
+    }
+
+    return {
+      created: results.filter((r) => r.status === 'created').length,
+      skipped: results.filter((r) => r.status === 'skipped').length,
+      results,
+    };
+  }
+
   async findById(id: number) {
     const employee = await this.prisma.employee.findUnique({ where: { id } });
     if (!employee) {
@@ -195,8 +316,21 @@ export class EmployeesService {
   }
 
   async create(dto: CreateEmployeeDto, actingUserId: number) {
-    await this.assertCodeAndEmailAvailable(dto.employeeCode, dto.email);
-    const employee = await this.prisma.employee.create({ data: dto });
+    // Untrimmed whitespace (a stray trailing space from a copy-paste, a
+    // leading space from autocomplete) would otherwise defeat the
+    // case-insensitive duplicate check below — "EMP001" and "EMP001 " look
+    // identical to a human but aren't equal strings, so HR could end up
+    // with two silently-distinct employees for the same code. Found in the
+    // 2026-10-05 HR-workflow audit.
+    const data = {
+      ...dto,
+      employeeCode: dto.employeeCode.trim(),
+      employeeName: dto.employeeName.trim(),
+      email: dto.email?.trim() || undefined,
+      carNumber: dto.carNumber?.trim() || undefined,
+    };
+    await this.assertCodeAndEmailAvailable(data.employeeCode, data.email);
+    const employee = await this.prisma.employee.create({ data });
     await this.auditLog.record({
       userId: actingUserId,
       action: 'EMPLOYEE_CREATED',
@@ -209,10 +343,16 @@ export class EmployeesService {
 
   async update(id: number, dto: UpdateEmployeeDto, actingUserId: number) {
     const before = await this.findById(id);
-    if (dto.email) {
-      await this.assertCodeAndEmailAvailable(before.employeeCode, dto.email, id);
+    const data = {
+      ...dto,
+      employeeName: dto.employeeName?.trim(),
+      email: dto.email?.trim() || undefined,
+      carNumber: dto.carNumber?.trim() || undefined,
+    };
+    if (data.email) {
+      await this.assertCodeAndEmailAvailable(before.employeeCode, data.email, id);
     }
-    const employee = await this.prisma.employee.update({ where: { id }, data: dto });
+    const employee = await this.prisma.employee.update({ where: { id }, data });
     await this.auditLog.record({
       userId: actingUserId,
       action: 'EMPLOYEE_UPDATED',
