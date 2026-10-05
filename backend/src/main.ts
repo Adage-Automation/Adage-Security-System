@@ -51,7 +51,7 @@ async function bootstrap() {
   // restarts/multiple instances. Cookie is httpOnly + secure in
   // production — never rely on hiding UI for security (spec §44).
   const PgSession = connectPgSimple(session);
-  const pgPool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const pgPool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
 
   app.use(
     session({

@@ -12,6 +12,32 @@ import { todayIso, isoDaysAgo, formatTime } from '../utils/date';
 
 type SummaryCardKind = 'employees' | 'entries' | 'exits' | 'inside';
 
+export function getSummaryModalRows(kind: SummaryCardKind, records: MovementRecord[]): MovementRecord[] {
+  const sorted = [...records].sort((a, b) => new Date(a.movementAt).getTime() - new Date(b.movementAt).getTime());
+
+  if (kind === 'employees') {
+    const latestByEmployee = new Map<number, MovementRecord>();
+    for (const record of sorted) {
+      latestByEmployee.set(record.employeeId, record);
+    }
+    return [...latestByEmployee.values()];
+  }
+
+  if (kind === 'entries') {
+    return records.filter((record) => record.movementType === 'ENTRY');
+  }
+
+  if (kind === 'exits') {
+    return records.filter((record) => record.movementType === 'EXIT');
+  }
+
+  const latestByEmployee = new Map<number, MovementRecord>();
+  for (const record of sorted) {
+    latestByEmployee.set(record.employeeId, record);
+  }
+  return [...latestByEmployee.values()].filter((record) => record.movementType === 'ENTRY');
+}
+
 // Who the summary cards' detail drill-down is for — Security already sees
 // the same underlying movement data in the table further down this same
 // page (both roles hold VIEW_DASHBOARD), so this isn't hiding data Security
@@ -103,33 +129,11 @@ export function Dashboard() {
     return () => document.removeEventListener('keydown', closeOnEscape);
   }, [summaryModal]);
 
-  // Same "last movement per employee" rule the backend's summaryForDate
-  // uses for currentlyInside — kept in sync deliberately rather than
-  // trusting the two to agree by coincidence.
-  function computeCurrentlyInside(records: MovementRecord[]): MovementRecord[] {
-    const lastByEmployee = new Map<number, MovementRecord>();
-    for (const r of [...records].sort((a, b) => new Date(a.movementAt).getTime() - new Date(b.movementAt).getTime())) {
-      lastByEmployee.set(r.employeeId, r);
-    }
-    return [...lastByEmployee.values()].filter((r) => r.movementType === 'ENTRY');
-  }
-
-  function uniqueEmployeesFromRecords(records: MovementRecord[]): MovementRecord[] {
-    const seen = new Set<number>();
-    const result: MovementRecord[] = [];
-    for (const r of records) {
-      if (seen.has(r.employeeId)) continue;
-      seen.add(r.employeeId);
-      result.push(r);
-    }
-    return result;
-  }
-
   const summaryModalConfig: Record<SummaryCardKind, { title: string; rows: MovementRecord[]; showTime: boolean }> = {
-    employees: { title: 'Total Employees', rows: uniqueEmployeesFromRecords(summaryModalRecords), showTime: false },
-    entries: { title: 'Total Entries', rows: summaryModalRecords.filter((r) => r.movementType === 'ENTRY'), showTime: true },
-    exits: { title: 'Total Exits', rows: summaryModalRecords.filter((r) => r.movementType === 'EXIT'), showTime: true },
-    inside: { title: isToday ? 'Currently Inside' : 'Not Exited By End Of Day', rows: computeCurrentlyInside(summaryModalRecords), showTime: true },
+    employees: { title: 'Total Employees', rows: getSummaryModalRows('employees', summaryModalRecords), showTime: false },
+    entries: { title: 'Total Entries', rows: getSummaryModalRows('entries', summaryModalRecords), showTime: true },
+    exits: { title: 'Total Exits', rows: getSummaryModalRows('exits', summaryModalRecords), showTime: true },
+    inside: { title: isToday ? 'Currently Inside' : 'Not Exited By End Of Day', rows: getSummaryModalRows('inside', summaryModalRecords), showTime: true },
   };
 
   useEffect(() => {
@@ -283,9 +287,12 @@ export function Dashboard() {
                       background: '#f4f7f6',
                     }}
                   >
-                    <div>
+                    <div style={{ minWidth: 0, flex: 1 }}>
                       <div style={{ fontWeight: 600 }}>{r.employee?.employeeName}</div>
                       <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{r.employee?.employeeCode}</div>
+                      {r.recordedBy?.name && (
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Recorded by: {r.recordedBy.name}</div>
+                      )}
                     </div>
                     {summaryModalConfig[summaryModal].showTime && (
                       <span className={`movement-badge ${r.movementType}`} style={{ whiteSpace: 'nowrap' }}>

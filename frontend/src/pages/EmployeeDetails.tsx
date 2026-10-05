@@ -155,6 +155,7 @@ export function EmployeeDetails() {
               <tr>
                 <th>Time</th>
                 <th>Movement</th>
+                <th>Recorded By</th>
               </tr>
             </thead>
             <tbody>
@@ -165,6 +166,7 @@ export function EmployeeDetails() {
                     {r.recordedOffline && <OfflineBadge />}
                   </td>
                   <td><span className={`movement-badge ${r.movementType}`}>{r.movementType}</span></td>
+                  <td>{r.recordedBy?.name}</td>
                 </tr>
               ))}
             </tbody>
@@ -172,12 +174,17 @@ export function EmployeeDetails() {
 
           <div className="record-cards">
             {records.map((r) => (
-              <div className="record-card" key={r.id}>
-                <span>
-                  {formatTime(r.movementAt)}
-                  {r.recordedOffline && <OfflineBadge />}
-                </span>
-                <span className={`movement-badge ${r.movementType}`}>{r.movementType}</span>
+              <div className="record-card" key={r.id} style={{ flexDirection: 'column', alignItems: 'stretch', gap: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>
+                    {formatTime(r.movementAt)}
+                    {r.recordedOffline && <OfflineBadge />}
+                  </span>
+                  <span className={`movement-badge ${r.movementType}`}>{r.movementType}</span>
+                </div>
+                {r.recordedBy?.name && (
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Recorded by: {r.recordedBy.name}</div>
+                )}
               </div>
             ))}
           </div>

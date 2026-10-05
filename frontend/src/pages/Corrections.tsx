@@ -291,6 +291,7 @@ export function Corrections() {
               <tr>
                 <th>Time</th>
                 <th>Movement</th>
+                <th>Recorded By</th>
                 <th></th>
               </tr>
             </thead>
@@ -302,6 +303,7 @@ export function Corrections() {
                     {r.recordedOffline && <OfflineBadge />}
                   </td>
                   <td><span className={`movement-badge ${r.movementType}`}>{r.movementType}</span></td>
+                  <td>{r.recordedBy?.name}</td>
                   <td>
                     <button className="table-action-btn" onClick={() => openCorrect(r)}>
                       Correct
@@ -321,6 +323,9 @@ export function Corrections() {
                     {formatTime(r.movementAt)}
                     {r.recordedOffline && <OfflineBadge />}
                   </div>
+                  {r.recordedBy?.name && (
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Recorded by: {r.recordedBy.name}</div>
+                  )}
                 </div>
                 <button className="table-action-btn" onClick={() => openCorrect(r)}>
                   Correct

@@ -116,18 +116,25 @@ export class ReportGeneratorService implements OnModuleDestroy {
     }
 
     let timedOut = false;
+    // Declared outside the Promise so the winning side of the race (almost
+    // always the real render, not the timeout) can cancel the other —
+    // without this, every successful render left its 30s setTimeout
+    // running in the background regardless, needlessly holding the event
+    // loop open until it fired. Found in the 2026-10-05 audit (surfaced as
+    // Jest's own test run refusing to exit cleanly).
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     try {
       const result = await Promise.race([
         (async () => {
           await page.setContent(html, { waitUntil: 'networkidle0' });
           return action(page);
         })(),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => {
+        new Promise<never>((_, reject) => {
+          timeoutHandle = setTimeout(() => {
             timedOut = true;
             reject(new InternalServerErrorException('Report generation timed out'));
-          }, ReportGeneratorService.RENDER_TIMEOUT_MS),
-        ),
+          }, ReportGeneratorService.RENDER_TIMEOUT_MS);
+        }),
       ]);
       return result;
     } catch (err) {
@@ -141,6 +148,7 @@ export class ReportGeneratorService implements OnModuleDestroy {
       }
       throw err;
     } finally {
+      clearTimeout(timeoutHandle);
       // Close the page, not the browser — the browser instance is reused
       // across requests. Best-effort: if the browser itself is already
       // wedged/closed, this may also fail, which is fine — it's already

@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-10-05 — Full audit: "Recorded By" gap on two pages, a real timer leak, an uncommitted test file
+
+**`EmployeeDetails.tsx` and `Corrections.tsx` were missing "Recorded By"** — who recorded a movement (e.g. `securityunit1`/`securityunit2`) already showed on the Dashboard (table and the summary-card drill-down modal) but not on the other two internal pages that list movement records. The backend's `GET /movements/employee/:id` already included `recordedBy` in its response — this was a frontend display gap only, not a data gap. Both pages now show it (a table column, plus the mobile card view). The emailed/downloaded PNG/PDF report was deliberately left alone — that document goes to the employee themselves, not internal staff, so naming which security unit recorded it doesn't belong there.
+
+**Fixed a real timer leak in `report-generator.service.ts`** — `renderWithPuppeteer`'s `Promise.race` against a 30-second timeout never cleared that timeout's `setTimeout` when the real render won the race (the common, fast case) — every successful PNG/PDF report generation left an uncleared 30s timer running in the background for no reason. Found via Jest's own test run refusing to exit cleanly ("did not exit one second after..."), traced to this, and fixed by capturing and clearing the timeout handle in the `finally` block regardless of outcome. Confirmed fixed: the Jest warning is gone on repeated runs, all 87 backend tests still pass.
+
+**`frontend/src/pages/Dashboard.spec.ts` had never been committed** — a prior session wrote real, passing test coverage for `getSummaryModalRows` (the summary-card drill-down logic from the previous entry) but the file was never `git add`ed, so it existed only in the working tree. Added to this commit so it isn't silently lost.
+
+**Dead code cleanup in `Dashboard.tsx`** — the inline `computeCurrentlyInside`/`uniqueEmployeesFromRecords` closures this component used before `getSummaryModalRows` was extracted into a standalone, tested function were left behind, unused. Removed. Also dropped `getSummaryModalRows`'s `isToday` parameter — it was accepted but never read inside the function; the today-vs-past-date label logic lives separately in `summaryModalConfig`.
+
 ## 2026-09-28 (cont. 8) — Dashboard summary cards are now clickable (HR/Admin only)
 
 The four Dashboard summary cards (Total Employees, Total Entries, Total Exits, Currently Inside) now open a modal listing exactly who's counted in that number for the selected date, on click — reuses the existing `GET /movements?date=` endpoint (no new backend route). Restricted to HR and Admin (`frontend/src/pages/Dashboard.tsx`'s `canViewSummaryDetails`) — Security sees the cards as plain, non-interactive (same as before) even though it technically already has access to the same underlying data in the records table further down the same page; this is a deliberate UI simplification for the guard-facing view, not a data-access boundary, by explicit request.
