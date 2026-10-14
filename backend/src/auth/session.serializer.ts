@@ -17,10 +17,25 @@ export class SessionSerializer extends PassportSerializer {
   }
 
   async deserializeUser(id: number, done: (err: Error | null, user?: any) => void) {
-    const user = await this.authService.findAuthenticatedUserById(id);
-    if (!user) {
-      return done(null, false as any);
+    try {
+      const user = await this.authService.findAuthenticatedUserById(id);
+      if (!user) {
+        return done(null, false as any);
+      }
+      done(null, user);
+    } catch (err) {
+      // deserializeUser runs on every authenticated request, outside
+      // Nest's normal controller/exception-filter pipeline (Passport's
+      // session middleware calls it ahead of any route handler) — a DB
+      // hiccup here (connectivity loss, connection-pool exhaustion) was
+      // previously an unhandled rejection that crashed the ENTIRE backend
+      // process, not just this one request. Confirmed twice in production:
+      // a Supabase connectivity drop, then a Prisma connection-pool
+      // timeout (2026-10-14) — see docs/decisions.md. Passing the error to
+      // `done` instead lets it surface as a normal failed request (caught
+      // by AllExceptionsFilter) for the user to retry, while every other
+      // request keeps being served.
+      done(err as Error);
     }
-    done(null, user);
   }
 }
