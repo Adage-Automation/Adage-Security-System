@@ -11,11 +11,13 @@ This folder contains the complete documentation for the Adage Security System. S
 | Admin (users, employees, settings) | [user-guide-admin.md](./user-guide-admin.md) |
 | Developer (setup, conventions) | [developer-guide.md](./developer-guide.md) |
 | Architect / technical reviewer | [architecture.md](./architecture.md) |
+| A new AI agent picking this project up cold | [AI_AGENT_CONTEXT.md](./AI_AGENT_CONTEXT.md) |
 
 ## Reference
 
 - [branding-and-data-needed.md](./branding-and-data-needed.md) — exactly what Adage needs to supply (logo, brand color, real data, accounts) before production launch
 - [email-m365-admin-handoff.md](./email-m365-admin-handoff.md) — exact instructions to hand to whoever administers Microsoft 365/Azure for `adage-automation.com`, to register the OAuth2 app and grant it mail-send access
+- [backup-onedrive-admin-handoff.md](./backup-onedrive-admin-handoff.md) — handoff for whoever administers the OneDrive backup destination
 - [architecture.md](./architecture.md) — system design, data flow, module layout
 - [database-schema.md](./database-schema.md) — every table, field, relationship, and index
 - [api-reference.md](./api-reference.md) — every REST endpoint, request/response shape, required permission

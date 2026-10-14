@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
-import { IconArrowLeft, IconGrid, IconUsers, IconSettings, IconEdit, IconHistory } from './icons';
+import { IconArrowLeft, IconGrid, IconUsers, IconSettings, IconEdit, IconHistory, IconBarChart } from './icons';
 
 // Shared cross-links for every admin/dashboard-adjacent screen. Each link
 // only renders if the current user actually holds the permission its
@@ -33,6 +33,12 @@ export function AdminNav() {
         <NavLink to="/employees">
           <IconUsers />
           Employees
+        </NavLink>
+      )}
+      {hasPermission('VIEW_REPORTS') && (
+        <NavLink to="/insights">
+          <IconBarChart />
+          Insights
         </NavLink>
       )}
       {hasPermission('MANAGE_USERS') && (

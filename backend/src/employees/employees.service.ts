@@ -4,6 +4,8 @@ import ExcelJS from 'exceljs';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../audit-logs/audit-log.service';
 import { CreateEmployeeDto, UpdateEmployeeDto } from './dto/employee.dto';
+import { TEAMS } from '../common/constants/teams';
+import { styleHeaderRow, workbookToBuffer } from '../common/utils/excel';
 
 // Search result cap decided deliberately (see project memory): keeps the
 // guard's autocomplete list short enough to fit a phone screen without
@@ -17,6 +19,15 @@ export class EmployeesService {
     private auditLog: AuditLogService,
   ) {}
 
+  // Single source of truth for the Team dropdown — frontend fetches this
+  // instead of hardcoding its own copy of the list, so the two can never
+  // drift apart. Sorted alphabetically here (TEAMS itself stays in the
+  // order it was given in) so every dropdown that calls this gets A-Z
+  // for free, with one fix instead of sorting in each page.
+  getTeams(): string[] {
+    return [...TEAMS].sort((a, b) => a.localeCompare(b));
+  }
+
   // Used by the Security ENTRY/EXIT selector — active employees only. A
   // blank query used to return nothing at all, so the dropdown stayed
   // empty until the guard typed something — clicking/focusing the search
@@ -24,11 +35,16 @@ export class EmployeesService {
   // page of active employees alphabetically instead, so the frontend can
   // show a "browse" list immediately on focus, before any typing. Found in
   // the 2026-09-21 UX pass.
-  async search(query: string) {
+  // `team` is optional and applied before the result cap below — without it,
+  // a team filter applied client-side on these 10 results would miss anyone
+  // outside the first 10 active employees alphabetically. Found when
+  // Insights' Team filter hid real team members from the Employee dropdown.
+  async search(query: string, team?: string) {
     const trimmed = query?.trim() ?? '';
     return this.prisma.employee.findMany({
       where: {
         isActive: true,
+        ...(team ? { team } : {}),
         ...(trimmed
           ? {
               OR: [
@@ -142,10 +158,10 @@ export class EmployeesService {
       { header: 'Name', key: 'employeeName', width: 28 },
       { header: 'Email', key: 'email', width: 32 },
       { header: 'Car Number', key: 'carNumber', width: 16 },
+      { header: 'Team', key: 'team', width: 30 },
       { header: 'Status', key: 'status', width: 12 },
     ];
-    sheet.getRow(1).font = { bold: true };
-    sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE6F4F5' } };
+    styleHeaderRow(sheet);
 
     for (const emp of employees) {
       sheet.addRow({
@@ -153,12 +169,12 @@ export class EmployeesService {
         employeeName: emp.employeeName,
         email: emp.email ?? '',
         carNumber: emp.carNumber ?? '',
+        team: emp.team ?? '',
         status: emp.isActive ? 'Active' : 'Inactive',
       });
     }
 
-    const arrayBuffer = await workbook.xlsx.writeBuffer();
-    return Buffer.from(arrayBuffer);
+    return workbookToBuffer(workbook);
   }
 
   // Blank Employees tab (headers only — no filled-in example row) so a
@@ -176,25 +192,29 @@ export class EmployeesService {
       { header: 'Name', key: 'employeeName', width: 28 },
       { header: 'Email', key: 'email', width: 32 },
       { header: 'Car Number', key: 'carNumber', width: 16 },
+      { header: 'Team', key: 'team', width: 30 },
     ];
-    sheet.getRow(1).font = { bold: true };
-    sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE6F4F5' } };
+    styleHeaderRow(sheet);
 
     const instructions = workbook.addWorksheet('Instructions');
     instructions.columns = [{ width: 95 }];
-    instructions.addRows([
+    const introLines = [
       ['How to use this template'],
       ['1. Fill in one row per new employee on the "Employees" tab. Do not change the header row or column order.'],
-      ['2. "Employee Code" and "Name" are required for every row. Leave "Email" or "Car Number" blank if not known yet.'],
+      ['2. "Employee Code" and "Name" are required for every row. Leave "Email", "Car Number", or "Team" blank if not known yet.'],
       ['3. Employee Code must be unique and cannot match an existing employee (not case-sensitive).'],
-      ['4. Save the file, then upload it via "Import from Excel" on the Employees page.'],
-      ['5. Example row for reference only — do not add this row to the Employees tab:'],
-      ['   EMP206   |   Jane Doe   |   jane.doe@example.com   |   MH12AB1234'],
-    ]);
+      ['4. "Team" must exactly match one of the team names listed below (not case-sensitive) — anything else is rejected for that row.'],
+      ['5. Save the file, then upload it via "Import from Excel" on the Employees page.'],
+      ['6. Example row for reference only — do not add this row to the Employees tab:'],
+      ['   EMP206   |   Jane Doe   |   jane.doe@example.com   |   MH12AB1234   |   INFORMATION TECHNOLOGY'],
+      [''],
+      ['Valid Team values:'],
+    ];
+    instructions.addRows([...introLines, ...TEAMS.map((t) => [t])]);
     instructions.getRow(1).font = { bold: true, size: 13 };
+    instructions.getRow(introLines.length).font = { bold: true };
 
-    const arrayBuffer = await workbook.xlsx.writeBuffer();
-    return Buffer.from(arrayBuffer);
+    return workbookToBuffer(workbook);
   }
 
   // Row-by-row bulk import so one bad row (a typo, a code that already
@@ -231,9 +251,16 @@ export class EmployeesService {
     const nameCol = headerMap['name'];
     const emailCol = headerMap['email'];
     const carCol = headerMap['car number'];
+    const teamCol = headerMap['team'];
     if (!codeCol || !nameCol) {
       throw new BadRequestException('The file must have "Employee Code" and "Name" columns — download the import template for the exact format.');
     }
+
+    // Case-insensitive match against the fixed TEAMS list, resolved back
+    // to the canonical casing before it ever reaches create()/the DTO's
+    // @IsIn(TEAMS) check — "information technology" in the sheet should
+    // work the same as the exact "INFORMATION TECHNOLOGY" value.
+    const teamByLowercase = new Map(TEAMS.map((t) => [t.toLowerCase(), t]));
 
     // Generous enough for any realistic batch (a department, a site, even a
     // whole year of joiners) while still bounding one request's work —
@@ -254,8 +281,9 @@ export class EmployeesService {
       const employeeName = cellText(row, nameCol);
       const email = cellText(row, emailCol);
       const carNumber = cellText(row, carCol);
+      const teamRaw = cellText(row, teamCol);
 
-      if (!employeeCode && !employeeName && !email && !carNumber) continue; // fully blank row — skip silently, don't report
+      if (!employeeCode && !employeeName && !email && !carNumber && !teamRaw) continue; // fully blank row — skip silently, don't report
 
       if (!employeeCode || !employeeName) {
         results.push({ row: rowNumber, employeeCode, employeeName, status: 'skipped', reason: 'Employee Code and Name are both required' });
@@ -265,9 +293,14 @@ export class EmployeesService {
         results.push({ row: rowNumber, employeeCode, employeeName, status: 'skipped', reason: 'Invalid email format' });
         continue;
       }
+      const team = teamRaw ? teamByLowercase.get(teamRaw.toLowerCase()) : undefined;
+      if (teamRaw && !team) {
+        results.push({ row: rowNumber, employeeCode, employeeName, status: 'skipped', reason: `"${teamRaw}" is not a recognized Team — see the Instructions tab for the valid list` });
+        continue;
+      }
 
       try {
-        await this.create({ employeeCode, employeeName, email: email || undefined, carNumber: carNumber || undefined }, actingUserId);
+        await this.create({ employeeCode, employeeName, email: email || undefined, carNumber: carNumber || undefined, team }, actingUserId);
         results.push({ row: rowNumber, employeeCode, employeeName, status: 'created' });
       } catch (err: any) {
         results.push({ row: rowNumber, employeeCode, employeeName, status: 'skipped', reason: err?.message ?? 'Failed to create' });
@@ -328,6 +361,7 @@ export class EmployeesService {
       employeeName: dto.employeeName.trim(),
       email: dto.email?.trim() || undefined,
       carNumber: dto.carNumber?.trim() || undefined,
+      team: dto.team ?? undefined,
     };
     await this.assertCodeAndEmailAvailable(data.employeeCode, data.email);
     const employee = await this.prisma.employee.create({ data });
@@ -358,6 +392,9 @@ export class EmployeesService {
       employeeName: dto.employeeName?.trim(),
       email: dto.email === undefined ? undefined : dto.email?.trim() || null,
       carNumber: dto.carNumber === undefined ? undefined : dto.carNumber?.trim() || null,
+      // Fixed dropdown value, already validated against TEAMS by the DTO
+      // — no trimming needed, just the same leave-alone/clear convention.
+      team: dto.team === undefined ? undefined : dto.team,
     };
     if (data.email) {
       await this.assertCodeAndEmailAvailable(before.employeeCode, data.email, id);

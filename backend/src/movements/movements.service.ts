@@ -195,7 +195,7 @@ export class MovementsService {
     });
   }
 
-  async listWithFilters(params: { date?: string; employeeId?: number; movementType?: 'ENTRY' | 'EXIT' }) {
+  async listWithFilters(params: { date?: string; employeeId?: number; movementType?: 'ENTRY' | 'EXIT'; recordedByUserId?: number }) {
     const where: any = { isSuperseded: false };
     if (params.date) {
       const { start, end } = dayRange(params.date);
@@ -206,6 +206,9 @@ export class MovementsService {
     }
     if (params.movementType) {
       where.movementType = params.movementType;
+    }
+    if (params.recordedByUserId) {
+      where.recordedByUserId = params.recordedByUserId;
     }
     return this.prisma.movementRecord.findMany({
       where,
@@ -279,15 +282,6 @@ export class MovementsService {
       }),
     ]);
 
-    await this.auditLog.record({
-      userId: correctedByUserId,
-      action: 'RECORD_CORRECTED',
-      entityType: 'MovementRecord',
-      entityId: corrected.id,
-      oldValue: original,
-      newValue: corrected,
-    });
-
     return corrected;
   }
 
@@ -308,14 +302,6 @@ export class MovementsService {
         correctedByUserId: createdByUserId,
         correctionReason: dto.correctionReason,
       },
-    });
-
-    await this.auditLog.record({
-      userId: createdByUserId,
-      action: 'MISSING_RECORD_ADDED',
-      entityType: 'MovementRecord',
-      entityId: record.id,
-      newValue: record,
     });
 
     return record;

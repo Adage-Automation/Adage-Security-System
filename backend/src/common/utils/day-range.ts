@@ -9,16 +9,57 @@ import { BadRequestException } from '@nestjs/common';
 // Found in the 2026-09-21 audit: backend/src/dashboard/dashboard.controller.ts's
 // no-date-param fallback had reintroduced the exact bug already fixed
 // everywhere else.
-export function todayInAppTimezone(): string {
+// Generalized from the date-less version below so Insights' day-bucketing
+// (grouping a `movementAt` timestamp into "which calendar day was this in
+// Asia/Kolkata") can reuse the exact same timezone-correct logic, instead
+// of a second, easy-to-get-wrong implementation using UTC date math.
+export function formatDateInAppTimezone(date: Date): string {
   const timeZone = process.env.APP_TIMEZONE ?? 'Asia/Kolkata';
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).formatToParts(new Date());
+  }).formatToParts(date);
   const lookup = Object.fromEntries(parts.map((p) => [p.type, p.value]));
   return `${lookup.year}-${lookup.month}-${lookup.day}`;
+}
+
+export function todayInAppTimezone(): string {
+  return formatDateInAppTimezone(new Date());
+}
+
+// Day-of-week for a given instant's app-timezone calendar date. Once
+// formatDateInAppTimezone has resolved "which calendar day was this in
+// Asia/Kolkata", day-of-week is timezone-independent, so parsing that
+// YYYY-MM-DD as UTC midnight is safe.
+export function isWeekday(date: Date): boolean {
+  const day = new Date(`${formatDateInAppTimezone(date)}T00:00:00Z`).getUTCDay();
+  return day !== 0 && day !== 6;
+}
+
+// Which days count toward Insights' analytics — 'weekdays' (the default,
+// Mon-Fri only), 'all' (every day, the pre-2026-10-14 behavior), or
+// 'weekends' (Sat/Sun only, for auditing who's coming in off-schedule).
+// Added 2026-10-14, by request.
+export const DAY_SCOPES = ['weekdays', 'all', 'weekends'] as const;
+export type DayScope = (typeof DAY_SCOPES)[number];
+
+export function matchesDayScope(date: Date, scope: DayScope): boolean {
+  if (scope === 'all') return true;
+  return scope === 'weekdays' ? isWeekday(date) : !isWeekday(date);
+}
+
+// Like dayRange() but spans multiple days — [from, to] inclusive on both
+// ends. Used by Insights' date-range filters (trends over weeks/months),
+// where dayRange()'s single-day [start, start+1) window doesn't apply.
+export function dateRangeInclusive(fromStr: string, toStr: string): { start: Date; end: Date } {
+  const { start } = dayRange(fromStr);
+  const { end } = dayRange(toStr);
+  if (end <= start) {
+    throw new BadRequestException(`Invalid range: "from" (${fromStr}) must be on or before "to" (${toStr})`);
+  }
+  return { start, end };
 }
 
 // Shared by movements.service.ts and reports.service.ts — every

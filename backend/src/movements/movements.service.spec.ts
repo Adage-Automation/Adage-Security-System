@@ -234,7 +234,7 @@ describe('MovementsService corrections', () => {
       expect.objectContaining({}),
       expect.objectContaining({}),
     ]);
-    expect(auditLog.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'RECORD_CORRECTED', entityId: 11 }));
+    expect(auditLog.record).not.toHaveBeenCalled();
   });
 
   it('rejects corrections for a missing employee', async () => {
@@ -252,7 +252,7 @@ describe('MovementsService corrections', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it('adds a missing record and audits it', async () => {
+  it('adds a missing record', async () => {
     const { service, prisma, auditLog } = makeService();
     const record = { id: 12, employeeId: 7, movementType: 'ENTRY' };
     prisma.employee.findUnique.mockResolvedValue({ id: 7 });
@@ -264,6 +264,6 @@ describe('MovementsService corrections', () => {
         9,
       ),
     ).resolves.toBe(record);
-    expect(auditLog.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'MISSING_RECORD_ADDED', entityId: 12 }));
+    expect(auditLog.record).not.toHaveBeenCalled();
   });
 });

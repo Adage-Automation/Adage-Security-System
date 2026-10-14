@@ -13,10 +13,37 @@ interface Field {
 // No security-email field here — with multiple security units (each a
 // shared login, 2026-09-25), CC is the sending account's own login email,
 // not a single global setting. See Users screen / docs/decisions.md.
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
 const FIELDS: Field[] = [
   { key: 'COMPANY_NAME', label: 'Company Name', required: true },
   { key: 'TIMEZONE', label: 'Timezone', required: true },
   { key: 'EMAIL_SENDER_NAME', label: 'Email Sender Name', required: true },
+  // Reference-only window for the Insights hours-shortfall metric — the
+  // office uses flexible timing, so these are never used to flag someone
+  // as "late," only shown as a reference band on charts. The only real
+  // compliance check is EXPECTED_DAILY_HOURS. Added 2026-10-05.
+  {
+    key: 'SHIFT_REFERENCE_START',
+    label: 'Shift Reference Start (HH:MM, informational only)',
+    required: true,
+    validate: (v) => (TIME_RE.test(v.trim()) ? null : 'Use 24-hour HH:MM, e.g. 09:30'),
+  },
+  {
+    key: 'SHIFT_REFERENCE_END',
+    label: 'Shift Reference End (HH:MM, informational only)',
+    required: true,
+    validate: (v) => (TIME_RE.test(v.trim()) ? null : 'Use 24-hour HH:MM, e.g. 18:30'),
+  },
+  {
+    key: 'EXPECTED_DAILY_HOURS',
+    label: 'Expected Daily Hours',
+    required: true,
+    validate: (v) => {
+      const n = Number(v.trim());
+      return Number.isFinite(n) && n > 0 && n <= 24 ? null : 'Enter a number of hours between 0 and 24';
+    },
+  },
 ];
 
 // Single "Save all changes" form, not a per-field save button each — the

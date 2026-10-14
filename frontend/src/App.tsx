@@ -15,6 +15,7 @@ import { Users } from './pages/Users';
 import { Settings } from './pages/Settings';
 import { Corrections } from './pages/Corrections';
 import { AuditLog } from './pages/AuditLog';
+import { Insights } from './pages/Insights';
 
 function Shell() {
   const { user } = useAuth();
@@ -33,6 +34,7 @@ function Shell() {
         <Route path="/settings" element={<ProtectedRoute permission="MANAGE_SETTINGS"><Settings /></ProtectedRoute>} />
         <Route path="/corrections" element={<ProtectedRoute permission="CORRECT_RECORDS"><Corrections /></ProtectedRoute>} />
         <Route path="/audit-log" element={<ProtectedRoute permission="MANAGE_SETTINGS"><AuditLog /></ProtectedRoute>} />
+        <Route path="/insights" element={<ProtectedRoute permission="VIEW_REPORTS"><Insights /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to={user ? '/dashboard' : '/login'} replace />} />
       </Routes>
     </>

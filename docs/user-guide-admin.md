@@ -10,11 +10,26 @@ Navigate to **Employees** (also available to HR, not Admin-only).
 - **Adding several joiners at once**: click **Download Import Template** for a blank spreadsheet with the right columns (an "Instructions" tab explains the format and shows an example row — don't add that example row to the real data). Fill in one row per new employee, save the file, then click **Import from Excel** and pick it. You'll get a result summary — "N added, M skipped" — with a reason next to every skipped row (a missing field, a bad email, a code that's already taken); only the bad rows need fixing and re-uploading, not the whole file.
 - **Search**: the list is the full employee roster (200+ people), so use the search box (matches name, code, email, or car number) rather than scrolling — results load a page at a time with a **Load More** button. After loading several pages, a floating **Back to top** button appears once you've scrolled down a bit, for getting back to the search bar without a long manual scroll.
 - **Export to Excel**: downloads a `.xlsx` of the full roster (active and inactive, with status shown) as it stands right now. Useful for archiving or sharing. This is a one-way snapshot, not a live-synced file — edits made here afterward won't retroactively change a file you already downloaded. It's a different file from the import template above: every row in an export is an *existing* employee, so re-uploading it via Import would just report all of them as skipped (already exists) — for adding new joiners, start from **Download Import Template** instead.
-- **Edit**: update an employee's name, optional email, or optional car number without changing the employee code. Blanking the Email or Car Number field and saving actually clears it (fixed 2026-10-05 — it used to silently leave the old value in place).
+- **Edit**: update an employee's name, optional email, optional car number, or Team without changing the employee code. Blanking the Email or Car Number field and saving actually clears it (fixed 2026-10-05 — it used to silently leave the old value in place).
+- **Team**: an optional field (Add/Edit forms and the bulk-import Team column) — pick from a fixed dropdown list of your organization's teams/departments. Not required; leave it "Not set" if you don't need the team-wise breakdown on the Insights screen (below) for this employee.
 - **Deactivate**: marks an employee inactive instead of deleting them. They stop appearing in the Security search box, but every historical movement record stays fully intact and visible on the Dashboard. Use this when someone leaves the company — never delete an employee outright.
 - **Reactivate**: brings a deactivated employee back into the Security search box.
 
 Deactivated employees still appear when correcting historical records (see below), since you may need to fix history for someone who has since left.
+
+## Insights (HR/Admin only)
+
+Navigate to **Insights** (also available to HR, not Admin-only; Security never sees this tab).
+
+A read-only reporting dashboard built from the same guard-recorded movement data as the Dashboard — nothing here is editable, and nothing you do on this screen can change any recorded entry/exit.
+
+- **Filters**: a date range (defaults to the last 30 days), an optional Team filter, and an optional Unit filter (Security 1 / Security 2, or however many security accounts exist) — narrow any chart down to one team or one security unit's recorded activity.
+- **Reference window, not a rule**: the office uses flexible timing, so the shown shift reference (e.g. 09:30–18:30) is informational only — it is never used to flag anyone as "late." The one real number tracked is **hours shortfall**: did the employee's first-entry-to-last-exit span that day reach the expected daily hours (configurable in **Settings** → Expected Daily Hours).
+- **What's shown**: Daily Entries, Exits & Employees Present; Daily Attendance Rate (% of the active roster that tapped in each day); Avg Duration, Short & Long-Duration Days; Missing Movements Trend; Hourly Entry & Exit Distribution; Unit Activity (per security account); and a team-wise breakdown (detail table). Every chart's y-axis is labeled with what it counts (Hours, Employees, Movements, % of roster, etc.).
+- **Click a bar/point for details**: every chart here is clickable — click one to see exactly who's behind that number (e.g. click "Production" in Team Breakdown to see every employee on that team; click a shortfall bar to see who fell short that day; click a Daily Attendance Rate point to see who had no movement that day).
+- **Per-Employee Detail**: search for any one employee to see their own trend — average arrival/departure time, a daily-duration chart (with the expected-hours line shown for reference), and daily entry/exit counts, all for the date range selected above.
+- **"Days Present" vs. "Days With Hours Tracked"**: these sound similar but aren't the same. "Days Present" (Team Breakdown table) is a *team total* — every employee's tap-in days added together over the range (any tap counts, even without a matching exit), not a day count or headcount; 10 people averaging 20 attended days each over the range shows 200. "Days With Hours Tracked" only counts days with both an entry *and* an exit, since that's what's needed to calculate a real duration — Team Breakdown's Avg Duration and Short-Duration % are both rated against this, not against "Days Present", so a team with a lot of missing exits doesn't get an artificially low shortfall rate.
+- **Export to Excel** is available on Team Breakdown, the Daily Roster modal, and every drill-down modal (the exact rows on screen, not a separate report).
 
 ## User management
 
@@ -34,6 +49,7 @@ Navigate to **Settings**. These values are used throughout the system instead of
 - **Company Name** — appears on generated reports.
 - **Timezone** — should stay `Asia/Kolkata` unless the company's operating region changes; movement timestamps are computed against this.
 - **Email Sender Name** — the display name shown next to the sender's address on outgoing emails (not the address itself — that's whichever account sent it, see below).
+- **Shift Reference Start / End** and **Expected Daily Hours** — back the Insights screen's hours-shortfall metric. The start/end times are shown only as a reference window on charts (flexible timing means they're never a "late" cutoff); Expected Daily Hours is the one number actually compared against each employee's completed hours.
 
 Edit as many fields as you need, then click **Save all changes** once — it's greyed out until something's actually changed, and shows an "Unsaved changes" note while you're mid-edit so you don't lose track of what you've touched. Only the fields you actually changed are saved.
 

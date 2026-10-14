@@ -51,7 +51,20 @@ async function bootstrap() {
   // restarts/multiple instances. Cookie is httpOnly + secure in
   // production — never rely on hiding UI for security (spec §44).
   const PgSession = connectPgSimple(session);
-  const pgPool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
+  // Deliberately the direct (unpooled) connection, not DATABASE_URL — kept
+  // on the known-good session-mode connection while only Prisma's much
+  // larger share of traffic trials the transaction-mode pooler. See the
+  // comment on DATABASE_URL in .env / docs/decisions.md.
+  const pgPool = new Pool({ connectionString: process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL, max: 2 });
+  // node-postgres crashes the whole process on an unhandled 'error' event
+  // from an idle/background pool client (e.g. the shared Supabase pooler's
+  // connection-limit cap being hit) unless something is listening — this
+  // is that listener. Found 2026-10-14 during a real EMAXCONNSESSION
+  // incident that took the backend down; this alone doesn't fix pool
+  // exhaustion (see docs/roadmap.md), it just stops it from being fatal.
+  pgPool.on('error', (err) => {
+    console.error('Session store pool error (connection likely exhausted or dropped):', err.message);
+  });
 
   app.use(
     session({

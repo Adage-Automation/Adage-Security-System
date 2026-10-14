@@ -6,6 +6,7 @@ import { AdminNav } from '../components/AdminNav';
 import { TableSkeleton } from '../components/TableSkeleton';
 import { OfflineBadge } from '../components/OfflineBadge';
 import { todayIso, formatTime } from '../utils/date';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 function initials(name: string): string {
   return name
@@ -59,28 +60,9 @@ export function Corrections() {
 
   useEffect(loadRecords, [selected, date]);
 
-  useEffect(() => {
-    if (edit) modalCloseRef.current?.focus();
-    if (!edit) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !saving) setEdit(null);
-      if (event.key === 'Tab') {
-        const focusable = modalRef.current?.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
-        if (!focusable?.length) return;
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        if (event.shiftKey && document.activeElement === first) {
-          event.preventDefault();
-          last.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault();
-          first.focus();
-        }
-      }
-    };
-    document.addEventListener('keydown', closeOnEscape);
-    return () => document.removeEventListener('keydown', closeOnEscape);
-  }, [edit, saving]);
+  useFocusTrap(!!edit, modalRef, modalCloseRef, () => {
+    if (!saving) setEdit(null);
+  });
 
   // search-all includes inactive/deactivated employees — corrections must
   // still be possible for someone who has since left (spec §39/§42). A

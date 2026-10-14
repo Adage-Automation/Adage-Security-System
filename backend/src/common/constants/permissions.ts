@@ -9,6 +9,13 @@ export const PERMISSIONS = [
   'MANAGE_USERS',
   'MANAGE_SETTINGS',
   'CORRECT_RECORDS',
+  // Gates the HR/Admin Insights dashboard (attendance trends, working-hours
+  // distribution, unit/team breakdowns). Deliberately separate from
+  // VIEW_DASHBOARD — this is aggregated data about the whole workforce,
+  // more sensitive than the per-day table Security already sees, so it
+  // gets its own real permission rather than reusing an existing one or a
+  // UI-only role check. Added 2026-10-05.
+  'VIEW_REPORTS',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -26,6 +33,6 @@ export type RoleName = (typeof ROLES)[number];
 // cheap — no endpoint code changed, only this mapping.
 export const DEFAULT_ROLE_PERMISSIONS: Record<RoleName, Permission[]> = {
   SECURITY: ['RECORD_ENTRY', 'RECORD_EXIT', 'VIEW_DASHBOARD', 'VIEW_EMPLOYEE_HISTORY', 'SEND_EMAIL', 'DOWNLOAD_REPORT'],
-  HR: ['VIEW_DASHBOARD', 'VIEW_EMPLOYEE_HISTORY', 'SEND_EMAIL', 'DOWNLOAD_REPORT', 'MANAGE_EMPLOYEES'],
+  HR: ['VIEW_DASHBOARD', 'VIEW_EMPLOYEE_HISTORY', 'SEND_EMAIL', 'DOWNLOAD_REPORT', 'MANAGE_EMPLOYEES', 'VIEW_REPORTS'],
   ADMIN: [...PERMISSIONS],
 };

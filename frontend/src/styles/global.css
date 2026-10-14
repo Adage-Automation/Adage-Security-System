@@ -95,6 +95,25 @@ svg {
   }
 }
 
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Loading placeholder — a plain pulsing block standing in for text/chart
+   shapes that haven't arrived yet, instead of leaving that area blank while
+   the full-screen loading overlay is up. Direct user feedback, 2026-10-14. */
+.skeleton {
+  background: var(--border);
+  border-radius: var(--radius-sm);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
 .spinner {
   display: inline-block;
   width: 15px;
@@ -257,9 +276,9 @@ svg {
 }
 
 .page-wide {
-  max-width: 1100px;
+  max-width: 1440px;
   margin: 0 auto;
-  padding: 24px 16px 80px;
+  padding: 24px 24px 80px;
   animation: fadeSlideUp 0.28s ease;
 }
 
@@ -308,7 +327,14 @@ svg {
   margin-bottom: 20px;
 }
 
-.search-box .search-icon {
+/* Not scoped to .search-box — this icon is also used standalone (inside a
+   plain `position: relative` wrapper) wherever a compact .field-sized
+   search box needs it (Employees, Dashboard, Corrections, Insights'
+   Employee filter), each overriding left/width/height inline. Scoping this
+   to ".search-box .search-icon" left those callers with no position rule
+   at all, so the icon rendered inline above the input instead of inside
+   it. Found 2026-10-13, by request ("employee filter looks different"). */
+.search-icon {
   position: absolute;
   left: 16px;
   top: 50%;
@@ -357,6 +383,36 @@ svg {
 }
 
 .search-clear-btn:hover {
+  background: var(--brand-tint);
+  color: var(--brand-dark);
+}
+
+/* Same clear-button pattern as .search-clear-btn, shifted left of the
+   native <select>'s own dropdown arrow so the two don't overlap. */
+.select-clear-btn {
+  position: absolute;
+  right: 26px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 50%;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.select-clear-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+.select-clear-btn:hover {
   background: var(--brand-tint);
   color: var(--brand-dark);
 }
@@ -920,6 +976,10 @@ svg {
   grid-template-columns: repeat(4, 1fr);
 }
 
+.summary-cards-5 {
+  grid-template-columns: repeat(5, 1fr);
+}
+
 .summary-card.highlight {
   background: linear-gradient(160deg, var(--brand-tint), var(--card-bg));
   border-color: var(--brand-light);
@@ -1208,6 +1268,18 @@ table.records-table th {
     display: none;
   }
 
+  /* Insights (modals and the inline Team Breakdown table) never got a
+     per-table .record-cards mobile layout — it has 8+ different table
+     shapes (drill-downs, team breakdown, daily roster), unlike the single
+     row shape each of Dashboard/Employees/Corrections/Users/AuditLog has.
+     Hiding .records-table there with nothing to replace it made the data
+     invisible on a phone. Keep the table itself visible instead, with
+     horizontal scroll as a fallback only if a row's content is genuinely
+     too wide to wrap. Found in the 2026-10 mobile-modal audit. */
+  .insights-table-scope .records-table {
+    display: table;
+  }
+
   .record-cards {
     display: block;
   }
@@ -1239,7 +1311,8 @@ table.records-table th {
     gap: 8px;
   }
 
-  .nav-links a {
+  .nav-links a,
+  .nav-links button.link-button {
     flex: 1 1 calc(50% - 8px);
     justify-content: center;
   }
@@ -1276,7 +1349,8 @@ table.records-table th {
 }
 
 @media (min-width: 641px) and (max-width: 920px) {
-  .summary-cards-4 {
+  .summary-cards-4,
+  .summary-cards-5 {
     grid-template-columns: repeat(2, 1fr);
   }
 }
@@ -1360,7 +1434,8 @@ table.records-table th {
   margin-bottom: 20px;
 }
 
-.nav-links a {
+.nav-links a,
+.nav-links button.link-button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1372,15 +1447,19 @@ table.records-table th {
   text-decoration: none;
   font-weight: 600;
   font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 
-.nav-links a svg {
+.nav-links a svg,
+.nav-links button.link-button svg {
   width: 15px;
   height: 15px;
 }
 
-.nav-links a:hover {
+.nav-links a:hover,
+.nav-links button.link-button:hover {
   border-color: var(--brand-light);
   background: var(--brand-tint);
 }

@@ -13,6 +13,7 @@ describe('EmployeesController', () => {
     update: jest.Mock;
     setActive: jest.Mock;
     importFromExcel: jest.Mock;
+    getTeams: jest.Mock;
   };
 
   beforeEach(() => {
@@ -25,6 +26,7 @@ describe('EmployeesController', () => {
       update: jest.fn(),
       setActive: jest.fn(),
       importFromExcel: jest.fn(),
+      getTeams: jest.fn(),
     };
 
     controller = new EmployeesController(employeesService as unknown as EmployeesService);
@@ -35,7 +37,15 @@ describe('EmployeesController', () => {
     employeesService.search.mockResolvedValue(rows);
 
     await expect(controller.search('ADG')).resolves.toEqual(rows);
-    expect(employeesService.search).toHaveBeenCalledWith('ADG');
+    expect(employeesService.search).toHaveBeenCalledWith('ADG', undefined);
+  });
+
+  it('scopes active employee search to a team when given', async () => {
+    const rows = [{ id: 1, employeeCode: 'ADG1024', team: 'AI & Digitalization' }];
+    employeesService.search.mockResolvedValue(rows);
+
+    await expect(controller.search('', 'AI & Digitalization')).resolves.toEqual(rows);
+    expect(employeesService.search).toHaveBeenCalledWith('', 'AI & Digitalization');
   });
 
   it('searches inactive employees for admin corrections', async () => {
@@ -110,5 +120,10 @@ describe('EmployeesController', () => {
   it('rejects an import request with no file attached', async () => {
     await expect(controller.import(undefined as any, { id: 9 })).rejects.toThrow(BadRequestException);
     expect(employeesService.importFromExcel).not.toHaveBeenCalled();
+  });
+
+  it('returns the fixed team list', () => {
+    employeesService.getTeams.mockReturnValue(['Testing', 'Admin']);
+    expect(controller.getTeams()).toEqual(['Testing', 'Admin']);
   });
 });

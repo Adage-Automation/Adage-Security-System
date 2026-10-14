@@ -53,6 +53,8 @@ backend/src/
 ├── email/           Microsoft Graph API wrapper (OAuth2, via Adage's Microsoft 365 tenant) — the only place that sends email
 ├── audit-logs/      write-through audit trail, read endpoint for admins
 ├── settings/        key/value system config (company name, timezone, sender name)
+├── insights/        HR/Admin-only (VIEW_REPORTS) read-only analytics — attendance trends, department comparison,
+│                    per-employee drill-down, all computed live from movement_records, never a separate table
 ├── health/          GET /health — public, real DB round trip; reachability check + external keep-alive target
 ├── common/          shared decorators (CurrentUser, RequirePermissions), guards, permission constants
 └── prisma/          PrismaService — single DB client, globally injected

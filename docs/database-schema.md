@@ -50,6 +50,8 @@ One row per login account. `passwordHash` is Argon2 — never store or log a pla
 
 The people being tracked — distinct from `users` (a guard is a `User`; the people they check in are `Employee` rows, and usually never log in at all). `employeeCode` is the human-facing ID (e.g. `ADG1024`) and is unique **at the DB level case-sensitively**; `EmployeesService` additionally checks both `employeeCode` and `email` for a case-insensitive duplicate before create/update (app-level, not a DB constraint — search everywhere already matches case-insensitively, so this closes a gap where "EMP001"/"emp001" could otherwise both exist). `email` and `carNumber` are nullable because those details may be added later; `email` has no DB uniqueness constraint at all, only the app-level check above. `carNumber` is mapped to the `car_number` column and indexed for case-insensitive employee search. `isActive = false` (never a hard delete) hides the employee from the guard's search but keeps all historical `movement_records` intact and keeps them selectable in the admin correction flow.
 
+`team` (added 2026-10-05, nullable, indexed) backs the HR/Admin Insights team-wise breakdown. Validated at the DTO/service layer against the fixed `TEAMS` list in `backend/src/common/constants/teams.ts`, not a DB enum — not a schema constraint, so the list can change without another migration. Every employee had `team = NULL` immediately after the migration (an `ADD COLUMN`, metadata-only in Postgres — no existing row rewritten) and stays that way until set via the Add/Edit Employee "Team" dropdown or the bulk-import Team column. See [decisions.md](./decisions.md#hrmanager-insights-dashboard-team-wise-breakdown-and-the-hours-shortfall-metric).
+
 ## `movement_records` — the core table
 
 One row **per movement event**. This is deliberately an event log, not a slot-based row (`morning_entry`, `lunch_exit`, etc.) — see [decisions.md](./decisions.md#event-log-not-slots). An employee can have unlimited ENTRY/EXIT rows on the same day.
@@ -74,6 +76,8 @@ Append-only trail *at the application level* — the running app never deletes o
 ## `settings`
 
 Plain key/value table (`key` is the primary key). Avoids hard-coding `COMPANY_NAME`, `TIMEZONE`, `EMAIL_SENDER_NAME` anywhere in application code. (No security-email key — with multiple security units, both the "from" and the CC on an emailed report are the sending account's own login email, not a global setting; see [decisions.md](./decisions.md#security-cc-is-the-sending-accounts-own-email-not-a-global-setting) and [decisions.md](./decisions.md#dynamic-email-sender-from-is-also-the-sending-accounts-own-email-not-just-cc).)
+
+`SHIFT_REFERENCE_START` / `SHIFT_REFERENCE_END` / `EXPECTED_DAILY_HOURS` (added 2026-10-05) back the Insights hours-shortfall metric — see [decisions.md](./decisions.md#hrmanager-insights-dashboard-team-wise-breakdown-and-the-hours-shortfall-metric) for why the reference window is informational only, never a "late" cutoff.
 
 ## `session` (created automatically)
 

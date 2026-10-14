@@ -15,6 +15,7 @@ import { RolesModule } from './roles/roles.module';
 import { PermissionsModule } from './permissions/permissions.module';
 import { SettingsModule } from './settings/settings.module';
 import { HealthModule } from './health/health.module';
+import { InsightsModule } from './insights/insights.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { HealthModule } from './health/health.module';
     PermissionsModule,
     SettingsModule,
     HealthModule,
+    InsightsModule,
   ],
   providers: [
     // @Throttle(...) on individual routes only sets metadata — without a

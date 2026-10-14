@@ -64,6 +64,25 @@ async function main() {
     update: {},
     create: { key: 'EMAIL_SENDER_NAME', value: 'Adage Security System' },
   });
+  // Reference shift window for Insights charts — informational only
+  // (flexible timing, not a clock-in deadline). update: {} so re-running
+  // this seed never overwrites a value an admin has already changed via
+  // the Settings screen.
+  await prisma.setting.upsert({
+    where: { key: 'SHIFT_REFERENCE_START' },
+    update: {},
+    create: { key: 'SHIFT_REFERENCE_START', value: '09:30' },
+  });
+  await prisma.setting.upsert({
+    where: { key: 'SHIFT_REFERENCE_END' },
+    update: {},
+    create: { key: 'SHIFT_REFERENCE_END', value: '18:30' },
+  });
+  await prisma.setting.upsert({
+    where: { key: 'EXPECTED_DAILY_HOURS' },
+    update: {},
+    create: { key: 'EXPECTED_DAILY_HOURS', value: '9' },
+  });
 
   // Dev-only users. Passwords are dev defaults ONLY — never reuse in production.
   const devPassword = await argon2.hash('ChangeMe123!');

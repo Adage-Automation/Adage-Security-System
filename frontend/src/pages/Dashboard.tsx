@@ -4,10 +4,14 @@ import { api } from '../api/client';
 import { Employee, MovementRecord, MovementType } from '../types';
 import { IconGrid, IconUsers, IconEntry, IconExit, IconInbox, IconChevronRight, IconDoorOpen, IconX } from '../components/icons';
 import { AdminNav } from '../components/AdminNav';
+import { EmployeeLink } from '../components/EmployeeLink';
 import { TableSkeleton } from '../components/TableSkeleton';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import { OfflineBadge } from '../components/OfflineBadge';
 import { WelcomeBanner } from '../components/WelcomeBanner';
 import { useAuth } from '../auth/useAuth';
+import { useScrollRestoration } from '../hooks/useScrollRestoration';
+import { saveSessionState, loadSessionState } from '../utils/sessionState';
 import { todayIso, isoDaysAgo, formatTime } from '../utils/date';
 
 type SummaryCardKind = 'employees' | 'entries' | 'exits' | 'inside';
@@ -47,13 +51,34 @@ function canViewSummaryDetails(role: string | undefined): boolean {
   return role === 'ADMIN' || role === 'HR';
 }
 
+const FILTERS_KEY = 'dashboard:filters';
+
 export function Dashboard() {
   const { user } = useAuth();
-  const [date, setDate] = useState(todayIso());
+  // Restored from sessionStorage so navigating to an employee's day and
+  // coming back lands on the same filters, not a reset-to-today page.
+  const [restoredFilters] = useState(() =>
+    loadSessionState<{ date: string; movementType: '' | MovementType; selectedEmployee: Employee | null; recordedByUserId: string }>(FILTERS_KEY, {
+      date: todayIso(),
+      movementType: '',
+      selectedEmployee: null,
+      recordedByUserId: '',
+    }),
+  );
+  const [date, setDate] = useState(restoredFilters.date);
   const [employeeQuery, setEmployeeQuery] = useState('');
   const [employeeResults, setEmployeeResults] = useState<Employee[]>([]);
-  const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
-  const [movementType, setMovementType] = useState<'' | MovementType>('');
+  const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(restoredFilters.selectedEmployee);
+  const [movementType, setMovementType] = useState<'' | MovementType>(restoredFilters.movementType);
+  // "Recorded By" filter — lets HR/Security filter the table down to just
+  // one security unit (e.g. "just Unit 1"), same filter-bar-dropdown
+  // pattern as Movement/Team/Unit filters elsewhere in the app. Options
+  // are discovered from whichever accounts have actually recorded a
+  // movement on the selected date (see the effect below) rather than a
+  // dedicated "list security units" endpoint — Security role doesn't
+  // hold MANAGE_USERS, so /users isn't available here to source it from.
+  const [recordedByUserId, setRecordedByUserId] = useState(restoredFilters.recordedByUserId);
+  const [recordedByOptions, setRecordedByOptions] = useState<Array<{ id: number; name: string }>>([]);
   const [records, setRecords] = useState<MovementRecord[]>([]);
   // Distinguishes "haven't heard back yet" from "heard back, genuinely
   // empty" — without this, the empty state briefly flashes on every
@@ -78,6 +103,22 @@ export function Dashboard() {
   const [summaryModalLoading, setSummaryModalLoading] = useState(false);
   const summaryModalCloseRef = useRef<HTMLButtonElement>(null);
   const summaryModalRef = useRef<HTMLDivElement>(null);
+
+  // Client-side paging — a day's movements are already fetched in one
+  // shot (bounded to one day, not unbounded growth), so there's no need
+  // for a backend/API change just to cap how many rows render at once.
+  const PAGE_SIZE = 25;
+  const [page, setPage] = useState(1);
+  const pageCount = Math.max(1, Math.ceil(records.length / PAGE_SIZE));
+  const pagedRecords = records.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  // Clamp if a poll shrinks the list (e.g. a correction removed a row)
+  // while on a now out-of-range page, instead of showing a blank page.
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
+
+  useScrollRestoration('dashboard', !recordsLoading);
   // Guards against a slower response for an earlier-opened card landing
   // after a faster response for one opened right after it, overwriting the
   // modal with the wrong list — same monotonic-sequence pattern already
@@ -89,6 +130,7 @@ export function Dashboard() {
 
   function openSummaryModal(kind: SummaryCardKind) {
     setSummaryModal(kind);
+    saveSessionState('dashboard:openModal', kind);
     setSummaryModalLoading(true);
     const seq = ++summaryModalSeqRef.current;
     api
@@ -104,56 +146,105 @@ export function Dashboard() {
       });
   }
 
+  function closeSummaryModal() {
+    setSummaryModal(null);
+    saveSessionState('dashboard:openModal', null);
+  }
+
+  // Persist filters so coming back from an employee's day (via the back
+  // button on that page) restores the same view instead of a
+  // reset-to-today page. The open modal is saved explicitly in
+  // openSummaryModal/closeSummaryModal above, not reactively here — a
+  // reactive effect on [summaryModal] would fire on this same mount
+  // (initial value null) and overwrite the saved kind before the reopen
+  // effect below gets a chance to read it.
   useEffect(() => {
-    if (summaryModal) summaryModalCloseRef.current?.focus();
-    if (!summaryModal) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setSummaryModal(null);
-      if (event.key === 'Tab') {
-        const focusable = summaryModalRef.current?.querySelectorAll<HTMLElement>(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-        );
-        if (!focusable?.length) return;
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        if (event.shiftKey && document.activeElement === first) {
-          event.preventDefault();
-          last.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault();
-          first.focus();
-        }
-      }
-    };
-    document.addEventListener('keydown', closeOnEscape);
-    return () => document.removeEventListener('keydown', closeOnEscape);
-  }, [summaryModal]);
+    saveSessionState(FILTERS_KEY, { date, movementType, selectedEmployee, recordedByUserId });
+  }, [date, movementType, selectedEmployee, recordedByUserId]);
+
+  // Reopen whatever modal was open before navigating away — runs once,
+  // using the restored date already in place by this point.
+  useEffect(() => {
+    const savedModal = loadSessionState<SummaryCardKind | null>('dashboard:openModal', null);
+    if (savedModal) openSummaryModal(savedModal);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useFocusTrap(!!summaryModal, summaryModalRef, summaryModalCloseRef, closeSummaryModal);
 
   const summaryModalConfig: Record<SummaryCardKind, { title: string; rows: MovementRecord[]; showTime: boolean }> = {
-    employees: { title: 'Total Employees', rows: getSummaryModalRows('employees', summaryModalRecords), showTime: false },
+    employees: { title: 'Employees Present', rows: getSummaryModalRows('employees', summaryModalRecords), showTime: false },
     entries: { title: 'Total Entries', rows: getSummaryModalRows('entries', summaryModalRecords), showTime: true },
     exits: { title: 'Total Exits', rows: getSummaryModalRows('exits', summaryModalRecords), showTime: true },
     inside: { title: isToday ? 'Currently Inside' : 'Not Exited By End Of Day', rows: getSummaryModalRows('inside', summaryModalRecords), showTime: true },
   };
 
-  useEffect(() => {
+  const fetchSummary = useCallback(() => {
     api
       .get<{ totalEmployees: number; totalEntries: number; totalExits: number; currentlyInside: number }>(`/dashboard/summary?date=${date}`)
       .then(setSummary)
       .catch(() => setSummary(null));
   }, [date]);
 
+  const fetchRecords = useCallback(
+    (showSkeleton: boolean) => {
+      if (showSkeleton) setRecordsLoading(true);
+      const params = new URLSearchParams({ date });
+      if (selectedEmployee) params.set('employeeId', String(selectedEmployee.id));
+      if (movementType) params.set('movementType', movementType);
+      if (recordedByUserId) params.set('recordedByUserId', recordedByUserId);
+      api
+        .get<MovementRecord[]>(`/movements?${params.toString()}`)
+        .then(setRecords)
+        .catch(() => setRecords([]))
+        .finally(() => {
+          if (showSkeleton) setRecordsLoading(false);
+        });
+    },
+    [date, selectedEmployee, movementType, recordedByUserId],
+  );
+
+  // Discovers "Recorded By" dropdown options from whoever actually
+  // recorded a movement on this date — independent of the current
+  // recordedByUserId filter itself, so picking a unit doesn't make the
+  // other units disappear from the dropdown. Re-runs only when the date
+  // changes, same seeding pattern Insights uses for its Unit filter.
   useEffect(() => {
-    setRecordsLoading(true);
-    const params = new URLSearchParams({ date });
-    if (selectedEmployee) params.set('employeeId', String(selectedEmployee.id));
-    if (movementType) params.set('movementType', movementType);
     api
-      .get<MovementRecord[]>(`/movements?${params.toString()}`)
-      .then(setRecords)
-      .catch(() => setRecords([]))
-      .finally(() => setRecordsLoading(false));
-  }, [date, selectedEmployee, movementType]);
+      .get<MovementRecord[]>(`/movements?date=${date}`)
+      .then((res) => {
+        const byId = new Map<number, string>();
+        for (const r of res) {
+          if (r.recordedBy) byId.set(r.recordedBy.id, r.recordedBy.name);
+        }
+        setRecordedByOptions([...byId.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)));
+      })
+      .catch(() => setRecordedByOptions([]));
+  }, [date]);
+
+  useEffect(() => {
+    fetchSummary();
+  }, [fetchSummary]);
+
+  useEffect(() => {
+    fetchRecords(true);
+    setPage(1);
+  }, [fetchRecords]);
+
+  // Auto-refresh: Security keeps recording ENTRY/EXIT taps while an
+  // HR/Admin user may be sitting on this same page for a while, so a
+  // static snapshot goes stale. Polls quietly (no skeleton flash) every
+  // 30s, skipping while the summary-card modal is open (don't want its
+  // list changing under the user mid-read) or the tab isn't visible
+  // (no point spending a request on a backgrounded tab).
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (summaryModal || document.visibilityState !== 'visible') return;
+      fetchSummary();
+      fetchRecords(false);
+    }, 30_000);
+    return () => clearInterval(interval);
+  }, [summaryModal, fetchSummary, fetchRecords]);
 
   // A blank query returns a browse list of the first 10 active employees
   // (backend change, 2026-09-21) instead of nothing, so the dropdown shows
@@ -208,7 +299,7 @@ export function Dashboard() {
         <div className="summary-cards summary-cards-4">
           {(
             [
-              { kind: 'employees' as const, icon: <IconUsers />, value: summary.totalEmployees, label: 'Total Employees', highlight: false },
+              { kind: 'employees' as const, icon: <IconUsers />, value: summary.totalEmployees, label: 'Employees Present', highlight: false },
               { kind: 'entries' as const, icon: <IconEntry style={{ color: 'var(--entry-green)' }} />, value: summary.totalEntries, label: 'Total Entries', highlight: false },
               { kind: 'exits' as const, icon: <IconExit style={{ color: 'var(--exit-red)' }} />, value: summary.totalExits, label: 'Total Exits', highlight: false },
               {
@@ -288,7 +379,7 @@ export function Dashboard() {
                     }}
                   >
                     <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontWeight: 600 }}>{r.employee?.employeeName}</div>
+                      <EmployeeLink employeeId={r.employeeId} employeeName={r.employee?.employeeName ?? ''} date={date} />
                       <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{r.employee?.employeeCode}</div>
                       {r.recordedBy?.name && (
                         <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Recorded by: {r.recordedBy.name}</div>
@@ -305,7 +396,7 @@ export function Dashboard() {
             )}
 
             <div className="modal-actions" style={{ marginTop: 16 }}>
-              <button ref={summaryModalCloseRef} type="button" className="cancel-btn" onClick={() => setSummaryModal(null)}>
+              <button ref={summaryModalCloseRef} type="button" className="cancel-btn" onClick={closeSummaryModal}>
                 Close
               </button>
             </div>
@@ -392,6 +483,19 @@ export function Dashboard() {
             </select>
           </label>
         </div>
+        <div className="field">
+          <label>
+            Recorded By
+            <select value={recordedByUserId} onChange={(e) => setRecordedByUserId(e.target.value)}>
+              <option value="">All</option>
+              {recordedByOptions.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
         {selectedEmployee && (
           <div style={{ display: 'flex', alignItems: 'flex-end' }}>
             <Link
@@ -420,12 +524,10 @@ export function Dashboard() {
               </tr>
             </thead>
             <tbody>
-              {records.map((r) => (
+              {pagedRecords.map((r) => (
                 <tr key={r.id}>
                   <td>
-                    <Link className="employee-name-link" to={`/employee-details?employeeId=${r.employeeId}&date=${date}`}>
-                      {r.employee?.employeeName}
-                    </Link>
+                    <EmployeeLink employeeId={r.employeeId} employeeName={r.employee?.employeeName ?? ''} date={date} />
                   </td>
                   <td>{new Date(r.movementAt).toLocaleDateString('en-IN')}</td>
                   <td>
@@ -440,12 +542,10 @@ export function Dashboard() {
           </table>
 
           <div className="record-cards">
-            {records.map((r) => (
+            {pagedRecords.map((r) => (
               <div className="record-card" key={r.id}>
                 <div>
-                  <Link className="employee-name-link" to={`/employee-details?employeeId=${r.employeeId}&date=${date}`}>
-                    <strong>{r.employee?.employeeName}</strong>
-                  </Link>
+                  <EmployeeLink employeeId={r.employeeId} employeeName={r.employee?.employeeName ?? ''} date={date} />
                   <div style={{ fontSize: 12, color: '#666' }}>
                     {new Date(r.movementAt).toLocaleString('en-IN')}
                     {r.recordedOffline && <OfflineBadge />}
@@ -455,6 +555,20 @@ export function Dashboard() {
               </div>
             ))}
           </div>
+
+          {pageCount > 1 && (
+            <div className="action-row" style={{ alignItems: 'center', justifyContent: 'center' }}>
+              <button type="button" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+                Previous
+              </button>
+              <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                Page {page} of {pageCount} ({records.length} records)
+              </span>
+              <button type="button" disabled={page >= pageCount} onClick={() => setPage((p) => p + 1)}>
+                Next
+              </button>
+            </div>
+          )}
         </>
       )}
 

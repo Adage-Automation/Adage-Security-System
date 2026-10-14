@@ -5,6 +5,7 @@ import { AdminNav } from '../components/AdminNav';
 import { PasswordInput } from '../components/PasswordInput';
 import { TableSkeleton } from '../components/TableSkeleton';
 import { useAuth } from '../auth/useAuth';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface UserRow {
   id: number;
@@ -77,35 +78,11 @@ export function Users() {
 
   // Same focus + Escape + Tab-trap pattern already used by Employees.tsx's
   // edit modal — only one of the two modals here is ever open at a time,
-  // so both share this single effect.
-  useEffect(() => {
-    if (activeModal) modalFirstFieldRef.current?.focus();
-    if (!activeModal) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        if (editing && !editSaving) setEditing(null);
-        if (resetting && !resetSaving) setResetting(null);
-      }
-      if (event.key === 'Tab') {
-        const focusable = modalRef.current?.querySelectorAll<HTMLElement>(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-        );
-        if (!focusable?.length) return;
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        if (event.shiftKey && document.activeElement === first) {
-          event.preventDefault();
-          last.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault();
-          first.focus();
-        }
-      }
-    };
-    document.addEventListener('keydown', closeOnEscape);
-    return () => document.removeEventListener('keydown', closeOnEscape);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeModal]);
+  // so both share this single hook call.
+  useFocusTrap(!!activeModal, modalRef, modalFirstFieldRef, () => {
+    if (editing && !editSaving) setEditing(null);
+    if (resetting && !resetSaving) setResetting(null);
+  });
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault();

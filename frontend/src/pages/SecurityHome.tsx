@@ -7,6 +7,7 @@ import { Employee, CreateMovementResponse, MovementType } from '../types';
 import { enqueueMovement, listPendingMovements, removePendingMovement, updatePendingMovement } from '../offline/movementQueue';
 import { refreshEmployeeCache, searchEmployeeCache, hasEmployeeCache } from '../offline/employeeCache';
 import { WelcomeBanner } from '../components/WelcomeBanner';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import {
   IconSearch,
   IconEntry,
@@ -375,31 +376,7 @@ export function SecurityHome() {
     return () => document.removeEventListener('mousedown', closeIfOutside);
   }, [dropdownOpen]);
 
-  useEffect(() => {
-    if (confirmDialog) confirmButtonRef.current?.focus();
-  }, [confirmDialog]);
-
-  useEffect(() => {
-    if (!confirmDialog) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setConfirmDialog(null);
-      if (event.key === 'Tab') {
-        const focusable = confirmDialogRef.current?.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
-        if (!focusable?.length) return;
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        if (event.shiftKey && document.activeElement === first) {
-          event.preventDefault();
-          last.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault();
-          first.focus();
-        }
-      }
-    };
-    document.addEventListener('keydown', closeOnEscape);
-    return () => document.removeEventListener('keydown', closeOnEscape);
-  }, [confirmDialog]);
+  useFocusTrap(!!confirmDialog, confirmDialogRef, confirmButtonRef, () => setConfirmDialog(null));
 
   function selectEmployee(emp: Employee) {
     setSelected(emp);

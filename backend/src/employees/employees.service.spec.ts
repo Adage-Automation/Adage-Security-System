@@ -55,6 +55,22 @@ describe('EmployeesService search', () => {
       orderBy: { employeeName: 'asc' },
     });
   });
+
+  // Scoping must happen before the take:10 cap, or a team filter applied
+  // afterward (e.g. client-side) could miss real team members outside the
+  // first page of alphabetical active employees. Found 2026-10-13 when
+  // Insights' Team filter hid real team members from the Employee dropdown.
+  it('scopes to a team before applying the result cap', async () => {
+    prisma.employee.findMany.mockResolvedValue([]);
+
+    await service.search('', 'AI & Digitalization');
+
+    expect(prisma.employee.findMany).toHaveBeenCalledWith({
+      where: { isActive: true, team: 'AI & Digitalization' },
+      take: 10,
+      orderBy: { employeeName: 'asc' },
+    });
+  });
 });
 
 // A caller could otherwise pass an arbitrarily large `take` and force one
@@ -183,6 +199,29 @@ describe('EmployeesService create/update — case-insensitive uniqueness', () =>
       data: { employeeCode: 'EMP004', employeeName: 'New Person', email: 'new@example.com', carNumber: 'MH12 AB1234' },
     });
   });
+
+  // Team dropdown added 2026-10-05 for Insights' team-wise breakdown —
+  // follows the exact same leave-alone/clear convention already
+  // established for email/carNumber above.
+  it('passes team through as-is on create', async () => {
+    prisma.employee.findFirst.mockResolvedValue(null);
+    prisma.employee.create.mockResolvedValue({ id: 5 });
+
+    await service.create({ employeeCode: 'EMP005', employeeName: 'Someone', team: 'Testing' } as any, 1);
+
+    expect(prisma.employee.create).toHaveBeenCalledWith({ data: expect.objectContaining({ team: 'Testing' }) });
+  });
+
+  it('clears team when update sends null, leaves it alone when omitted', async () => {
+    prisma.employee.findUnique.mockResolvedValue({ id: 1, employeeCode: 'EMP001', employeeName: 'Someone' });
+    prisma.employee.update.mockResolvedValue({ id: 1 });
+
+    await service.update(1, { team: null } as any, 1);
+    expect(prisma.employee.update).toHaveBeenLastCalledWith({ where: { id: 1 }, data: expect.objectContaining({ team: null }) });
+
+    await service.update(1, { employeeName: 'New Name' } as any, 1);
+    expect(prisma.employee.update).toHaveBeenLastCalledWith({ where: { id: 1 }, data: { employeeName: 'New Name', email: undefined, carNumber: undefined, team: undefined } });
+  });
 });
 
 // Bulk import — row-by-row so one bad row doesn't block the rest. Found in
@@ -274,5 +313,34 @@ describe('EmployeesService importFromExcel', () => {
     const buffer = await buildWorkbook(['Code', 'Full Name'], [['EMP501', 'Someone']]);
 
     await expect(service.importFromExcel(buffer, 1)).rejects.toThrow('Employee Code" and "Name" columns');
+  });
+
+  it('imports a valid Team value, matched case-insensitively', async () => {
+    const buffer = await buildWorkbook(
+      ['Employee Code', 'Name', 'Email', 'Car Number', 'Team'],
+      [['EMP601', 'Team Member', '', '', 'testing']], // lowercase, should resolve to canonical "Testing"
+    );
+
+    const result = await service.importFromExcel(buffer, 1);
+
+    expect(result.created).toBe(1);
+    expect(prisma.employee.create).toHaveBeenCalledWith({ data: expect.objectContaining({ team: 'Testing' }) });
+  });
+
+  it('skips a row with an unrecognized Team value, without blocking other rows', async () => {
+    const buffer = await buildWorkbook(
+      ['Employee Code', 'Name', 'Email', 'Car Number', 'Team'],
+      [
+        ['EMP602', 'Bad Team', '', '', 'Marketing Dept'], // not in TEAMS
+        ['EMP603', 'Good Row', '', '', ''],
+      ],
+    );
+
+    const result = await service.importFromExcel(buffer, 1);
+
+    expect(result.created).toBe(1);
+    expect(result.skipped).toBe(1);
+    expect(result.results[0]).toMatchObject({ status: 'skipped', reason: expect.stringContaining('not a recognized Team') });
+    expect(result.results[1]).toMatchObject({ status: 'created' });
   });
 });

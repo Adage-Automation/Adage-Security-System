@@ -5,6 +5,8 @@ import { IconUsers, IconSearch, IconInbox, IconX, IconCheckCircle, IconDownload,
 import { AdminNav } from '../components/AdminNav';
 import { TableSkeleton } from '../components/TableSkeleton';
 import { BackToTop } from '../components/BackToTop';
+import { useFocusTrap } from '../hooks/useFocusTrap';
+import { downloadFile } from '../utils/downloadFile';
 
 const PAGE_SIZE = 50;
 
@@ -28,9 +30,14 @@ export function Employees() {
   const [query, setQuery] = useState('');
   const [skip, setSkip] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [form, setForm] = useState({ employeeCode: '', employeeName: '', email: '', carNumber: '' });
+  const [form, setForm] = useState({ employeeCode: '', employeeName: '', email: '', carNumber: '', team: '' });
   const [editing, setEditing] = useState<Employee | null>(null);
-  const [editForm, setEditForm] = useState({ employeeName: '', email: '', carNumber: '' });
+  const [editForm, setEditForm] = useState({ employeeName: '', email: '', carNumber: '', team: '' });
+  // Fetched once from the backend (GET /employees/teams) rather than a
+  // second hardcoded copy of the list, so the dropdown can never drift out
+  // of sync with the backend's TEAMS constant (the actual source of truth
+  // and validation).
+  const [teams, setTeams] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -64,57 +71,11 @@ export function Employees() {
     setError(null);
   }
 
-  useEffect(() => {
-    if (editing) editFirstFieldRef.current?.focus();
-    if (!editing) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') closeEditModal();
-      if (event.key === 'Tab') {
-        const focusable = editModalRef.current?.querySelectorAll<HTMLElement>(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-        );
-        if (!focusable?.length) return;
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        if (event.shiftKey && document.activeElement === first) {
-          event.preventDefault();
-          last.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault();
-          first.focus();
-        }
-      }
-    };
-    document.addEventListener('keydown', closeOnEscape);
-    return () => document.removeEventListener('keydown', closeOnEscape);
-  }, [editing]);
+  useFocusTrap(!!editing, editModalRef, editFirstFieldRef, closeEditModal);
 
   // Same modal-focus pattern as the edit modal above, for the import
   // results summary.
-  useEffect(() => {
-    if (importResult) importModalCloseRef.current?.focus();
-    if (!importResult) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setImportResult(null);
-      if (event.key === 'Tab') {
-        const focusable = importModalRef.current?.querySelectorAll<HTMLElement>(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-        );
-        if (!focusable?.length) return;
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        if (event.shiftKey && document.activeElement === first) {
-          event.preventDefault();
-          last.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault();
-          first.focus();
-        }
-      }
-    };
-    document.addEventListener('keydown', closeOnEscape);
-    return () => document.removeEventListener('keydown', closeOnEscape);
-  }, [importResult]);
+  useFocusTrap(!!importResult, importModalRef, importModalCloseRef, () => setImportResult(null));
 
   function load(reset: boolean) {
     setLoading(true);
@@ -144,6 +105,13 @@ export function Employees() {
       });
   }
 
+  useEffect(() => {
+    api
+      .get<string[]>('/employees/teams')
+      .then(setTeams)
+      .catch(() => setTeams([]));
+  }, []);
+
   // Reload from the top whenever the search query changes — the roster
   // grew to 205 employees (2026-09-09), so an un-filterable, un-paginated
   // list would silently hide everyone past the first page. Debounced to
@@ -169,8 +137,9 @@ export function Employees() {
         employeeName: form.employeeName.trim(),
         email: form.email.trim() || undefined,
         carNumber: form.carNumber.trim() || undefined,
+        team: form.team || undefined,
       });
-      setForm({ employeeCode: '', employeeName: '', email: '', carNumber: '' });
+      setForm({ employeeCode: '', employeeName: '', email: '', carNumber: '', team: '' });
       // The list resets to page 1 (sorted by name) below — with 200+
       // employees, a newly added one might not even land in the first 50
       // rows, and the form clearing silently was the only prior feedback.
@@ -226,7 +195,7 @@ export function Employees() {
 
   function startEditing(emp: Employee) {
     setEditing(emp);
-    setEditForm({ employeeName: emp.employeeName, email: emp.email ?? '', carNumber: emp.carNumber ?? '' });
+    setEditForm({ employeeName: emp.employeeName, email: emp.email ?? '', carNumber: emp.carNumber ?? '', team: emp.team ?? '' });
     setError(null);
   }
 
@@ -243,6 +212,7 @@ export function Employees() {
         // it. See EmployeesService.update.
         email: editForm.email.trim() || null,
         carNumber: editForm.carNumber.trim() || null,
+        team: editForm.team || null,
       });
       // Same reasoning as toggleActive above — patch this one row instead
       // of reloading from page 1 and losing "Load More" progress.
@@ -253,29 +223,11 @@ export function Employees() {
     }
   }
 
-  // The api client (frontend/src/api/client.ts) always parses JSON, so a
-  // binary .xlsx download needs its own fetch call rather than going
-  // through it — same reasoning as the PDF/PNG report downloads on the
-  // backend, just triggered from here instead of a direct link so the
-  // session cookie (credentials: 'include') is sent.
   async function handleExport() {
     setExporting(true);
     setError(null);
     try {
-      const res = await fetch('/api/employees/export', { credentials: 'include' });
-      if (!res.ok) {
-        redirectOnSessionExpired(res.status);
-        throw new Error('Failed to export employees.');
-      }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `employees-${new Date().toISOString().slice(0, 10)}.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      await downloadFile('/api/employees/export', `employees-${new Date().toISOString().slice(0, 10)}.xlsx`);
     } catch (err: any) {
       setError(err?.message ?? 'Failed to export employees.');
     } finally {
@@ -400,6 +352,19 @@ export function Employees() {
               <input value={form.carNumber} onChange={(e) => setForm({ ...form, carNumber: e.target.value })} placeholder="Leave blank if not known yet" />
             </label>
           </div>
+          <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
+            <label>
+              Team (optional)
+              <select value={form.team} onChange={(e) => setForm({ ...form, team: e.target.value })}>
+                <option value="">Not set</option>
+                {teams.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           <div className="form-actions" style={{ display: 'flex', alignItems: 'flex-end' }}>
             <button type="submit" className="primary-button" style={{ width: 'auto', padding: '12px 20px' }} disabled={creating}>
               {creating && <span className="spinner" />}
@@ -438,7 +403,7 @@ export function Employees() {
         </div>
       </div>
 
-      {loading && employees.length === 0 && <TableSkeleton columns={6} />}
+      {loading && employees.length === 0 && <TableSkeleton columns={7} />}
 
       {employees.length > 0 && (
         <>
@@ -449,6 +414,7 @@ export function Employees() {
                 <th>Name</th>
                 <th>Email</th>
                 <th>Car Number</th>
+                <th>Team</th>
                 <th>Status</th>
                 <th></th>
               </tr>
@@ -460,6 +426,7 @@ export function Employees() {
                   <td>{emp.employeeName}</td>
                   <td>{emp.email ?? <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
                   <td>{emp.carNumber ?? <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
+                  <td>{emp.team ?? <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
                   <td>
                     <span className={`status-pill ${emp.isActive ? 'active' : 'inactive'}`}>
                       {emp.isActive ? 'Active' : 'Inactive'}
@@ -493,6 +460,7 @@ export function Employees() {
                 <div style={{ fontSize: 13 }}>
                   {emp.email ?? <span style={{ color: 'var(--text-muted)' }}>No email</span>}
                   {emp.carNumber ? ` · ${emp.carNumber}` : ''}
+                  {emp.team ? ` · ${emp.team}` : ''}
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button className="table-action-btn" onClick={() => startEditing(emp)} style={{ flex: 1 }}>
@@ -562,6 +530,19 @@ export function Employees() {
                 <label>
                   Car Number (optional)
                   <input value={editForm.carNumber} onChange={(e) => setEditForm({ ...editForm, carNumber: e.target.value })} />
+                </label>
+              </div>
+              <div className="field">
+                <label>
+                  Team (optional)
+                  <select value={editForm.team} onChange={(e) => setEditForm({ ...editForm, team: e.target.value })}>
+                    <option value="">Not set</option>
+                    {teams.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
                 </label>
               </div>
               {error && <div className="error-text">{error}</div>}

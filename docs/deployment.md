@@ -56,7 +56,7 @@ If the app goes quiet for 60+ days and the GitHub Actions pinger silently stops,
 ### Setting up Supabase
 
 1. Create a project at [supabase.com](https://supabase.com), region **Mumbai (ap-south-1)**.
-2. **Database**: Project Settings → Database → Connection string (use the "Transaction" pooler string for the app; direct connection for migrations if needed) → set as `DATABASE_URL`.
+2. **Database**: Project Settings → Database → Connection string. Set the **"Transaction" pooler string** (port 6543, add `?pgbouncer=true`) as `DATABASE_URL` — this is what `schema.prisma`'s `url` uses for all runtime queries, and multiplexes connections instead of each one holding a real connection for its whole lifetime (see `docs/decisions.md`'s "Connection-pool exhaustion incident" entry for why this matters — session-mode pooling alone caused a real backend crash). Also set the **"Session" pooler string** (port 5432, no `pgbouncer` param) as `DIRECT_DATABASE_URL` — `schema.prisma`'s `directUrl`, required for `prisma migrate` since DDL doesn't work reliably through a transaction pooler.
 3. **Storage**: Project Settings → Storage → S3 Connection — Supabase exposes an S3-compatible API. Create a bucket (e.g. `adage-security-reports`, kept private/non-public) and set:
    - `STORAGE_ENDPOINT` = the project's S3-compatible endpoint shown there
    - `STORAGE_REGION` = the project region
@@ -70,7 +70,7 @@ See `backend/.env.example` for the full list. At minimum, production needs its o
 
 ## Pre-deployment checklist
 
-- [ ] `DATABASE_URL` points at a production database, not the dev/seed database
+- [ ] `DATABASE_URL` (transaction pooler, port 6543, `?pgbouncer=true`) and `DIRECT_DATABASE_URL` (session pooler, port 5432, for migrations) both point at the production database, not the dev/seed database
 - [ ] `SESSION_SECRET` is a fresh random value, not the `.env.example` placeholder
 - [ ] Seed script has **not** been run against production (or if it was for initial admin setup, the seeded `ChangeMe123!` passwords have been rotated immediately)
 - [ ] `NODE_ENV=production` is set so the session cookie is `secure`

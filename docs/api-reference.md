@@ -33,20 +33,23 @@ Body: `{ token: string, newPassword: string }` (`newPassword` min 8 characters).
 |---|---|---|---|
 | GET | `/employees/search?q=` | `VIEW_DASHBOARD` | Active employees only, top 10 matches, name/code/email/car number, case-insensitive. Backs both the guard's ENTRY/EXIT selector and the Dashboard's employee filter — every role that reaches either already holds `VIEW_DASHBOARD`. A blank/omitted `q` returns the first 10 active employees alphabetically (a "browse" list) rather than an empty array — the frontend fetches this on focus, before any typing, so the dropdown isn't empty until something's typed. See `docs/decisions.md`. |
 | GET | `/employees/search-all?q=` | `CORRECT_RECORDS` | Includes inactive employees — for the admin correction flow; searches name/code/email/car number. Same blank-query browse-list behavior as `/employees/search` above. |
+| GET | `/employees/teams` | `VIEW_DASHBOARD` | Returns the fixed `TEAMS` list (`backend/src/common/constants/teams.ts`) as a plain `string[]` — backs the Add/Edit Employee "Team" dropdown and the Insights team filter. `VIEW_DASHBOARD`, not `MANAGE_EMPLOYEES` — this is just a static list of team names, not sensitive employee data, and the Insights filter (`VIEW_REPORTS`) doesn't hold `MANAGE_EMPLOYEES`. |
 | GET | `/employees/offline-cache` | `VIEW_DASHBOARD` | Full active roster (id/name/code/email/car number only, no take limit) — backs the Security app's offline search fallback (`frontend/src/offline/employeeCache.ts`). The frontend fetches this on load and every 5 minutes while online and caches it in `localStorage`, since `/employees/search` above is `NetworkOnly` in the service worker and unreachable while genuinely offline. See `docs/decisions.md`. |
 | GET | `/employees?skip=&take=&q=` | `MANAGE_EMPLOYEES` | Admin management list. `q` (optional) filters name/code/email/car number, case-insensitive. Returns `{ rows: Employee[], total: number }` — `total` reflects the filtered count, so the frontend can page/search the full roster rather than being capped at one page. |
 | GET | `/employees/export` | `MANAGE_EMPLOYEES` | Generates a `.xlsx` of the full roster (all employees, active and inactive, with status shown) straight from the database and returns it as a file download (`Content-Disposition: attachment`). Registered before `/employees/:id` so it isn't swallowed by it. On-demand alternative to hand-maintaining `backend/data/employees.csv` in sync with live Add/Edit/Deactivate edits — see `docs/decisions.md`. |
 | GET | `/employees/import-template` | `MANAGE_EMPLOYEES` | Returns a blank `.xlsx` with just the import headers (`Employee Code`, `Name`, `Email`, `Car Number`) on an "Employees" tab, plus a separate "Instructions" tab with the format rules and one reference example row — the example is deliberately kept off the data tab so it can never be accidentally imported as a real employee. Registered before `/employees/:id` for the same reason as `/employees/export`. |
-| POST | `/employees/import` | `MANAGE_EMPLOYEES` | Multipart upload, field name `file`, `.xlsx` only, 2MB limit (`FileInterceptor`, memory storage — never written to disk). Parses the sheet by header name (column order doesn't matter) and processes rows one at a time, reusing the exact same `create()` path (and its validation/duplicate-check/trim/audit-log) as `POST /employees` below — a bad row (missing code/name, invalid email, a code already taken) is recorded as skipped with a reason and the rest of the file still imports. Fully blank rows are ignored without being reported. Capped at 1000 data rows per upload. Returns `{ created: number, skipped: number, results: Array<{ row, employeeCode, employeeName, status: 'created' \| 'skipped', reason? }> }`. See `docs/decisions.md`. |
+| POST | `/employees/import` | `MANAGE_EMPLOYEES` | Multipart upload, field name `file`, `.xlsx` only, 2MB limit (`FileInterceptor`, memory storage — never written to disk). Parses the sheet by header name (column order doesn't matter) and processes rows one at a time, reusing the exact same `create()` path (and its validation/duplicate-check/trim/audit-log) as `POST /employees` below — a bad row (missing code/name, invalid email, a code already taken, an unrecognized Team value) is recorded as skipped with a reason and the rest of the file still imports. An optional `Team` column is matched case-insensitively against the fixed `TEAMS` list and resolved to its canonical casing. Fully blank rows are ignored without being reported. Capped at 1000 data rows per upload. Returns `{ created: number, skipped: number, results: Array<{ row, employeeCode, employeeName, status: 'created' \| 'skipped', reason? }> }`. See `docs/decisions.md`. |
 | GET | `/employees/:id` | `VIEW_EMPLOYEE_HISTORY` | Single-employee lookup — intentionally not gated behind `MANAGE_EMPLOYEES`, since it backs the Employee Details page that Security/HR reach via the Dashboard even though they lack `MANAGE_EMPLOYEES` |
 | POST | `/employees` | `MANAGE_EMPLOYEES` | Body: `CreateEmployeeDto` |
 | PUT | `/employees/:id` | `MANAGE_EMPLOYEES` | Body: `UpdateEmployeeDto`. For `email`/`carNumber`: omit the key to leave the field untouched, send `null` (or a whitespace-only string) to clear it, send a value to set it. See `docs/decisions.md`. |
 | PATCH | `/employees/:id/deactivate` | `MANAGE_EMPLOYEES` | Soft — sets `isActive: false` |
 | PATCH | `/employees/:id/reactivate` | `MANAGE_EMPLOYEES` | |
 
-`CreateEmployeeDto`: `{ employeeCode, employeeName, email?, carNumber? }` — `email` and `carNumber` are optional. When email is omitted, that employee simply can't be emailed a report until one is added. `carNumber` is searchable and displayed where employee details are shown. `employeeCode`, `employeeName`, `email`, and `carNumber` are all trimmed server-side before validation/storage (a pasted trailing space used to be able to defeat the duplicate check below — see `docs/decisions.md`).
+`CreateEmployeeDto`: `{ employeeCode, employeeName, email?, carNumber?, team? }` — `email`, `carNumber`, and `team` are optional. When email is omitted, that employee simply can't be emailed a report until one is added. `carNumber` is searchable and displayed where employee details are shown. `team` must exactly match one of the fixed `TEAMS` values (`GET /employees/teams`) or the request is rejected with `400`. `employeeCode`, `employeeName`, `email`, and `carNumber` are all trimmed server-side before validation/storage (a pasted trailing space used to be able to defeat the duplicate check below — see `docs/decisions.md`).
 
 `employeeCode` and `email` are checked for a case-insensitive duplicate on both create and update (`PUT /employees/:id`) and return `409` with a message naming the conflicting employee (for email) — closes a gap where the DB's own uniqueness constraint on `employeeCode` is case-sensitive while every search matches case-insensitively, and `email` had no DB uniqueness constraint at all. See `docs/decisions.md`.
+
+`UpdateEmployeeDto`'s `team` follows the same `null`-means-clear / omitted-means-leave-alone convention as `email`/`carNumber` above (see the `PUT /employees/:id` row).
 
 ## Movements
 
@@ -133,7 +136,66 @@ Same body shape as above. Adds a brand-new record (no `correctionOf` link) for a
 | Method | Path | Permission |
 |---|---|---|
 | GET | `/settings` | `MANAGE_SETTINGS` |
-| PUT | `/settings/:key` | `MANAGE_SETTINGS` — body `{ value: string }`. `:key` must be one of the known keys (`backend/src/common/constants/settings-keys.ts`: `COMPANY_NAME`, `TIMEZONE`, `EMAIL_SENDER_NAME`) — any other key returns 400 |
+| PUT | `/settings/:key` | `MANAGE_SETTINGS` — body `{ value: string }`. `:key` must be one of the known keys (`backend/src/common/constants/settings-keys.ts`: `COMPANY_NAME`, `TIMEZONE`, `EMAIL_SENDER_NAME`, `SHIFT_REFERENCE_START`, `SHIFT_REFERENCE_END`, `EXPECTED_DAILY_HOURS`) — any other key returns 400 |
+
+## Insights
+
+HR/Admin-only (`VIEW_REPORTS`, not held by Security) — aggregated, read-only analytics computed live from `movement_records`, never from a cache or a separate reporting table. Every endpoint below shares the same `fetchMovements`/`buildEmployeeDayAggs`/`filterByDayScope` pipeline in `InsightsService`, so a drill-down can never disagree with the chart that opened it, and `dayScope` means the same thing everywhere it appears.
+
+**`dayScope`** (optional on every endpoint below except the raw-record drill-down metrics; default `weekdays` when omitted): `weekdays` | `all` | `weekends`. Controls which calendar days count toward every rate/average/trend — `weekdays` excludes Saturday/Sunday from every computed stat (the default, since the analytics assume a Mon-Fri work week), `all` includes every day, `weekends` includes only Saturday/Sunday (for auditing off-schedule presence). This **never** affects raw record listings (Corrections, Dashboard, per-employee movement history, or the `attendance`/`unit`/`hour`/`corrected` drill-down metrics below) — a real tap always shows there regardless of day, only the aggregated numbers are scoped. Added 2026-10-14.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/insights/summary?from=&to=&team=&unitId=&movementType=&dayScope=` | All params optional — `from`/`to` (`YYYY-MM-DD`) default to the last 30 days ending today; `team` must match a value from `GET /employees/teams`; `unitId` filters to one `recordedByUserId`; `movementType` (`ENTRY`\|`EXIT`) only narrows the entry/exit tally charts, never the duration-based ones (see note below). Backs every chart on the main Insights page. |
+| GET | `/insights/earliest-movement` | No params. `{ date: string \| null }` — the earliest non-superseded movement's date, or `null` if no movements exist yet. Backs the "All Time" date preset, cached client-side after the first click. Added 2026-10-13. |
+| GET | `/insights/drill-down?metric=&date=&from=&to=&team=&unitId=&hour=&movementType=&dayScope=` | Backs clicking a chart bar/point — returns the rows behind one chart element, capped at 500 rows. `metric` is one of `attendance`\|`unit`\|`hour`\|`corrected` (raw record listings — never scoped by `dayScope`, always show real taps) or `shortfall`\|`longDuration`\|`missingExit`\|`missingEntry`\|`team` (analytics metrics — honor `dayScope`). The first four scope to a single `date` when given one (a chart-bar click) or span the whole `from`/`to` range when not (a KPI-card click); `hour` needs `hour` (0-23); `unit` needs `unitId`; `team` needs `team` and returns every employee currently on that team, even one with zero movements in range, with `daysWithHoursTracked` per employee so the frontend can compute a shortfall rate. `attendance`/`hour`/`corrected` rows include `recordedByName`; `corrected` rows also include `correctedByName`. |
+| GET | `/insights/employee-detail?employeeId=&from=&to=&dayScope=` | One employee's own trend over the range, picked via a search box rather than a chart click. See response shape below. |
+| GET | `/insights/daily-duration?date=&team=&unitId=&dayScope=` | One specific day (not a range) — every employee with a movement that day (`rows`, always real taps regardless of `dayScope`) plus the active-roster complement with zero taps that day (`noMovement` — only populated when `date` matches the selected `dayScope`, e.g. a Saturday's `noMovement` is empty under the default `weekdays` scope, since nobody's expected in). Backs the "View Daily Roster" modal. Added 2026-10 (Spec item #5). |
+| GET | `/insights/export/team-breakdown?from=&to=&team=&unitId=&movementType=&dayScope=` | `.xlsx` of `teamBreakdown`, same params as `/insights/summary`. |
+| GET | `/insights/export/drill-down?metric=&...` | `.xlsx` of one drill-down's full (unfiltered, uncapped) row set — same params as `/insights/drill-down`. |
+| GET | `/insights/export/daily-duration?date=&...` | `.xlsx` of one day's "Tapped In" list — same params as `/insights/daily-duration`; `noMovement` rows aren't included in the export. |
+
+`/insights/summary` response shape:
+```
+{
+  range: { from, to },
+  shiftReference: { start, end, expectedHours },   // reference window only — never a "late" cutoff, see decisions.md
+  attendanceTrend: [{ date, entries, exits }],
+  uniqueEmployeesByDay: [{ date, count }],         // distinct employees with a tap that day — shown as "Employees Present"
+  totalRosterSize: number,                         // ACTIVE employees only — denominator for Daily Attendance Rate's %
+  avgDurationTrend: [{ date, avgHours }],
+  hoursShortfall: { shortfallDays, totalEmployeeDays, trend: [{ date, shortfallCount }] },
+  hoursLongDuration: { longDurationDays, totalEmployeeDays, threshold, trend: [{ date, longDurationCount }] },
+  missingExits: { count, trend: [{ date, count, missingEntryCount }] },
+  hourlyDistribution: [{ hour, entries, exits }],
+  unitActivity: [{ unitId, unitName, entries, exits }],   // sorted alphabetically by unitName, not insertion order
+  teamBreakdown: [{ team, entries, exits, employeeCount, employeeDays, daysWithHoursTracked, avgHours, medianHours, shortfallDays, longDurationDays }],
+}
+```
+
+`/insights/employee-detail` response shape:
+```
+{
+  employee: { id, employeeName, employeeCode, team, isActive },
+  range: { from, to },
+  avgArrival: string | null,   // "HH:mm", averaged in minutes-of-day (Asia/Kolkata)
+  avgDeparture: string | null,
+  dailyHours: [{ date, hours: number | null, missingExit: boolean }],
+  dailyCounts: [{ date, entries, exits }],
+  employeeAvgHours: number | null,              // this employee's own average, same complete-days-only rule as teamBreakdown.avgHours
+  durationDistribution: [{ hours, count, employees: string[] }],  // every ACTIVE employee's own avg duration, bucketed to the nearest hour, company-wide — backs "How This Employee Compares"; `employees` is who's in that bucket, shown on click-through
+}
+```
+
+`hoursShortfall` counts an employee-day where `(last exit − first entry) < expectedHours` — this is the only real compliance signal, since the office uses flexible timing (no fixed clock-in deadline). `shiftReference` is shown on charts purely as a reference band.
+
+**"Employee-day" terminology** (`teamBreakdown[].employeeDays`/`.daysWithHoursTracked`, and `hoursShortfall.totalEmployeeDays`/`hoursLongDuration.totalEmployeeDays`): one employee, one calendar day — 3 people present on Monday = 3 employee-days, same as 1 person present on 3 different days. The frontend uses plain-language labels rather than "employee-days" anywhere in the UI: `teamBreakdown[].employeeDays` is shown as **"Days Present"** (any day with at least one tap, even a missing exit — a team-wide total, not a headcount); `teamBreakdown[].daysWithHoursTracked` and `hoursShortfall`/`hoursLongDuration`'s `totalEmployeeDays` are the **"Days With Hours Tracked"** concept (only days with both an entry and an exit, so a real duration exists). See `docs/decisions.md`.
+
+**`teamBreakdown[].avgHours`/`.medianHours` and `.shortfallDays`/`.longDurationDays` (and their rates) are computed against `daysWithHoursTracked`, not `employeeDays`** — a missing-exit day has no measurable duration, so including it in the denominator would dilute both numbers. Fixed 2026-10-13 (previously used `employeeDays`, understating both for any team with missing exits). `medianHours` and `longDurationDays` back the Department Comparison charts (added 2026-10-13) — see `docs/decisions.md`.
+
+**`totalRosterSize` is active employees only** (unlike `teamBreakdown[].employeeCount`, which deliberately includes inactive employees for team-size comparison) — it feeds Daily Attendance Rate's %, whose own drill-through (the "No Movement Recorded" list) also excludes inactive employees, so the two must agree. Fixed 2026-10-13 (previously included inactive employees, so the % could never reach 100% and disagreed with its own drill-through's row count).
+
+**`peakHours` and `emailStats` were removed** (2026-10-06) — see `docs/decisions.md`'s "Removed Peak Entry/Exit Hours and Email Reports Sent" entry.
 
 ## Audit Logs
 

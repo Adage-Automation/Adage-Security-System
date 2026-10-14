@@ -13,6 +13,7 @@ export interface Employee {
   employeeName: string;
   email: string | null;
   carNumber?: string | null;
+  team?: string | null;
   isActive: boolean;
 }
 

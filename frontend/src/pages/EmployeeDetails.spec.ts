@@ -27,4 +27,15 @@ describe('calcWorkingHours', () => {
 
     expect(result).toBe('7h 45m');
   });
+
+  it('rounds a span a few seconds under a clean hour up to that hour', () => {
+    // 10:00:00.000 to 18:59:58.000 is 8h 59m 58s — effectively 9h once
+    // ordinary tap-timing noise is accounted for, so it should display "9h".
+    const result = calcWorkingHours([
+      { movementType: 'ENTRY', movementAt: '2026-09-10T10:00:00.000Z' },
+      { movementType: 'EXIT', movementAt: '2026-09-10T18:59:58.000Z' },
+    ] as any);
+
+    expect(result).toBe('9h');
+  });
 });

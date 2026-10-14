@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { Employee, MovementRecord } from '../types';
 import { IconArrowLeft, IconMail, IconCheckCircle, IconXCircle, IconInbox, IconClock } from '../components/icons';
@@ -32,7 +32,10 @@ export function calcWorkingHours(records: import('../types').MovementRecord[]): 
   const ms = new Date(lastExit.movementAt).getTime() - new Date(firstEntry.movementAt).getTime();
   if (ms <= 0) return null;
 
-  const totalMinutes = Math.floor(ms / 60_000);
+  // Round, don't floor: real tap timestamps rarely land on an exact
+  // whole minute, so a span a few seconds under a clean hour (e.g.
+  // 10:00:00 to 18:59:58) would otherwise read as "8h 59m" instead of "9h".
+  const totalMinutes = Math.round(ms / 60_000);
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
 
@@ -42,6 +45,7 @@ export function calcWorkingHours(records: import('../types').MovementRecord[]): 
 }
 
 export function EmployeeDetails() {
+  const navigate = useNavigate();
   const [params] = useSearchParams();
   const employeeId = params.get('employeeId');
   const rawDate = params.get('date');
@@ -103,14 +107,24 @@ export function EmployeeDetails() {
     }
   }
 
+  // Goes back to wherever this page was opened from (Dashboard, Insights,
+  // etc.) via real browser history instead of a hardcoded destination —
+  // so "back" actually returns to the same place, filters and all. Falls
+  // back to Dashboard only if there's no app history to go back to (e.g.
+  // a bookmarked/directly-opened link).
+  function goBack() {
+    if (window.history.length > 1) navigate(-1);
+    else navigate('/dashboard');
+  }
+
   if (!employeeId) {
     return (
       <div className="page">
         <div className="nav-links">
-          <Link to="/dashboard">
+          <button type="button" className="link-button" onClick={goBack}>
             <IconArrowLeft />
-            Dashboard
-          </Link>
+            Back
+          </button>
         </div>
 
         <div className="empty-state">
@@ -125,10 +139,10 @@ export function EmployeeDetails() {
   return (
     <div className="page">
       <div className="nav-links">
-        <Link to="/dashboard">
+        <button type="button" className="link-button" onClick={goBack}>
           <IconArrowLeft />
-          Dashboard
-        </Link>
+          Back
+        </button>
       </div>
 
       <div className="page-heading" style={{ justifyContent: 'center' }}>

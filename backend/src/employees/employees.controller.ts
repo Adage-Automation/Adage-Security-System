@@ -25,8 +25,18 @@ export class EmployeesController {
   // MANAGE_EMPLOYEES/VIEW_EMPLOYEE_HISTORY fix from the 2026-09-04 audit.
   @Get('search')
   @RequirePermissions('VIEW_DASHBOARD')
-  search(@Query('q') q: string) {
-    return this.employeesService.search(q);
+  search(@Query('q') q: string, @Query('team') team?: string) {
+    return this.employeesService.search(q, team);
+  }
+
+  // Registered before ':id' below so it isn't swallowed by it. VIEW_DASHBOARD
+  // (same as 'search'/'offline-cache' above), not MANAGE_EMPLOYEES — the
+  // Insights team filter (VIEW_REPORTS) doesn't hold MANAGE_EMPLOYEES, and
+  // this is just a static list of team names, not sensitive employee data.
+  @Get('teams')
+  @RequirePermissions('VIEW_DASHBOARD')
+  getTeams() {
+    return this.employeesService.getTeams();
   }
 
   // Includes inactive employees — for admin correction flows only (§39/§42).

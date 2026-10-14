@@ -17,13 +17,14 @@ Key principles carried through the whole design:
 
 ## Features
 
-- Session-based authentication with role-based access: SECURITY (record movements + Dashboard), HR (Dashboard + Employees — no recording, lands on the Dashboard after login), ADMIN (everything, plus Users/Corrections/Audit Log/Settings) — see [docs/decisions.md](./docs/decisions.md)
+- Session-based authentication with role-based access: SECURITY (record movements + Dashboard), HR (Dashboard + Employees + Insights — no recording, lands on the Dashboard after login), ADMIN (everything, plus Users/Corrections/Audit Log/Settings) — see [docs/decisions.md](./docs/decisions.md)
 - Fast, touch-friendly Security screen: search → select → ENTRY/EXIT → done
 - Duplicate-movement confirmation (e.g. pressing ENTRY when already marked inside)
 - Dashboard with date / employee / movement-type filters, daily summary stats, responsive table→card layout on mobile
 - Employee daily movement details, with on-demand **EMAIL DETAILS**; PNG/PDF report downloads remain authenticated API endpoints and are not exposed as UI buttons
 - Employee & user management, with inline edit, employee deactivation (soft, not delete), an optional car number field (searchable alongside name/code/email), admin-only access to inactive employees for record corrections, an on-demand "Export to Excel" of the full roster, and a template-driven "Import from Excel" for adding several new joiners at once (row-by-row, with a per-row created/skipped result)
-- Configurable system settings (company name, timezone, sender name)
+- Configurable system settings (company name, timezone, sender name, shift reference window, expected daily hours)
+- HR/Admin-only **Insights** dashboard: attendance trends, working-hours distribution, an hours-shortfall metric (flexible-timing aware — never a clock-in "late" flag), Unit 1/Unit 2 activity, team-wise breakdown, a per-employee drill-down (avg arrival/departure, daily hours, daily counts) — read-only, computed live from the same recorded data, with clickable charts to see the underlying records
 - Multiple security units, each a shared login account — an emailed report is sent both from and CC'd to whichever account sent it
 - Full audit logging of logins, movements, corrections, emails, and admin actions
 - Offline queueing: a movement tapped while offline is queued client-side and synced automatically once connectivity returns, always shown distinctly as "pending sync"

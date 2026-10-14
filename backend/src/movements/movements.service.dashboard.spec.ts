@@ -19,6 +19,16 @@ describe('MovementsService dashboard queries', () => {
     }));
   });
 
+  it('applies a recordedByUserId filter, for "just this unit" on the Dashboard', async () => {
+    prisma.movementRecord.findMany.mockResolvedValue([]);
+
+    await service.listWithFilters({ date: '2026-09-10', recordedByUserId: 10 });
+
+    expect(prisma.movementRecord.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ recordedByUserId: 10 }),
+    }));
+  });
+
   it('summarizes unique employees, entries, exits, and currently inside', async () => {
     prisma.movementRecord.findMany.mockResolvedValue([
       { employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-09-10T08:00:00Z') },

@@ -34,11 +34,13 @@ export class MovementsController {
     @Query('date') date?: string,
     @Query('employeeId') employeeId?: string,
     @Query('movementType') movementType?: 'ENTRY' | 'EXIT',
+    @Query('recordedByUserId') recordedByUserId?: string,
   ) {
     return this.movementsService.listWithFilters({
       date,
       employeeId: parseOptionalInt(employeeId, 'employeeId'),
       movementType,
+      recordedByUserId: parseOptionalInt(recordedByUserId, 'recordedByUserId'),
     });
   }
 

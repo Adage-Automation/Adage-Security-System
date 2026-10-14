@@ -1,4 +1,5 @@
-import { IsBoolean, IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsBoolean, IsEmail, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
+import { TEAMS } from '../../common/constants/teams';
 
 export class CreateEmployeeDto {
   @IsString()
@@ -16,6 +17,11 @@ export class CreateEmployeeDto {
   @IsOptional()
   @IsString()
   carNumber?: string;
+
+  // Fixed list (TEAMS), not free text — see teams.ts for why.
+  @IsOptional()
+  @IsIn(TEAMS)
+  team?: string;
 }
 
 export class UpdateEmployeeDto {
@@ -42,6 +48,13 @@ export class UpdateEmployeeDto {
   @IsOptional()
   @IsString()
   carNumber?: string | null;
+
+  // Same null-means-clear / omitted-means-leave-alone convention as
+  // email/carNumber above. @IsOptional() already skips @IsIn() for both
+  // null and undefined, so only a non-null value is checked against TEAMS.
+  @IsOptional()
+  @IsIn(TEAMS)
+  team?: string | null;
 
   @IsOptional()
   @IsBoolean()

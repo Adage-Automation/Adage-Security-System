@@ -1,6 +1,6 @@
 # Testing
 
-The codebase now has real Jest coverage in both apps. Backend tests cover username authentication, password reset, employee search/car-number behavior, movement creation/idempotency/corrections, dashboard queries, RBAC, Microsoft Graph failures, storage/report generation failures, the reports email-success path, user management (email-uniqueness rejection, last-admin lockout protection), the IST-aware default-date helper (`todayInAppTimezone`), and the `/api/health` endpoint. Controller-level specs were recently added for the Employees and Reports HTTP surfaces as well. Frontend tests cover the IndexedDB movement queue (including userId scoping and conflict state), the device clock-offset calibration (`offline/clockOffset.ts`), the offline auth-cache fallback decision, and the employee day working-hours calculation. This document tracks the current implemented coverage and the remaining areas still worth expanding.
+The codebase now has real Jest coverage in both apps. Backend tests cover username authentication, password reset, employee search/car-number behavior, movement creation/idempotency/corrections, dashboard queries, RBAC, Microsoft Graph failures, storage/report generation failures, the reports email-success path, user management (email-uniqueness rejection, last-admin lockout protection), the IST-aware default-date helper (`todayInAppTimezone`), Insights' full aggregation pipeline (including the day-scope filter and every drill-down metric), and the `/api/health` endpoint. Controller-level specs were recently added for the Employees and Reports HTTP surfaces as well. Frontend tests cover the IndexedDB movement queue (including userId scoping and conflict state), the device clock-offset calibration (`offline/clockOffset.ts`), the offline auth-cache fallback decision, and the employee day working-hours calculation. This document tracks the current implemented coverage and the remaining areas still worth expanding.
 
 ## Authentication
 
@@ -63,6 +63,20 @@ The codebase now has real Jest coverage in both apps. Backend tests cover userna
 - Always ordered newest-first, with no separate sort option
 - `from`/`to` (both optional) filter to a date range using the same local-day boundaries `dayRange()` uses everywhere else — a malformed date is rejected the same way
 - `q` searches `action`, `entityType`, `ipAddress`, and the performing user's name (case-insensitive substring, combined with `OR`); blank/whitespace `q` is a no-op, not an empty-`OR` filter that would match nothing
+
+## Insights
+
+- Every number is `VIEW_REPORTS`-gated (HR/Admin only) — Security gets a 403, never sees this data
+- `GET /insights/summary` with no params defaults to the last 30 days ending today; `team`/`unitId`/`movementType`/`dayScope` each narrow correctly, and combining several at once narrows further, not replaces
+- `dayScope=weekdays` (the default) excludes Saturday/Sunday from every computed rate/average/trend; `dayScope=all` includes them; `dayScope=weekends` includes *only* them — verify with a fixture spanning a real weekend that the excluded days' taps genuinely don't move the numbers, not just that the date is missing from a trend array
+- Raw record views (Corrections, Dashboard's record table, per-employee movement history, and the `attendance`/`unit`/`hour`/`corrected` drill-down metrics) always show a real tap regardless of `dayScope` — only aggregated stats are scoped
+- `teamBreakdown[].avgHours`/`.medianHours`/shortfall-rate/overtime-rate are all rated against `daysWithHoursTracked` (complete days only), not `employeeDays` (which also counts missing-exit days with no measurable duration)
+- A drill-down's row count/content can never disagree with the chart element that opened it (both derive from the same `fetchMovements`/`buildEmployeeDayAggs` call) — spot-check this after any change to the aggregation pipeline, not just that each endpoint independently "looks right"
+- Department Comparison ignores the top Team filter (verify picking a team up top still shows all departments in this section, not a collapse to one) but still honors Unit/Movement Type/Days
+- `GET /insights/daily-duration`'s `noMovement` list is empty when the requested `date` doesn't match the active `dayScope` (e.g. a Saturday under the default `weekdays` scope) — a tap-free day nobody was expected on shouldn't be flagged as an exception
+- (Frontend, manual) Selecting an employee, then scrolling down, makes clear which sections are still about that employee (Per-Employee Detail) vs. the whole organization (everything below the "Organization-Wide" banner)
+- (Frontend, manual) A filter-driven reload blocks the page (full-screen overlay) until the new data has loaded — clicking underneath during that window should do nothing
+- (Frontend, manual) Every Excel export (`/insights/export/*`) downloads a real, non-empty `.xlsx` whose rows match what's on screen for the same filters
 
 ## Users (admin)
 

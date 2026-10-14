@@ -39,6 +39,20 @@ export class AllExceptionsFilter implements ExceptionFilter {
       this.logger.warn(`${request.method} ${request.originalUrl} -> ${status}: ${JSON.stringify(logPayload)}`);
     }
 
+    // A response can already be underway when this filter runs — e.g. an
+    // error surfacing from the session-store middleware (outside Nest's
+    // normal request lifecycle) after something else already started
+    // writing one for the same request. Writing again throws
+    // ERR_HTTP_HEADERS_SENT, and since that happens inside the filter of
+    // last resort itself, it was an unhandled exception that crashed the
+    // entire process rather than just failing this one request. Found
+    // 2026-10-14, during a real Supabase connection-pool-exhaustion
+    // incident (EMAXCONNSESSION) that took the backend down this way.
+    if (response.headersSent) {
+      this.logger.error(`${request.method} ${request.originalUrl} -> headers already sent, could not deliver ${status} response`);
+      return;
+    }
+
     response.status(status).json(
       typeof message === 'object' ? message : { statusCode: status, message },
     );
