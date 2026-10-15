@@ -1021,9 +1021,20 @@ export class InsightsService {
     return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
   }
 
+  // Cached for the same reason as day-range.ts's date formatter — this is
+  // called per movement in hot aggregation loops, and constructing a new
+  // Intl.DateTimeFormat per call measurably dominated CPU time on Render's
+  // 0.1 vCPU free tier. Found 2026-10-15.
+  private static readonly minuteFormatterCache = new Map<string, Intl.DateTimeFormat>();
+
   private getMinuteOfDayInAppTimezone(date: Date): number {
     const timeZone = process.env.APP_TIMEZONE ?? 'Asia/Kolkata';
-    const parts = new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(date);
+    let formatter = InsightsService.minuteFormatterCache.get(timeZone);
+    if (!formatter) {
+      formatter = new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+      InsightsService.minuteFormatterCache.set(timeZone, formatter);
+    }
+    const parts = formatter.formatToParts(date);
     const lookup = Object.fromEntries(parts.map((p) => [p.type, p.value]));
     return Number(lookup.hour) * 60 + Number(lookup.minute);
   }

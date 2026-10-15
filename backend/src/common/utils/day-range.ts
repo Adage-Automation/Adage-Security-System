@@ -13,14 +13,24 @@ import { BadRequestException } from '@nestjs/common';
 // (grouping a `movementAt` timestamp into "which calendar day was this in
 // Asia/Kolkata") can reuse the exact same timezone-correct logic, instead
 // of a second, easy-to-get-wrong implementation using UTC date math.
+// Constructing an Intl.DateTimeFormat is expensive relative to using one
+// (locale data compilation) — ~10x in a benchmark — and this function is
+// called per movement record in Insights' aggregation loops, so a cached
+// instance (env var never changes at runtime) matters for real request
+// latency. Found 2026-10-15 while chasing Insights' summary slowness.
+const dateFormatterCache = new Map<string, Intl.DateTimeFormat>();
+function getDateFormatter(timeZone: string): Intl.DateTimeFormat {
+  let formatter = dateFormatterCache.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
+    dateFormatterCache.set(timeZone, formatter);
+  }
+  return formatter;
+}
+
 export function formatDateInAppTimezone(date: Date): string {
   const timeZone = process.env.APP_TIMEZONE ?? 'Asia/Kolkata';
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(date);
+  const parts = getDateFormatter(timeZone).formatToParts(date);
   const lookup = Object.fromEntries(parts.map((p) => [p.type, p.value]));
   return `${lookup.year}-${lookup.month}-${lookup.day}`;
 }
