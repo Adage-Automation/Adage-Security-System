@@ -4,6 +4,7 @@ import { ChartConfiguration } from 'chart.js';
 import { api } from '../api/client';
 import { Employee } from '../types';
 import { AdminNav } from '../components/AdminNav';
+import { BackToTop } from '../components/BackToTop';
 import { ChartCanvas } from '../components/ChartCanvas';
 import { EmployeeLink } from '../components/EmployeeLink';
 import { IconBarChart, IconChevronRight, IconInbox, IconSearch, IconUsers, IconX } from '../components/icons';
@@ -85,7 +86,8 @@ interface EmployeeDetail {
   dailyHours: Array<{ date: string; hours: number | null; missingExit: boolean }>;
   dailyCounts: Array<{ date: string; entries: number; exits: number }>;
   employeeAvgHours: number | null;
-  durationDistribution: Array<{ hours: number; count: number; employees: string[] }>;
+  employeeDurationBucket: number | null;
+  durationDistribution: Array<{ hours: number; count: number; employees: Array<{ name: string; hours: number }> }>;
 }
 
 type DrillDownMetric = 'attendance' | 'shortfall' | 'longDuration' | 'missingExit' | 'missingEntry' | 'corrected' | 'unit' | 'team' | 'hour';
@@ -191,7 +193,9 @@ export function Insights() {
   const seqRef = useRef(0);
 
   const [drillDown, setDrillDown] = useState<DrillDownState | null>(null);
-  const [distributionBucket, setDistributionBucket] = useState<{ hours: number; employees: string[] } | null>(null);
+  const [distributionBucket, setDistributionBucket] = useState<{ hours: number; employees: Array<{ name: string; hours: number }> } | null>(null);
+  const distributionBucketModalRef = useRef<HTMLDivElement>(null);
+  const distributionBucketCloseRef = useRef<HTMLButtonElement>(null);
   const drillDownSeqRef = useRef(0);
   const drillDownModalRef = useRef<HTMLDivElement>(null);
   const drillDownCloseRef = useRef<HTMLButtonElement>(null);
@@ -394,6 +398,9 @@ export function Insights() {
 
   // Same pattern, for the Daily Duration roster modal.
   useFocusTrap(dailyDurationOpen, dailyDurationModalRef, dailyDurationCloseRef, () => setDailyDurationOpen(false));
+
+  // Same pattern, for the "How This Employee Compares" bucket click-through.
+  useFocusTrap(!!distributionBucket, distributionBucketModalRef, distributionBucketCloseRef, () => setDistributionBucket(null));
 
   const fetchEmployeeResults = useCallback((q: string, teamFilter: string) => {
     const seq = ++employeeSearchSeqRef.current;
@@ -1020,9 +1027,18 @@ export function Insights() {
   };
 
   // Where this one employee stands against everyone else — every active
-  // employee's own avg duration (same range), rounded to the nearest hour
-  // and counted into a histogram. This employee's bucket is highlighted.
-  // Clicking a point lists who's in that bucket. Added 2026-10-13/14, by request.
+  // employee's own avg duration (same range), bucketed to the nearest
+  // QUARTER hour and counted into a histogram. This employee's bucket is
+  // highlighted. Clicking a point lists who's in that bucket. Added
+  // 2026-10-13/14, by request. Went whole-hour -> half-hour -> quarter-hour
+  // (2026-10-15, by request, twice) — each step was rounding people who
+  // were actually apart into the same visual spot. Compares against
+  // employeeDurationBucket (computed server-side with the exact same
+  // rounding as the histogram itself), not a re-round of the 1-decimal
+  // employeeAvgHours display value — re-rounding that on the frontend can
+  // land on a different quarter-hour bucket than the real one right at a
+  // rounding boundary.
+  const isEmployeeBucket = (hours: number) => employeeDetail!.employeeDurationBucket === hours;
   const employeeDistributionConfig: ChartConfiguration | null =
     employeeDetail && employeeDetail.durationDistribution.length > 0
       ? {
@@ -1043,13 +1059,13 @@ export function Insights() {
                 // it reads as "you are here" on the curve. Direct user
                 // feedback, 2026-10-13.
                 pointBackgroundColor: employeeDetail.durationDistribution.map((d) =>
-                  employeeDetail!.employeeAvgHours !== null && Math.round(employeeDetail!.employeeAvgHours) === d.hours ? BRAND_DARK : MUTED,
+                  isEmployeeBucket(d.hours) ? BRAND_DARK : MUTED,
                 ),
                 pointBorderColor: employeeDetail.durationDistribution.map((d) =>
-                  employeeDetail!.employeeAvgHours !== null && Math.round(employeeDetail!.employeeAvgHours) === d.hours ? BRAND_DARK : MUTED,
+                  isEmployeeBucket(d.hours) ? BRAND_DARK : MUTED,
                 ),
                 pointRadius: employeeDetail.durationDistribution.map((d) =>
-                  employeeDetail!.employeeAvgHours !== null && Math.round(employeeDetail!.employeeAvgHours) === d.hours ? 7 : 3,
+                  isEmployeeBucket(d.hours) ? 7 : 3,
                 ),
               },
             ],
@@ -1063,7 +1079,7 @@ export function Insights() {
                 callbacks: {
                   label: (ctx: any) => {
                     const d = employeeDetail!.durationDistribution[ctx.dataIndex];
-                    const isSelf = employeeDetail!.employeeAvgHours !== null && Math.round(employeeDetail!.employeeAvgHours) === d.hours;
+                    const isSelf = isEmployeeBucket(d.hours);
                     return `${d.count} employee${d.count === 1 ? '' : 's'} averaging ~${d.hours}h${isSelf ? ' (includes this employee)' : ''}`;
                   },
                 },
@@ -1372,34 +1388,6 @@ export function Insights() {
         </div>
       </div>
 
-      {/* Quick nav for a now-long page — lets someone who only cares about
-          one section skip past everything above it instead of scrolling
-          past all of it every time. Department Comparison's link also
-          expands that section (it's collapsed by default) since jumping to
-          a collapsed header would otherwise look like nothing happened.
-          Direct user feedback, 2026-10-14. */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16, fontSize: 13 }}>
-        <span style={{ color: 'var(--text-muted)', alignSelf: 'center' }}>Jump to:</span>
-        {[
-          { id: 'per-employee-detail', label: 'Per-Employee Detail' },
-          { id: 'duration-exceptions', label: 'Duration Exceptions' },
-          { id: 'dept-comparison', label: 'Department Comparison', expandsDeptComparison: true },
-          { id: 'team-breakdown', label: 'Team Breakdown' },
-        ].map((link) => (
-          <button
-            key={link.id}
-            type="button"
-            className="quick-date-btn"
-            onClick={() => {
-              if (link.expandsDeptComparison) setDeptComparisonExpanded(true);
-              document.getElementById(link.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }}
-          >
-            {link.label}
-          </button>
-        ))}
-      </div>
-
       {/* Right after the filters-bar, next to the Employee search that
           actually drives it — picking an employee there should surface the
           result immediately, not after scrolling past every other section.
@@ -1459,23 +1447,47 @@ export function Insights() {
               <div style={{ marginTop: 16 }}>
                 <h4 style={{ marginBottom: 4 }}>How This Employee Compares</h4>
                 <ChartHint>
-                  Every active employee's own average duration for this range, rounded to the nearest hour — this employee's point on the curve is
+                  Every active employee's own average duration for this range, bucketed to the nearest quarter hour — this employee's point on the curve is
                   highlighted{employeeDetail?.employeeAvgHours !== null ? ` (they average ${employeeDetail?.employeeAvgHours}h)` : ''}. Click a point to see
                   who's in that bucket.
                 </ChartHint>
                 <ChartCanvas config={employeeDistributionConfig} />
                 {distributionBucket && (
-                  <div className="modal-overlay" onClick={() => setDistributionBucket(null)}>
-                    <div className="modal-card" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
-                      <h3>~{distributionBucket.hours}h average ({distributionBucket.employees.length})</h3>
-                      <ul style={{ maxHeight: 320, overflowY: 'auto', margin: '12px 0', paddingLeft: 20 }}>
-                        {distributionBucket.employees.map((name) => (
-                          <li key={name}>{name}</li>
-                        ))}
-                      </ul>
-                      <button type="button" className="cancel-btn" onClick={() => setDistributionBucket(null)}>
-                        Close
-                      </button>
+                  <div className="modal-overlay" role="presentation">
+                    <div
+                      ref={distributionBucketModalRef}
+                      className="modal-card"
+                      role="dialog"
+                      aria-modal="true"
+                      aria-labelledby="distribution-bucket-title"
+                      style={{ textAlign: 'left', maxWidth: 460, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}
+                    >
+                      <h3 id="distribution-bucket-title" style={{ marginTop: 0, textAlign: 'center' }}>
+                        ~{distributionBucket.hours}h average ({distributionBucket.employees.length})
+                      </h3>
+                      <div style={{ overflowY: 'auto' }}>
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Employee</th>
+                              <th>Avg Duration (hrs)</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {distributionBucket.employees.map((e) => (
+                              <tr key={e.name} style={e.name === employeeDetail?.employee.employeeName ? { fontWeight: 600 } : undefined}>
+                                <td>{e.name}</td>
+                                <td>{e.hours}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="modal-actions" style={{ marginTop: 16 }}>
+                        <button ref={distributionBucketCloseRef} type="button" className="cancel-btn" onClick={() => setDistributionBucket(null)}>
+                          Close
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -2192,6 +2204,7 @@ export function Insights() {
           </div>
         </div>
       )}
+      <BackToTop />
     </div>
   );
 }

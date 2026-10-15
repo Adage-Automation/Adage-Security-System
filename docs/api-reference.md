@@ -182,8 +182,9 @@ HR/Admin-only (`VIEW_REPORTS`, not held by Security) — aggregated, read-only a
   avgDeparture: string | null,
   dailyHours: [{ date, hours: number | null, missingExit: boolean }],
   dailyCounts: [{ date, entries, exits }],
-  employeeAvgHours: number | null,              // this employee's own average, same complete-days-only rule as teamBreakdown.avgHours
-  durationDistribution: [{ hours, count, employees: string[] }],  // every ACTIVE employee's own avg duration, bucketed to the nearest hour, company-wide — backs "How This Employee Compares"; `employees` is who's in that bucket, shown on click-through
+  employeeAvgHours: number | null,              // this employee's own average, same complete-days-only rule as teamBreakdown.avgHours (1-decimal display rounding)
+  employeeDurationBucket: number | null,        // this employee's own durationDistribution bucket — computed with the exact same rounding as the histogram, not re-derived from employeeAvgHours
+  durationDistribution: [{ hours, count, employees: { name, hours }[] }],  // every ACTIVE employee's own avg duration, bucketed to the nearest quarter hour, company-wide — backs "How This Employee Compares"; `employees` is who's in that bucket (with each person's own exact 1-decimal duration), shown on click-through
 }
 ```
 

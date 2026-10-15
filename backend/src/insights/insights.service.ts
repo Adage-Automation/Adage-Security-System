@@ -745,11 +745,19 @@ export class InsightsService {
     });
 
     // Company-wide comparison: every active employee's own average
-    // on-premises duration over the same range, rounded to the nearest
-    // hour and counted into a histogram — shows where this one employee
-    // stands among everyone else, not just their own trend in isolation.
-    // Average (not median), matching the duration line already shown on
-    // this chart. Added 2026-10-13, by request.
+    // on-premises duration over the same range, bucketed to the nearest
+    // QUARTER hour (15min) and counted into a histogram — shows where this
+    // one employee stands among everyone else, not just their own trend in
+    // isolation. Average (not median), matching the duration line already
+    // shown on this chart. Added 2026-10-13, by request.
+    // Buckets went whole-hour -> half-hour -> quarter-hour (2026-10-15, by
+    // request, twice) — each step was rounding people who were actually
+    // apart into the same visual spot. Bucket keys are integers (hours * 4)
+    // rather than the 0.25-step float itself, so Map lookups can't miss on
+    // floating-point rounding. Not fully exact/unbucketed — at that point
+    // it stops being a histogram (a shape showing where people cluster) and
+    // becomes one dot per employee; see the scatter-plot mockup discussed
+    // 2026-10-15 for that alternative.
     const [allMovementsRaw, activeRoster] = await Promise.all([
       this.fetchMovements({ start, end }),
       this.prisma.employee.findMany({ where: { isActive: true }, select: { id: true, employeeName: true } }),
@@ -764,23 +772,35 @@ export class InsightsService {
       bucket.count++;
       hoursByEmployee.set(agg.employeeId, bucket);
     }
-    const bucketEmployees = new Map<number, string[]>();
+    // Each bucket's own employee list carries each person's real exact
+    // average too (1-decimal, same rounding as employeeAvgHours/dailyHours
+    // elsewhere) — the click-through list used to show only names, which
+    // hid that two people in the "same" quarter-hour bucket could still be
+    // several minutes apart. Added 2026-10-15, by request.
+    const bucketEmployees = new Map<number, Array<{ name: string; hours: number }>>();
     for (const [empId, b] of hoursByEmployee) {
-      const bucket = Math.round(b.sum / b.count);
-      const names = bucketEmployees.get(bucket) ?? [];
-      names.push(namesById.get(empId)!);
-      bucketEmployees.set(bucket, names);
+      const exact = b.sum / b.count;
+      const quarterHourSlot = Math.round(exact * 4);
+      const list = bucketEmployees.get(quarterHourSlot) ?? [];
+      list.push({ name: namesById.get(empId)!, hours: Math.round(exact * 10) / 10 });
+      bucketEmployees.set(quarterHourSlot, list);
     }
-    const bucketKeys = [...bucketEmployees.keys()];
-    const minBucket = bucketKeys.length > 0 ? Math.min(...bucketKeys) : 0;
-    const maxBucket = bucketKeys.length > 0 ? Math.max(...bucketKeys) : 0;
-    const durationDistribution: Array<{ hours: number; count: number; employees: string[] }> = [];
-    for (let h = minBucket; h <= maxBucket; h++) {
-      const employees = (bucketEmployees.get(h) ?? []).sort((a, b) => a.localeCompare(b));
-      durationDistribution.push({ hours: h, count: employees.length, employees });
+    const slotKeys = [...bucketEmployees.keys()];
+    const minSlot = slotKeys.length > 0 ? Math.min(...slotKeys) : 0;
+    const maxSlot = slotKeys.length > 0 ? Math.max(...slotKeys) : 0;
+    const durationDistribution: Array<{ hours: number; count: number; employees: Array<{ name: string; hours: number }> }> = [];
+    for (let slot = minSlot; slot <= maxSlot; slot++) {
+      const employees = (bucketEmployees.get(slot) ?? []).sort((a, b) => a.name.localeCompare(b.name));
+      durationDistribution.push({ hours: Math.round((slot / 4) * 100) / 100, count: employees.length, employees });
     }
     const employeeHours = hoursByEmployee.get(employeeId);
     const employeeAvgHours = employeeHours ? Math.round((employeeHours.sum / employeeHours.count) * 10) / 10 : null;
+    // Which exact durationDistribution bucket this employee landed in —
+    // computed with the identical formula used to build the histogram
+    // above, not re-derived from the already-rounded employeeAvgHours
+    // (1-decimal) on the frontend, which could land on a different
+    // quarter-hour bucket than the real one at a rounding boundary.
+    const employeeDurationBucket = employeeHours ? Math.round((employeeHours.sum / employeeHours.count) * 4) / 4 : null;
 
     return {
       employee,
@@ -790,6 +810,7 @@ export class InsightsService {
       dailyHours,
       dailyCounts: [...countsByDate.keys()].sort().map((date) => ({ date, ...countsByDate.get(date)! })),
       employeeAvgHours,
+      employeeDurationBucket,
       durationDistribution,
     };
   }

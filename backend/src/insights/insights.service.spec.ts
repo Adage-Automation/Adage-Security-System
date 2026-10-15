@@ -774,7 +774,7 @@ describe('InsightsService.getEmployeeDetail', () => {
   // durationDistribution/employeeAvgHours — company-wide comparison, so
   // this one employee's duration can be seen against everyone else's, not
   // just their own trend in isolation. Added 2026-10-13, by request.
-  it('buckets every active employee\'s avg duration to the nearest hour, and reports this employee\'s own average', async () => {
+  it('buckets every active employee\'s avg duration to the nearest quarter hour, and reports this employee\'s own average and bucket', async () => {
     prisma.employee.findMany.mockResolvedValue([
       { id: 1, employeeName: 'Alice' },
       { id: 2, employeeName: 'Bob' },
@@ -795,10 +795,42 @@ describe('InsightsService.getEmployeeDetail', () => {
     const result: any = await service.getEmployeeDetail({ employeeId: '1', from: '2026-10-01', to: '2026-10-01' } as any);
 
     expect(result.employeeAvgHours).toBe(9);
+    expect(result.employeeDurationBucket).toBe(9);
     expect(result.durationDistribution).toEqual([
-      { hours: 9, count: 2, employees: ['Alice', 'Bob'] },
+      { hours: 9, count: 2, employees: [{ name: 'Alice', hours: 9 }, { name: 'Bob', hours: 9 }] },
+      { hours: 9.25, count: 0, employees: [] },
+      { hours: 9.5, count: 0, employees: [] },
+      { hours: 9.75, count: 0, employees: [] },
       { hours: 10, count: 0, employees: [] },
-      { hours: 11, count: 1, employees: ['Carol'] },
+      { hours: 10.25, count: 0, employees: [] },
+      { hours: 10.5, count: 0, employees: [] },
+      { hours: 10.75, count: 0, employees: [] },
+      { hours: 11, count: 1, employees: [{ name: 'Carol', hours: 11 }] },
+    ]);
+  });
+
+  it('does not round a quarter-hour average up into the next bucket', async () => {
+    prisma.employee.findMany.mockResolvedValue([
+      { id: 1, employeeName: 'Alice' },
+      { id: 2, employeeName: 'Bob' },
+    ]);
+    prisma.movementRecord.findMany.mockResolvedValue([
+      // Employee 1: 9h15m — must land in the 9.25h bucket, not get rounded
+      // up into 9.5h.
+      movement({ employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-01T04:30:00.000Z') }), // 10:00 IST
+      movement({ employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-01T13:45:00.000Z') }), // 19:15 IST
+      // Employee 2: 9h30m, a different bucket.
+      movement({ employeeId: 2, movementType: 'ENTRY', movementAt: new Date('2026-10-01T04:30:00.000Z') }), // 10:00 IST
+      movement({ employeeId: 2, movementType: 'EXIT', movementAt: new Date('2026-10-01T14:00:00.000Z') }), // 19:30 IST
+    ]);
+
+    const result: any = await service.getEmployeeDetail({ employeeId: '1', from: '2026-10-01', to: '2026-10-01' } as any);
+
+    expect(result.employeeAvgHours).toBe(9.3);
+    expect(result.employeeDurationBucket).toBe(9.25);
+    expect(result.durationDistribution).toEqual([
+      { hours: 9.25, count: 1, employees: [{ name: 'Alice', hours: 9.3 }] },
+      { hours: 9.5, count: 1, employees: [{ name: 'Bob', hours: 9.5 }] },
     ]);
   });
 
@@ -813,7 +845,7 @@ describe('InsightsService.getEmployeeDetail', () => {
 
     const result: any = await service.getEmployeeDetail({ employeeId: '1', from: '2026-10-01', to: '2026-10-01' } as any);
 
-    expect(result.durationDistribution).toEqual([{ hours: 9, count: 1, employees: ['Alice'] }]);
+    expect(result.durationDistribution).toEqual([{ hours: 9, count: 1, employees: [{ name: 'Alice', hours: 9 }] }]);
   });
 });
 
