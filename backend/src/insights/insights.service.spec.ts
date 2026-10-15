@@ -23,6 +23,7 @@ describe('InsightsService.getSummary', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    (service as any).summaryCache.clear();
     settings.get.mockImplementation((key: string) => {
       if (key === 'SHIFT_REFERENCE_START') return Promise.resolve('09:30');
       if (key === 'SHIFT_REFERENCE_END') return Promise.resolve('18:30');
@@ -419,6 +420,33 @@ describe('InsightsService.getSummary', () => {
 
     expect(result.exceptions.correctedRecords).toBe(1);
   });
+
+  it('caches a repeat call with identical filters, skipping recomputation', async () => {
+    prisma.movementRecord.findMany.mockImplementation((args: any) => {
+      if (args?.where?.correctedByUserId) return Promise.resolve([]);
+      return Promise.resolve([movement()]);
+    });
+
+    const first = await service.getSummary({ from: '2026-10-01', to: '2026-10-01' });
+    const callsAfterFirst = prisma.movementRecord.findMany.mock.calls.length;
+    const second = await service.getSummary({ from: '2026-10-01', to: '2026-10-01' });
+
+    expect(second).toEqual(first);
+    expect(prisma.movementRecord.findMany.mock.calls.length).toBe(callsAfterFirst);
+  });
+
+  it('does not cache across different filter combinations', async () => {
+    prisma.movementRecord.findMany.mockImplementation((args: any) => {
+      if (args?.where?.correctedByUserId) return Promise.resolve([]);
+      return Promise.resolve([movement()]);
+    });
+
+    await service.getSummary({ from: '2026-10-01', to: '2026-10-01' });
+    const callsAfterFirst = prisma.movementRecord.findMany.mock.calls.length;
+    await service.getSummary({ from: '2026-10-01', to: '2026-10-02' });
+
+    expect(prisma.movementRecord.findMany.mock.calls.length).toBeGreaterThan(callsAfterFirst);
+  });
 });
 
 // Backs the "All Time" date preset — a real earliest-recorded-movement
@@ -463,6 +491,7 @@ describe('InsightsService.getDrillDown', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    (service as any).summaryCache.clear();
     settings.get.mockImplementation((key: string) => (key === 'EXPECTED_DAILY_HOURS' ? Promise.resolve('9') : Promise.resolve(null)));
   });
 
@@ -690,6 +719,7 @@ describe('InsightsService.getEmployeeDetail', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    (service as any).summaryCache.clear();
     prisma.employee.findUnique.mockResolvedValue({ id: 1, employeeName: 'Asha Rao', employeeCode: 'EMP001', team: 'Testing', isActive: true });
     prisma.employee.findMany.mockResolvedValue([{ id: 1 }]);
   });
@@ -798,6 +828,7 @@ describe('InsightsService.getDailyDuration', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    (service as any).summaryCache.clear();
     prisma.employee.findMany.mockResolvedValue([]);
   });
 
@@ -915,6 +946,7 @@ describe('InsightsService exports', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    (service as any).summaryCache.clear();
     settings.get.mockImplementation((key: string) => (key === 'EXPECTED_DAILY_HOURS' ? Promise.resolve('9') : Promise.resolve(null)));
     prisma.employee.findMany.mockResolvedValue([]);
   });

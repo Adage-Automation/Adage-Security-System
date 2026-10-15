@@ -1,7 +1,8 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
-import { dateRangeInclusive, dayRange, formatDateInAppTimezone, matchesDayScope, DayScope } from '../common/utils/day-range';
+import { dateRangeInclusive, dayRange, formatDateInAppTimezone, todayInAppTimezone, matchesDayScope, DayScope } from '../common/utils/day-range';
+import { TtlCache } from '../common/utils/ttl-cache';
 import { InsightsQueryDto } from './dto/insights-query.dto';
 import { DrillDownQueryDto, DrillDownMetric } from './dto/drill-down-query.dto';
 import { EmployeeDetailQueryDto } from './dto/employee-detail-query.dto';
@@ -52,6 +53,21 @@ interface EmpDayAgg {
 // roster/movement volume grows enough to make this slow. Added 2026-10-05.
 @Injectable()
 export class InsightsService {
+  // Caches getSummary's result per distinct filter combination — see
+  // ttl-cache.ts for why a plain in-memory Map is safe here (single
+  // process, bounded key space). Global, not per-user: the summary's
+  // content doesn't vary by requester, only by the filters, and
+  // VIEW_REPORTS access is already gated at the controller/guard level.
+  // Only invalidation strategy is TTL expiry — no cache-clear on write
+  // (e.g. a new movement or a correction). Deliberately not done: a
+  // historical range's data essentially never changes after the fact
+  // (corrections to old records are rare), and a range touching today
+  // gets a short TTL anyway, bounding staleness to that window. Added
+  // 2026-10-15 alongside the connection-pool fix, to reduce how often the
+  // slow JS aggregation path (see the class comment above) runs on the
+  // free tier's 0.1 vCPU.
+  private summaryCache = new TtlCache<Awaited<ReturnType<InsightsService['computeSummary']>>>();
+
   constructor(
     private prisma: PrismaService,
     private settings: SettingsService,
@@ -70,6 +86,24 @@ export class InsightsService {
   }
 
   async getSummary(query: InsightsQueryDto) {
+    // Stable key regardless of property insertion order — URLSearchParams
+    // sorts nothing itself, so sort the entries explicitly.
+    const key = JSON.stringify(Object.entries(query).sort(([a], [b]) => a.localeCompare(b)));
+    const cached = this.summaryCache.get(key);
+    if (cached) return cached;
+
+    const result = await this.computeSummary(query);
+    // A range extending to today is still "live" — today's movements can
+    // still arrive, so only cache it briefly. A fully historical range
+    // (`to` before today) is effectively immutable, so cache it much
+    // longer.
+    const to = query.to ?? formatDateInAppTimezone(new Date());
+    const ttlMs = to >= todayInAppTimezone() ? 60_000 : 30 * 60_000;
+    this.summaryCache.set(key, result, ttlMs);
+    return result;
+  }
+
+  private async computeSummary(query: InsightsQueryDto) {
     const to = query.to ?? formatDateInAppTimezone(new Date());
     const from = query.from ?? formatDateInAppTimezone(new Date(Date.parse(`${to}T00:00:00`) - 29 * 86_400_000));
     const { start, end } = dateRangeInclusive(from, to);
