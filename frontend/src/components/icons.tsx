@@ -301,3 +301,11 @@ export function IconBarChart(props: IconProps) {
     </svg>
   );
 }
+
+export function IconFilter(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+    </svg>
+  );
+}

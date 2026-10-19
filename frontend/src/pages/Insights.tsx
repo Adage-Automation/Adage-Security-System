@@ -7,7 +7,7 @@ import { AdminNav } from '../components/AdminNav';
 import { BackToTop } from '../components/BackToTop';
 import { ChartCanvas } from '../components/ChartCanvas';
 import { EmployeeLink } from '../components/EmployeeLink';
-import { IconBarChart, IconChevronRight, IconInbox, IconSearch, IconUsers, IconX } from '../components/icons';
+import { IconBarChart, IconChevronRight, IconFilter, IconInbox, IconSearch, IconUsers, IconX } from '../components/icons';
 import { TableSkeleton } from '../components/TableSkeleton';
 import { useScrollRestoration } from '../hooks/useScrollRestoration';
 import { useFocusTrap } from '../hooks/useFocusTrap';
@@ -175,6 +175,11 @@ export function Insights() {
   const [unitId, setUnitId] = useState(restoredFilters.unitId);
   const [dayScope, setDayScope] = useState<DayScope>(restoredFilters.dayScope ?? 'weekdays');
   const [movementType, setMovementType] = useState<'' | 'ENTRY' | 'EXIT'>(restoredFilters.movementType);
+  // Team/Unit/Movement/Days (plus the Employee lookup) collapse behind a
+  // "Filters" toggle — closed by default, so the card's at-rest height is
+  // just the date-range row. Expands a second row inside the same card
+  // (not a floating popover) when opened. Added 2026-10-16, by request.
+  const [filtersOpen, setFiltersOpen] = useState(false);
   // Which attendance-cycle (26th–25th) the ◀ ▶ arrows are currently on,
   // relative to the current one (0). Only meaningful while that preset is
   // the active one — see isAttendanceMonthActive below.
@@ -1107,6 +1112,9 @@ export function Insights() {
   // filters, which could open a drill-down or select an employee against
   // data that was about to be replaced. Direct user feedback, 2026-10-14.
   const pageBlocked = loading || deptComparisonLoading || employeeDetailLoading || allTimeLoading;
+  // Badges the "Filters" toggle so it's clear at a glance whether anything
+  // non-default is active without having to open the row to check.
+  const activeFilterCount = [team !== '', unitId !== '', movementType !== '', dayScope !== 'weekdays'].filter(Boolean).length;
 
   return (
     <div className="page-wide insights-table-scope">
@@ -1129,18 +1137,26 @@ export function Insights() {
         {loading && summary && <span className="spinner dark" style={{ marginLeft: 10 }} aria-label="Refreshing…" />}
       </div>
 
-      <div className="filters-bar">
-        {/* flexBasis: 100% forces this onto its own row within the
-            flex-wrap filters-bar, so the preset pills get the full width to
-            lay out in one line instead of cramming into the narrow From
-            field and wrapping across several short, uneven rows. */}
-        <div style={{ flexBasis: '100%', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+      <div className="filters-bar" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+        {/* width: 100% — without it, this nested flex row (a flex ITEM of
+            the column-direction .filters-bar above) never gets a resolved
+            width before its own flex-wrap line-breaking runs. That makes
+            Chromium miscompute an extra empty wrapped line, inflating the
+            row's auto height well past its visible content (a real,
+            reproduced bug, not just a style nit). Found 2026-10-19. */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', width: '100%' }}>
+        {/* The pill set stays visually grouped as one unit (its own
+            flex-wrap sub-row) instead of individual pills interleaving with
+            From/To when the row wraps on a narrower screen. */}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {[
             { label: 'Today', from: todayIso(), to: todayIso() },
             { label: 'Yesterday', from: isoDaysAgo(1), to: isoDaysAgo(1) },
             { label: 'This Week', from: startOfWeekIso(), to: todayIso() },
             { label: 'This Month', from: startOfMonthIso(), to: todayIso() },
-            { label: 'Last 30 Days', from: isoDaysAgo(29), to: todayIso() },
+            // 'Last 30 Days' removed 2026-10-16, by request — This Month and
+            // All Time already cover that range, and it was the one preset
+            // visually indistinguishable from This Month at a glance.
           ].map((preset) => (
             <button
               key={preset.label}
@@ -1229,62 +1245,78 @@ export function Insights() {
             );
           })()}
         </div>
-        <div className="field">
-          <label>
-            From
-            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} max={to} />
-          </label>
+        {/* No "From"/"To" text labels — the pills beside it are
+            self-explanatory as a date range, and the labels made this row
+            taller than (and visually disjointed from) the pills next to it.
+            aria-label keeps it accessible without the visible text. Matches
+            Option C mockup, direct user feedback, 2026-10-19. */}
+        <input
+          type="date"
+          aria-label="From date"
+          value={from}
+          onChange={(e) => setFrom(e.target.value)}
+          max={to}
+          style={{ flex: '0 1 150px', padding: '12px 14px', borderRadius: 'var(--radius-sm)', border: '1.5px solid var(--border)', background: 'var(--card-bg)', fontSize: 16 }}
+        />
+        <span style={{ color: 'var(--text-muted)' }}>–</span>
+        <input
+          type="date"
+          aria-label="To date"
+          value={to}
+          onChange={(e) => setTo(e.target.value)}
+          min={from}
+          max={todayIso()}
+          style={{ flex: '0 1 150px', padding: '12px 14px', borderRadius: 'var(--radius-sm)', border: '1.5px solid var(--border)', background: 'var(--card-bg)', fontSize: 16 }}
+        />
+        <div style={{ flex: '1 1 auto' }} />
+        {/* Team/Unit/Movement/Days (and the Employee lookup below) collapse
+            behind this toggle — closed by default, so the card's at-rest
+            height is just this date-range row. Badged with a live count so
+            it's clear at a glance whether anything non-default is active
+            without opening it to check. Expands a second row inside this
+            same card (not a floating popover) when open, so it reads as one
+            connected bar that grew by a row rather than a popup sitting on
+            top of the page. Added 2026-10-16, by request. */}
+        <button
+          type="button"
+          className={`table-action-btn filters-toggle-btn ${filtersOpen ? 'open' : ''}`}
+          onClick={() => setFiltersOpen((o) => !o)}
+          aria-expanded={filtersOpen}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '0 0 auto' }}
+        >
+          <IconFilter style={{ width: 14, height: 14 }} />
+          Filters
+          {activeFilterCount > 0 && <span className="filter-count-badge">{activeFilterCount}</span>}
+          <IconChevronRight
+            style={{ width: 12, height: 12, transform: filtersOpen ? 'rotate(-90deg)' : 'rotate(90deg)', transition: 'transform 0.15s ease' }}
+          />
+        </button>
+        {/* Paired with Filters above rather than given its own card — both
+            are "jump to something specific" lookup tools, unlike every
+            other field here which actually filters the charts below. Was a
+            full section-card; collapsed into this row instead, which keeps
+            the same prominence/click-pattern without the fixed card
+            overhead. Direct user feedback, 2026-10. */}
+        <button
+          type="button"
+          className="table-action-btn"
+          title="Every employee's movements for one specific day, independent of the date range above."
+          style={{ flex: '0 0 auto' }}
+          onClick={() => {
+            setDailyDurationQuery('');
+            setDailyDurationTeamFilter([]);
+            setDailyDurationSort(null);
+            setDailyDurationView('present');
+            setDailyDurationOpen(true);
+          }}
+        >
+          View Daily Roster
+        </button>
         </div>
-        <div className="field">
-          <label>
-            To
-            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} min={from} max={todayIso()} />
-          </label>
-        </div>
-        <div className="field">
-          <label>
-            Team
-            <SingleSelect
-              options={[{ value: '', label: 'All teams' }, ...teams.map((t) => ({ value: t, label: t }))]}
-              value={team}
-              onChange={setTeam}
-              ariaLabel="Filter by team"
-            />
-          </label>
-        </div>
-        <div className="field">
-          <label>
-            Unit
-            <SingleSelect
-              options={[{ value: '', label: 'All units' }, ...knownUnits.map((u) => ({ value: String(u.unitId), label: u.unitName }))]}
-              value={unitId}
-              onChange={setUnitId}
-              ariaLabel="Filter by unit"
-            />
-          </label>
-        </div>
-        <div className="field">
-          <label>
-            Movement
-            <SingleSelect
-              options={[
-                { value: '', label: 'All' },
-                { value: 'ENTRY', label: 'ENTRY' },
-                { value: 'EXIT', label: 'EXIT' },
-              ]}
-              value={movementType}
-              onChange={(v) => setMovementType(v as '' | 'ENTRY' | 'EXIT')}
-              ariaLabel="Filter by movement type"
-            />
-          </label>
-        </div>
-        <div className="field">
-          <label>
-            Days
-            <SingleSelect options={DAY_SCOPE_OPTIONS} value={dayScope} onChange={(v) => setDayScope(v as DayScope)} ariaLabel="Filter by day scope" />
-          </label>
-        </div>
-        <div className="field" style={{ position: 'relative', flex: '1 1 320px' }} ref={employeeSearchRef}>
+
+        {filtersOpen && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end', marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)', width: '100%' }}>
+        <div className="field" style={{ position: 'relative', flex: '1.4 1 200px' }} ref={employeeSearchRef}>
           <label>
             Employee
             {selectedEmployee ? (
@@ -1364,28 +1396,70 @@ export function Insights() {
             )}
           </label>
         </div>
-        {/* Paired with Employee above rather than given its own card — both
-            are "jump to something specific" lookup tools (one person, one
-            day), unlike every other field here which actually filters the
-            charts below. Was a full section-card; collapsed into this row
-            instead, which keeps the same prominence/click-pattern without
-            the fixed card overhead. Direct user feedback, 2026-10. */}
-        <div style={{ flex: '1 1 320px', display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end' }}>
-          <button
-            type="button"
-            className="table-action-btn"
-            title="Every employee's movements for one specific day, independent of the date range above."
-            onClick={() => {
-              setDailyDurationQuery('');
-              setDailyDurationTeamFilter([]);
-              setDailyDurationSort(null);
-              setDailyDurationView('present');
-              setDailyDurationOpen(true);
-            }}
-          >
-            View Daily Roster
-          </button>
+        <div className="field" style={{ flex: '1 1 150px' }}>
+          <label>
+            Team
+            <SingleSelect
+              options={[{ value: '', label: 'All teams' }, ...teams.map((t) => ({ value: t, label: t }))]}
+              value={team}
+              onChange={setTeam}
+              ariaLabel="Filter by team"
+            />
+          </label>
         </div>
+        <div className="field" style={{ flex: '1 1 150px' }}>
+          <label>
+            Unit
+            <SingleSelect
+              options={[{ value: '', label: 'All units' }, ...knownUnits.map((u) => ({ value: String(u.unitId), label: u.unitName }))]}
+              value={unitId}
+              onChange={setUnitId}
+              ariaLabel="Filter by unit"
+            />
+          </label>
+        </div>
+        <div className="field" style={{ flex: '1 1 150px' }}>
+          <label>
+            Movement
+            <SingleSelect
+              options={[
+                { value: '', label: 'All' },
+                { value: 'ENTRY', label: 'ENTRY' },
+                { value: 'EXIT', label: 'EXIT' },
+              ]}
+              value={movementType}
+              onChange={(v) => setMovementType(v as '' | 'ENTRY' | 'EXIT')}
+              ariaLabel="Filter by movement type"
+            />
+          </label>
+        </div>
+        <div className="field" style={{ flex: '1 1 150px' }}>
+          <label>
+            Days
+            <SingleSelect options={DAY_SCOPE_OPTIONS} value={dayScope} onChange={(v) => setDayScope(v as DayScope)} ariaLabel="Filter by day scope" />
+          </label>
+        </div>
+        <button
+          type="button"
+          className="table-action-btn"
+          // .table-action-btn's own padding/min-height (36px, sized for the
+          // toolbar row above) is shorter than the 47px .field inputs/
+          // selects this button sits flush against here — same mismatch as
+          // the quick-date pills. Padding-only match (not font-size) so
+          // "Clear" stays the same text size as its Filters/View Daily
+          // Roster siblings. Found 2026-10-19.
+          style={{ color: 'var(--text-muted)', flex: '0 0 auto', padding: '14.5px 14px' }}
+          onClick={() => {
+            setTeam('');
+            setUnitId('');
+            setMovementType('');
+            setDayScope('weekdays');
+          }}
+        >
+          Clear
+        </button>
+        </div>
+        )}
       </div>
 
       {/* Right after the filters-bar, next to the Employee search that
@@ -1796,6 +1870,7 @@ export function Insights() {
                   {exportingKey === 'insights-team-breakdown' ? 'Exporting…' : 'Export to Excel'}
                 </button>
               </div>
+              <div className="scroll-hint">Scroll sideways for more columns →</div>
               <div style={{ overflowX: 'auto' }}>
               <table className="records-table">
                 <thead>
@@ -2361,13 +2436,20 @@ function SingleSelect({
         onClick={() => setOpen((o) => !o)}
         aria-label={ariaLabel}
         aria-expanded={open}
+        // fontSize 13 (not the .field input's 16) — this is a custom toggle
+        // button, not an editable text input, so it was never subject to
+        // iOS's auto-zoom-on-focus (the reason .field input/select stays at
+        // 16). At 16px it read oversized next to the 12-12.5px pills/
+        // buttons sharing this row. Padding bumped to 14px to keep the same
+        // ~47px height despite the smaller font. Direct user feedback,
+        // 2026-10-19.
         style={{
           width: '100%',
-          padding: '12px 14px',
+          padding: '14px',
           borderRadius: 'var(--radius-sm)',
           border: '1.5px solid var(--border)',
           background: 'var(--card-bg)',
-          fontSize: 16,
+          fontSize: 13,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',

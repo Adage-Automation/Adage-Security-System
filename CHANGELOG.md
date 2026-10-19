@@ -1,5 +1,59 @@
 # Changelog
 
+## 2026-10-19 — Insights: fixed a real flex layout bug in the filter bar, plus a sizing pass
+
+A follow-up to the 2026-10-16 filter-bar redesign below, after the collapsed row was reported as having an "unnecessary gap" between the date-pill row and the expanded Team/Unit/Movement/Days row.
+
+- **Real bug, not a style nit**: the two stacked rows inside `.filters-bar` (now `flex-direction: column`) are themselves flex items with no explicit `width`, relying on `align-items: stretch` for sizing. That meant each row's own internal `flex-wrap` line-breaking ran before a width was resolved, which made Chromium miscompute a phantom empty wrapped line — inflating the row's auto height (e.g. 89px → 177px) even though every item visibly rendered on one line. Reproduced standalone (static HTML against the real `global.css`, measured via Playwright) before touching anything live, since the first fix attempt (`flex: 'none'`) didn't address the real cause and the second (adding `width: '100%'` to both rows) did — confirmed at both desktop (no phantom line) and mobile widths (still wraps into real multi-line rows correctly).
+- **From/To redesigned**: dropped the separate "From"/"To" text labels (`aria-label` now carries the accessible name) and put the two date inputs inline with the pills, separated by a "–", matching an agreed mockup — previously the labels sat above the inputs, making this row visibly taller than the rest of the bar.
+- **New funnel icon** (`IconFilter`, `frontend/src/components/icons.tsx`) on the Filters toggle button, next to its existing count badge.
+- **Quick-date pills were only 18px tall** (`.quick-date-btn` had horizontal padding only, no vertical padding/min-height) against 47px date inputs and the 36px `.table-action-btn` touch-target standard right next to them — gave them the same `min-height: 36px` the rest of the row's buttons already use.
+- **"Clear" button was visibly shorter than the dropdowns beside it**, for two compounding reasons: `.table-action-btn`'s own sizing (36px, meant for the toolbar row above) is shorter than a `.field` input/select (47px); and `.field label`'s `margin-bottom: 6px` (meant to space a label from a *sibling* control) had nowhere to collapse to when the control is nested inside the label instead, so it stayed trapped inside each field's box as a flex item — a new `.filters-bar .field label { margin-bottom: 0 }` rule fixes that generally, and Clear's own padding was tuned to the same 47px without changing its font-size (so its text still matches its Filters/View Daily Roster siblings, not the bigger field text).
+- **Team/Unit/Movement/Days dropdown buttons were set to 16px** (copied from `.field input`'s iOS-zoom-prevention sizing) despite being custom toggle buttons, not editable text inputs that iOS actually auto-zooms on — shrunk to 13px with compensating padding to hold the same ~47px height, so they read consistent with the 12-12.5px pills/buttons sharing the row instead of oversized. `MultiSelect` (used only in separate modals, not this row) was left untouched — different context, not part of the reported mismatch.
+
+All of this was verified against the real `frontend/src/styles/global.css` via standalone Playwright repros (pixel measurements + screenshots) before and after each change, since the live app's seed credentials didn't work against this environment's backend and login wasn't pursued further rather than risk the real account's rate limiter.
+
+## 2026-10-16 (cont.) — Insights: redesigned filter bar — compact at rest, filters collapse behind a toggle
+
+Iterated through several mockups (published as an Artifact for review) before landing on this: the filter card used to always show three full rows (date presets, 6 fields, Employee+button) totaling ~140px. Now:
+
+- **"Last 30 Days" preset removed** — This Month and All Time already cover that range, and it was visually indistinguishable from This Month at a glance.
+- **One compact row at rest** (~90px total): date presets, From/To, a "Filters" button, and View Daily Roster. The Filters button is badged with a live count of non-default filters (`activeFilterCount`, new derived value) so it's clear at a glance whether anything's active without opening it.
+- **Team/Unit/Movement/Days/Employee collapse behind the Filters toggle**, new `filtersOpen` state. Clicking it expands a second row **inside the same card** (not a floating popover) — same width, divided by a thin rule, with the button staying visually pressed (tinted, chevron flipped) while open. A "Clear" button resets Team/Unit/Movement/Days to defaults.
+- Employee search moved from the always-visible row into this second row, alongside the four filters.
+
+New CSS: `.filters-toggle-btn.open`, `.filter-count-badge` (`frontend/src/styles/global.css`). Typecheck/build clean, 22/22 frontend tests pass, verified live (toggle cycles open/close/open correctly via `aria-expanded`, badge count updates when a filter changes, Last 30 Days confirmed gone from the rendered pills).
+
+## 2026-10-16 (cont.) — Insights: fixed an odd gap in the filter bar's Employee/View Daily Roster row
+
+The Employee search box and "View Daily Roster" button were each a separate `flex: 1` column (half the row width), with the button justified to the far right of its own half — on a wide screen that left a visibly odd empty gap between a search box that didn't stretch to fill its half and a small button stranded at the far edge. Merged into one flex row: the search box now grows to fill the available space, and the button sits at its natural width immediately next to it. Typecheck/build clean, 22/22 frontend tests pass, verified live via screenshot.
+
+## 2026-10-16 (cont.) — Employees: sortable table headers, and a real bug found while testing them
+
+Made all six table headers (Code, Name, Email, Car Number, Team, Status) click-to-sort, ported from the same pattern already used throughout Insights.tsx (`frontend/src/components/SortableTh.tsx` + `frontend/src/utils/sort.ts`, new shared files — Insights.tsx keeps its own local copy rather than being refactored to share this, not worth the risk to an already-working file for a reuse-only change).
+
+Asked directly whether inactive employees are in the list and whether sorting would surface them on top — they are (backend's list endpoint has never filtered by `isActive`), but testing surfaced a real bug: sorting only reordered whatever page was already loaded (the roster loads 50 at a time), so with only 2 inactive employees out of 209 — neither in the first 50 alphabetically — sorting by Status silently showed zero of them. Fixed: clicking any header now fetches every remaining page first (`loadAllThenSort`, paginating past the backend's 200-row cap when needed) before sorting, so a sort always reflects the complete roster. Verified live: Status sort correctly loads all 209 and puts both inactive employees on top.
+
+22/22 frontend tests pass, typecheck/build clean.
+
+## 2026-10-16 (cont.) — Employees: fixed the collapsed Add Employee button looking orphaned, made Team required
+
+The collapsed "Add Employee" toggle from the previous entry still sat alone inside its own full-width white card — a small button floating in a mostly-empty box, flagged as looking "a little odd." Moved it into the header's action-button row, alongside Download Import Template/Import from Excel/Export to Excel, and the form's card now only renders at all when expanded — no empty card in the collapsed state.
+
+While touching the form, reviewed all five fields' placeholders: Name had none (added "e.g. Priya Sharma", matching Employee Code's existing "e.g." pattern); Car Number's "Leave blank if not known yet" didn't show what a car number actually looks like (added "e.g. GA06 F 6026 — leave blank if not known"). Also made **Team required** (was optional) — label, `required` attribute, and the blank option changed from "Not set" to a disabled "Select team" placeholder, so the browser blocks submission until a team is chosen.
+
+Typecheck/build clean, 22/22 frontend tests pass, verified live: header layout confirmed via screenshot, form validity confirmed via `checkValidity()` (false with Team unselected, true once a team is picked).
+
+## 2026-10-16 — Full-app UI/UX review: three fixes
+
+Screenshotted every page (Dashboard, Employees, Insights, Corrections, Users, Settings, Audit Log, SecurityHome, Login) at desktop and mobile widths, as Admin and as a real Security account, and ran through the core flows. Most of the app held up well — fixed three real findings:
+
+1. **Employees' "Add Employee" form now collapses behind a button** (`+ Add Employee` / `Hide Add Employee`), matching the already-planned fix from the 2026-10 deferred-items list. It was always open, pushing the search box and the 209-employee list down a full screen — on mobile the entire first view was nav buttons + 3 action buttons + a 5-field form, with zero employees visible without scrolling. First field auto-focuses when expanded.
+2. **Insights' Team Breakdown table (8 columns) gets a mobile-only "Scroll sideways for more columns →" hint.** The table already scrolled horizontally on narrow screens, but most phone browsers hide the scrollbar entirely, so it looked simply cut off with no indication there was more. The hint (`.scroll-hint` CSS class, shown only under the existing 640px breakpoint) is invisible on desktop.
+3. **Audit Log action badges now use distinct colors by category**, not one color for almost everything. Previously only FAILED (red) and DEACTIVATED/DISABLED/LOGOUT (amber) stood out — USER_LOGIN, ENTRY/EXIT_RECORDED, EMAIL_SENT, and a dozen CRUD actions all showed identical green badges. Now: red (failures), amber (deactivate/disable/logout, unchanged), brand teal (login/password-reset — new "account" category), green (reserved for the actual movement-recording actions, the core data this log exists to track), grey (everything else — CRUD on employees/users/settings, email, report downloads).
+
+22/22 frontend tests pass, typecheck/build clean, verified live (Puppeteer: form starts collapsed and expands with focus on click, scroll hint confirmed `display: block` on mobile / `none` on desktop, badge colors confirmed via computed styles — USER LOGIN teal, ENTRY/EXIT RECORDED green).
+
 ## 2026-10-15 (cont.) — Insights: bucket click-through now matches other modals, shows exact duration
 
 The "How This Employee Compares" click-through (the list of who's in a bucket) was a plain name list in a bare modal, unlike every other modal in the app (drill-down, Daily Roster), which use a consistent `role="dialog"`/focus-trap/table pattern. Rebuilt it to match: a real `<table>` with Employee/Avg Duration columns (not just names), the viewed employee's own row bolded, and the same focus-trap/Escape/Tab behavior as the other modals (`useFocusTrap`). Backend's `durationDistribution[].employees` changed from `string[]` to `{ name, hours }[]` so the exact (1-decimal) duration is available per person, not just which quarter-hour bucket they're in. 175/175 backend, 22/22 frontend tests pass, verified live: selected a real employee, located the chart's highlighted point by scanning canvas pixels for its accent color (Chart.js isn't reachable from the page for a scripted click), clicked it, and confirmed the modal renders a real table with correct exact-duration values for each person in that bucket.

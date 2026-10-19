@@ -1,12 +1,14 @@
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from 'react';
 import { api, redirectOnSessionExpired } from '../api/client';
 import { Employee } from '../types';
-import { IconUsers, IconSearch, IconInbox, IconX, IconCheckCircle, IconDownload, IconUpload } from '../components/icons';
+import { IconUsers, IconSearch, IconInbox, IconX, IconCheckCircle, IconDownload, IconUpload, IconPlus } from '../components/icons';
 import { AdminNav } from '../components/AdminNav';
 import { TableSkeleton } from '../components/TableSkeleton';
 import { BackToTop } from '../components/BackToTop';
+import { Th } from '../components/SortableTh';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import { downloadFile } from '../utils/downloadFile';
+import { toggleSort, sortRows, SortState } from '../utils/sort';
 
 const PAGE_SIZE = 50;
 
@@ -30,6 +32,12 @@ export function Employees() {
   const [query, setQuery] = useState('');
   const [skip, setSkip] = useState(0);
   const [loading, setLoading] = useState(false);
+  // Client-side only — the backend always returns employeeName-asc (every
+  // other call site relies on that fixed order), and only the currently
+  // loaded page(s) are sorted, same as Insights' Team Breakdown table.
+  // Re-sorts the whole accumulated list on every render, so clicking
+  // "Load More" while a sort is active still comes out correctly ordered.
+  const [sort, setSort] = useState<SortState>(null);
   const [form, setForm] = useState({ employeeCode: '', employeeName: '', email: '', carNumber: '', team: '' });
   const [editing, setEditing] = useState<Employee | null>(null);
   const [editForm, setEditForm] = useState({ employeeName: '', email: '', carNumber: '', team: '' });
@@ -45,6 +53,13 @@ export function Employees() {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [togglingId, setTogglingId] = useState<number | null>(null);
+  // Collapsed by default — the far more common action on this page is
+  // searching/browsing the existing roster, not adding a new employee, but
+  // the form used to sit permanently open above the search box and the
+  // 209-employee list, pushing both down a full screen (worse on mobile,
+  // where it's the entire first view). Found in the 2026-10 UI/UX review.
+  const [addFormOpen, setAddFormOpen] = useState(false);
+  const addFirstFieldRef = useRef<HTMLInputElement>(null);
   const editModalRef = useRef<HTMLDivElement>(null);
   const editFirstFieldRef = useRef<HTMLInputElement>(null);
   const importModalRef = useRef<HTMLDivElement>(null);
@@ -77,6 +92,14 @@ export function Employees() {
   // results summary.
   useFocusTrap(!!importResult, importModalRef, importModalCloseRef, () => setImportResult(null));
 
+  // Focus the first field when the Add Employee form is opened, same as a
+  // modal would — it's not a modal (no overlay/focus trap; the page behind
+  // it is still usable), just a toggled section, so only the initial-focus
+  // half of that pattern applies.
+  useEffect(() => {
+    if (addFormOpen) addFirstFieldRef.current?.focus();
+  }, [addFormOpen]);
+
   function load(reset: boolean) {
     setLoading(true);
     const nextSkip = reset ? 0 : skip;
@@ -103,6 +126,41 @@ export function Employees() {
       .finally(() => {
         if (seq === loadSeqRef.current) setLoading(false);
       });
+  }
+
+  // Sorting only reorders whatever's already loaded (the roster is loaded
+  // 50 at a time via "Load More") — clicking a header used to silently
+  // sort just the first page, so e.g. the 2 inactive employees out of 209
+  // never surfaced on top when sorting by Status, since neither name falls
+  // in the first 50 alphabetically. Fetches every remaining page first (209
+  // rows is small enough this is near-instant), so a sort always reflects
+  // the full roster. Found in the 2026-10-16 UI/UX review, by request.
+  async function loadAllThenSort(key: string) {
+    setSort((p) => toggleSort(p, key));
+    if (employees.length >= total) return;
+    setLoading(true);
+    const seq = ++loadSeqRef.current;
+    try {
+      let rows = employees;
+      let nextSkip = skip;
+      while (rows.length < total) {
+        const params = new URLSearchParams({ skip: String(nextSkip), take: String(PAGE_SIZE) });
+        if (query.trim()) params.set('q', query.trim());
+        const res = await api.get<{ rows: Employee[]; total: number }>(`/employees?${params.toString()}`);
+        if (seq !== loadSeqRef.current) return;
+        if (res.rows.length === 0) break;
+        rows = [...rows, ...res.rows];
+        nextSkip += res.rows.length;
+        setEmployees(rows);
+        setTotal(res.total);
+        setSkip(nextSkip);
+      }
+    } catch {
+      // Sort still applies to whatever was already loaded — not worth a
+      // dedicated error state for a background completeness fetch.
+    } finally {
+      if (seq === loadSeqRef.current) setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -295,6 +353,10 @@ export function Employees() {
           Employee Management
         </span>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button type="button" className="table-action-btn" onClick={() => setAddFormOpen((o) => !o)} aria-expanded={addFormOpen} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <IconPlus style={{ width: 16, height: 16 }} />
+            {addFormOpen ? 'Hide Add Employee' : 'Add Employee'}
+          </button>
           <button type="button" className="table-action-btn" onClick={handleDownloadTemplate} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <IconDownload style={{ width: 16, height: 16 }} />
             Download Import Template
@@ -325,19 +387,20 @@ export function Employees() {
         </div>
       </div>
 
+      {addFormOpen && (
       <div className="section-card">
         <h3>Add Employee</h3>
         <form onSubmit={handleCreate} style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
           <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
             <label>
               Employee Code<span className="required-mark"> *</span>
-              <input value={form.employeeCode} onChange={(e) => setForm({ ...form, employeeCode: e.target.value })} placeholder="Must be unique, e.g. EMP206" required />
+              <input ref={addFirstFieldRef} value={form.employeeCode} onChange={(e) => setForm({ ...form, employeeCode: e.target.value })} placeholder="Must be unique, e.g. EMP206" required />
             </label>
           </div>
           <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
             <label>
               Name<span className="required-mark"> *</span>
-              <input value={form.employeeName} onChange={(e) => setForm({ ...form, employeeName: e.target.value })} required />
+              <input value={form.employeeName} onChange={(e) => setForm({ ...form, employeeName: e.target.value })} placeholder="e.g. Priya Sharma" required />
             </label>
           </div>
           <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
@@ -349,14 +412,16 @@ export function Employees() {
           <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
             <label>
               Car Number (optional)
-              <input value={form.carNumber} onChange={(e) => setForm({ ...form, carNumber: e.target.value })} placeholder="Leave blank if not known yet" />
+              <input value={form.carNumber} onChange={(e) => setForm({ ...form, carNumber: e.target.value })} placeholder="e.g. GA06 F 6026 — leave blank if not known" />
             </label>
           </div>
           <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
             <label>
-              Team (optional)
-              <select value={form.team} onChange={(e) => setForm({ ...form, team: e.target.value })}>
-                <option value="">Not set</option>
+              Team<span className="required-mark"> *</span>
+              <select value={form.team} onChange={(e) => setForm({ ...form, team: e.target.value })} required>
+                <option value="" disabled>
+                  Select team
+                </option>
                 {teams.map((t) => (
                   <option key={t} value={t}>
                     {t}
@@ -380,6 +445,7 @@ export function Employees() {
         )}
         {error && <div className="error-text">{error}</div>}
       </div>
+      )}
 
       <div className="filters-bar">
         <div className="field" style={{ position: 'relative', marginBottom: 0 }}>
@@ -410,17 +476,17 @@ export function Employees() {
           <table className="records-table">
             <thead>
               <tr>
-                <th>Code</th>
-                <th>Name</th>
-                <th>Email</th>
-                <th>Car Number</th>
-                <th>Team</th>
-                <th>Status</th>
+                <Th label="Code" sortKey="employeeCode" sort={sort} onSort={loadAllThenSort} />
+                <Th label="Name" sortKey="employeeName" sort={sort} onSort={loadAllThenSort} />
+                <Th label="Email" sortKey="email" sort={sort} onSort={loadAllThenSort} />
+                <Th label="Car Number" sortKey="carNumber" sort={sort} onSort={loadAllThenSort} />
+                <Th label="Team" sortKey="team" sort={sort} onSort={loadAllThenSort} />
+                <Th label="Status" sortKey="isActive" sort={sort} onSort={loadAllThenSort} />
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {employees.map((emp) => (
+              {sortRows(employees, sort).map((emp) => (
                 <tr key={emp.id}>
                   <td>{emp.employeeCode}</td>
                   <td>{emp.employeeName}</td>
@@ -446,7 +512,7 @@ export function Employees() {
           </table>
 
           <div className="record-cards">
-            {employees.map((emp) => (
+            {sortRows(employees, sort).map((emp) => (
               <div className="record-card" key={emp.id} style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                   <div>

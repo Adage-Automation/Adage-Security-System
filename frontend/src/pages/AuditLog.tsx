@@ -23,11 +23,23 @@ interface UserOption {
 const ENTITY_TYPES = ['MovementRecord', 'Employee', 'User', 'Setting', 'EmailLog'];
 const PAGE_SIZE = 50;
 
-function actionTone(action: string): 'success' | 'error' | 'pending' | 'neutral' {
+// Every non-failure, non-disable action used to fall into the same
+// 'success' (green) bucket — USER_LOGIN, EXIT_RECORDED, EMAIL_SENT and a
+// dozen others all looked identical, defeating the point of a color badge
+// for quickly scanning a long log. Split into: error (red, unchanged),
+// pending (amber, unchanged — deactivation/disable/logout), account (brand
+// teal — login and password-reset events), success (green — reserved for
+// the actual movement-recording actions, the core operational data this
+// log exists to track), neutral (grey — everything else: CRUD on
+// employees/users/settings, email, report downloads). Found in the 2026-10
+// UI/UX review.
+function actionTone(action: string): 'success' | 'error' | 'pending' | 'account' | 'neutral' {
   if (action.includes('FAILED')) return 'error';
-  if (action.includes('DEACTIVATED') || action.includes('DISABLED') || action.includes('LOGOUT')) return 'pending';
+  if (action.includes('DEACTIVATED') || action.includes('DISABLED') || action === 'USER_LOGOUT') return 'pending';
   if (action.includes('CORRECTED') || action.includes('MISSING')) return 'pending';
-  return 'success';
+  if (action === 'USER_LOGIN' || action.includes('PASSWORD_RESET')) return 'account';
+  if (action === 'ENTRY_RECORDED' || action === 'EXIT_RECORDED') return 'success';
+  return 'neutral';
 }
 
 export function AuditLog() {
@@ -229,12 +241,14 @@ export function AuditLog() {
   );
 }
 
-function actionToneStyle(tone: 'success' | 'error' | 'pending' | 'neutral'): CSSProperties {
+function actionToneStyle(tone: 'success' | 'error' | 'pending' | 'account' | 'neutral'): CSSProperties {
   switch (tone) {
     case 'error':
       return { background: 'var(--exit-tint)', color: 'var(--exit-red)' };
     case 'pending':
       return { background: 'var(--pending-tint)', color: 'var(--pending-amber)' };
+    case 'account':
+      return { background: 'var(--brand-tint)', color: 'var(--brand-dark)' };
     case 'success':
       return { background: 'var(--entry-tint)', color: 'var(--entry-green)' };
     default:

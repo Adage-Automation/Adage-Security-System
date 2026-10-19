@@ -886,6 +886,18 @@ svg {
   margin-bottom: 0;
 }
 
+/* `.field label`'s margin-bottom (global, ~line 740) spaces the label from
+   a *sibling* control below it. Every filters-bar field nests its control
+   inside the label instead (no sibling), so that margin had nothing to
+   collapse with — and since .field is a flex item (flex items don't
+   collapse margins through them), it stayed trapped inside the field's own
+   box, pushing its bottom edge 6px past its visible content. That's what
+   made "Clear" (no such trapped margin) look misaligned against the
+   dropdowns beside it. Found 2026-10-19. */
+.filters-bar .field label {
+  margin-bottom: 0;
+}
+
 .date-quick-row {
   display: flex;
   flex-wrap: wrap;
@@ -898,7 +910,13 @@ svg {
 }
 
 .quick-date-btn {
-  padding: 0 12px;
+  /* Vertical padding/min-height added to match the 36px touch-target
+     standard the sibling .table-action-btn buttons (Filters, View Daily
+     Roster) already use — these pills sat at the row's full text height
+     (~18px) with none, a visible mismatch next to everything else in the
+     same row. Found 2026-10-19. */
+  padding: 9px 12px;
+  min-height: 36px;
   border-radius: var(--radius-sm);
   border: 1.5px solid var(--border);
   background: white;
@@ -919,6 +937,26 @@ svg {
   background: var(--brand);
   border-color: var(--brand);
   color: white;
+}
+
+/* Insights' "Filters" toggle — stays visually pressed (tinted, like a
+   SingleSelect's own open state) while the second row is expanded, so the
+   card doesn't silently look "closed" while it's actually open. Added
+   2026-10-16, by request (the Team/Unit/Movement/Days/Employee row now
+   collapses behind this button instead of always being visible). */
+.filters-toggle-btn.open {
+  background: var(--brand-tint);
+  border-color: var(--brand-light);
+  color: var(--brand-dark);
+}
+
+.filter-count-badge {
+  background: var(--brand);
+  color: white;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 20px;
 }
 
 .filter-chip {
@@ -1046,6 +1084,13 @@ table.records-table {
   overflow: hidden;
   border: 1px solid var(--border);
   box-shadow: var(--shadow-sm);
+}
+
+/* Hidden by default (desktop tables don't need a scroll hint); shown at
+   mobile widths by the matching rule in the @media (max-width: 640px)
+   block below. */
+.scroll-hint {
+  display: none;
 }
 
 table.records-table th,
@@ -1278,6 +1323,19 @@ table.records-table th {
      too wide to wrap. Found in the 2026-10 mobile-modal audit. */
   .insights-table-scope .records-table {
     display: table;
+  }
+
+  /* The horizontal-scroll fallback above has no visible scrollbar on most
+     phone browsers (iOS Safari hides it entirely), so a wide table like
+     Team Breakdown (8 columns) looked cut off on the right with no hint
+     that there was more to see. Shown only where a table is wrapped in
+     .scroll-hint-wrap; desktop never renders it (see the unscoped rule
+     below). Found in the 2026-10 UI/UX review. */
+  .scroll-hint {
+    display: block;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
   }
 
   .record-cards {
