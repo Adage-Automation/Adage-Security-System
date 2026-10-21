@@ -887,15 +887,40 @@ svg {
 }
 
 /* `.field label`'s margin-bottom (global, ~line 740) spaces the label from
-   a *sibling* control below it. Every filters-bar field nests its control
-   inside the label instead (no sibling), so that margin had nothing to
-   collapse with — and since .field is a flex item (flex items don't
-   collapse margins through them), it stayed trapped inside the field's own
-   box, pushing its bottom edge 6px past its visible content. That's what
-   made "Clear" (no such trapped margin) look misaligned against the
-   dropdowns beside it. Found 2026-10-19. */
-.filters-bar .field label {
+   a *sibling* control below it. Every nested `<label>Text<input/></label>`
+   field (the dominant pattern in this app) has no such sibling — the
+   control is INSIDE the label — so that margin has nothing to collapse
+   with. In a plain block-stacked form (Login, modals, etc.) it's harmless:
+   `.field` isn't a flex item there, so the label's trailing margin
+   collapses straight through `.field`'s own bottom edge and merges with
+   `.field`'s own `margin-bottom: 16px` (the larger of the two wins either
+   way — pure no-op). But the instant `.field` sits inside a `display:flex`
+   row — filters bars, and any inline multi-field form like Add
+   Employee/Add User — flex items block margin collapsing through them, so
+   that same 6px gets trapped inside the field's own box, inflating its
+   rendered height 6px past its visible control. First found and scoped to
+   just `.filters-bar` on 2026-10-19 (it made "Clear" look misaligned
+   against its sibling dropdowns); found again in the Add Employee row's
+   submit button on 2026-10-21 — same bug, different flex row the first fix
+   didn't cover. Generalized here since the fix is a no-op everywhere else
+   anyway. */
+.field label {
   margin-bottom: 0;
+}
+
+/* The rule above fixed the trapped-margin case (label wraps its control,
+   e.g. Movement/Recorded By), where `.field label > select`'s own
+   margin-top already provides the label-to-control gap. But Dashboard's
+   and Corrections' Employee field uses a different pattern — a standalone
+   `<label>Employee</label>` followed by a sibling div (the search box or
+   selected-employee chip), not wrapping it — so the rule above also zeroed
+   out their only source of that gap, leaving "Employee" sitting right on
+   top of its input/chip with no space, visibly out of line with the other
+   fields in the row. Restored here, scoped to just that sibling pattern so
+   it doesn't reopen the trapped-margin bug for wrapped-label fields. Found
+   in the 2026-10-21 UI check. */
+.filters-bar .field > label + div {
+  margin-top: 6px;
 }
 
 .date-quick-row {

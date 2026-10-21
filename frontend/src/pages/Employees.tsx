@@ -40,6 +40,7 @@ export function Employees() {
   const [sort, setSort] = useState<SortState>(null);
   const [form, setForm] = useState({ employeeCode: '', employeeName: '', email: '', carNumber: '', team: '' });
   const [editing, setEditing] = useState<Employee | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
   const [editForm, setEditForm] = useState({ employeeName: '', email: '', carNumber: '', team: '' });
   // Fetched once from the backend (GET /employees/teams) rather than a
   // second hardcoded copy of the list, so the dropdown can never drift out
@@ -135,15 +136,14 @@ export function Employees() {
   // in the first 50 alphabetically. Fetches every remaining page first (209
   // rows is small enough this is near-instant), so a sort always reflects
   // the full roster. Found in the 2026-10-16 UI/UX review, by request.
-  async function loadAllThenSort(key: string) {
-    setSort((p) => toggleSort(p, key));
-    if (employees.length >= total) return;
+  async function loadAllRemainingPages(reset = false) {
     setLoading(true);
     const seq = ++loadSeqRef.current;
     try {
-      let rows = employees;
-      let nextSkip = skip;
-      while (rows.length < total) {
+      let rows = reset ? [] : employees;
+      let nextSkip = reset ? 0 : skip;
+      let totalCount = reset ? Infinity : total;
+      while (rows.length < totalCount) {
         const params = new URLSearchParams({ skip: String(nextSkip), take: String(PAGE_SIZE) });
         if (query.trim()) params.set('q', query.trim());
         const res = await api.get<{ rows: Employee[]; total: number }>(`/employees?${params.toString()}`);
@@ -151,6 +151,7 @@ export function Employees() {
         if (res.rows.length === 0) break;
         rows = [...rows, ...res.rows];
         nextSkip += res.rows.length;
+        totalCount = res.total;
         setEmployees(rows);
         setTotal(res.total);
         setSkip(nextSkip);
@@ -161,6 +162,12 @@ export function Employees() {
     } finally {
       if (seq === loadSeqRef.current) setLoading(false);
     }
+  }
+
+  async function loadAllThenSort(key: string) {
+    setSort((p) => toggleSort(p, key));
+    if (employees.length >= total) return;
+    await loadAllRemainingPages();
   }
 
   useEffect(() => {
@@ -175,7 +182,11 @@ export function Employees() {
   // list would silently hide everyone past the first page. Debounced to
   // match the search pattern used elsewhere in the app.
   useEffect(() => {
-    const t = setTimeout(() => load(true), 250);
+    // A sort stays "active" (header indicator, etc.) across a search —
+    // if it's on, keep loading every matching page so the sort still
+    // reflects the whole filtered roster, not just page 1 (same reasoning
+    // as loadAllThenSort above). Found in the 2026-10 audit.
+    const t = setTimeout(() => (sort ? loadAllRemainingPages(true) : load(true)), 250);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
@@ -259,8 +270,9 @@ export function Employees() {
 
   async function saveEdit(e: FormEvent) {
     e.preventDefault();
-    if (!editing) return;
+    if (!editing || editSaving) return;
     setError(null);
+    setEditSaving(true);
     try {
       const updated = await api.put<Employee>(`/employees/${editing.id}`, {
         employeeName: editForm.employeeName.trim(),
@@ -278,6 +290,8 @@ export function Employees() {
       setEditing(null);
     } catch (err: any) {
       setError(err?.message ?? 'Failed to update employee.');
+    } finally {
+      setEditSaving(false);
     }
   }
 
@@ -325,8 +339,11 @@ export function Employees() {
       const formData = new FormData();
       formData.append('file', file);
       const res = await fetch('/api/employees/import', { method: 'POST', credentials: 'include', body: formData });
-      const body = await res.json();
-      if (!res.ok) {
+      // A non-JSON error response (e.g. a proxy/500 HTML page) used to
+      // throw a raw SyntaxError out of res.json() instead of a friendly
+      // message. Found in the 2026-10 audit.
+      const body = await res.json().catch(() => null);
+      if (!res.ok || !body) {
         redirectOnSessionExpired(res.status);
         throw new Error(body?.message ?? 'Import failed.');
       }
@@ -394,7 +411,7 @@ export function Employees() {
           <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
             <label>
               Employee Code<span className="required-mark"> *</span>
-              <input ref={addFirstFieldRef} value={form.employeeCode} onChange={(e) => setForm({ ...form, employeeCode: e.target.value })} placeholder="Must be unique, e.g. EMP206" required />
+              <input ref={addFirstFieldRef} value={form.employeeCode} onChange={(e) => setForm({ ...form, employeeCode: e.target.value })} placeholder="e.g. EMP206" required />
             </label>
           </div>
           <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
@@ -406,13 +423,13 @@ export function Employees() {
           <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
             <label>
               Email (optional)
-              <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Leave blank if not known yet" />
+              <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="e.g. priya@adage-automation.com" />
             </label>
           </div>
           <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
             <label>
               Car Number (optional)
-              <input value={form.carNumber} onChange={(e) => setForm({ ...form, carNumber: e.target.value })} placeholder="e.g. GA06 F 6026 — leave blank if not known" />
+              <input value={form.carNumber} onChange={(e) => setForm({ ...form, carNumber: e.target.value })} placeholder="e.g. GA06 F 6026" />
             </label>
           </div>
           <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
@@ -613,11 +630,12 @@ export function Employees() {
               </div>
               {error && <div className="error-text">{error}</div>}
               <div className="modal-actions">
-                <button type="button" className="cancel-btn" onClick={closeEditModal}>
+                <button type="button" className="cancel-btn" onClick={closeEditModal} disabled={editSaving}>
                   Cancel
                 </button>
-                <button type="submit" className="confirm-btn">
-                  Save
+                <button type="submit" className="confirm-btn" disabled={editSaving}>
+                  {editSaving && <span className="spinner" />}
+                  {editSaving ? 'Saving…' : 'Save'}
                 </button>
               </div>
             </form>

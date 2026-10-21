@@ -48,11 +48,11 @@ type Status =
 // How long the confirmed-employee card/buttons stay up after a
 // successful ENTRY/EXIT before the search box reappears for the next
 // employee. Was 1800ms — reported by the user as feeling slow when
-// working through a queue of people quickly at the gate; the success/
-// pending-sync banner itself isn't cleared by this (only the next
-// selection does that), so the confirmation stays visible while the
-// guard is already free to search the next name. Found in the
-// 2026-09-22 audit.
+// working through a queue of people quickly at the gate. The search box
+// is hidden until this fires (it only renders when nothing's selected),
+// so the guard can't actually start the next search until the delay
+// elapses — a prior version of this comment claimed otherwise. Found in
+// the 2026-09-22 audit; comment corrected in the 2026-10 audit.
 const AUTO_RESET_DELAY_MS = 800;
 
 export function SecurityHome() {
@@ -93,6 +93,18 @@ export function SecurityHome() {
   // — see the clientRequestId comment in schema.prisma. Regenerated only
   // on a fresh tap (confirmed=false), never on a confirm-resubmit.
   const pendingRequestIdRef = useRef<string | null>(null);
+  // Tracked so a new selection (or an explicit Cancel) can cancel a still-
+  // pending auto-reset timer from a *previous* tap — without this, tapping
+  // ENTRY, hitting Cancel, then quickly picking someone new (all within
+  // AUTO_RESET_DELAY_MS) let the stale timer fire and silently wipe the
+  // just-made new selection back to the search screen. Found in the
+  // 2026-10 audit.
+  const autoResetTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  function scheduleAutoReset() {
+    clearTimeout(autoResetTimerRef.current);
+    autoResetTimerRef.current = setTimeout(resetSelection, AUTO_RESET_DELAY_MS);
+  }
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
   const confirmDialogRef = useRef<HTMLDivElement>(null);
 
@@ -379,6 +391,7 @@ export function SecurityHome() {
   useFocusTrap(!!confirmDialog, confirmDialogRef, confirmButtonRef, () => setConfirmDialog(null));
 
   function selectEmployee(emp: Employee) {
+    clearTimeout(autoResetTimerRef.current);
     setSelected(emp);
     setQuery('');
     setResults([]);
@@ -388,6 +401,7 @@ export function SecurityHome() {
   }
 
   function resetSelection() {
+    clearTimeout(autoResetTimerRef.current);
     setSelected(null);
     setQuery('');
     setResults([]);
@@ -436,7 +450,7 @@ export function SecurityHome() {
           });
           await refreshPendingCount();
           setStatus({ kind: 'pending-sync', movementType, employeeName: selected.employeeName });
-          setTimeout(resetSelection, AUTO_RESET_DELAY_MS);
+          scheduleAutoReset();
         } catch {
           setStatus({ kind: 'error', message: 'Unable to save this record on your device right now. Please try again.' });
         }
@@ -456,11 +470,21 @@ export function SecurityHome() {
           return;
         }
 
+        // A malformed success response with no `record` used to throw a
+        // TypeError here, which the catch below (not an ApiError) treated
+        // as a network failure — queuing an offline duplicate of a request
+        // that may well have already succeeded server-side. Handled
+        // explicitly instead of falling through. Found in the 2026-10 audit.
+        if (!res.record) {
+          setStatus({ kind: 'error', message: 'Unexpected response from the server. Please check the record before trying again.' });
+          return;
+        }
+
         const time = new Intl.DateTimeFormat('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }).format(
-          new Date(res.record!.movementAt),
+          new Date(res.record.movementAt),
         );
         setStatus({ kind: 'success', movementType, employeeName: selected.employeeName, time });
-        setTimeout(resetSelection, AUTO_RESET_DELAY_MS);
+        scheduleAutoReset();
       } catch (err) {
         if (err instanceof ApiError) {
           setStatus({ kind: 'error', message: 'Unable to save record. Please check the connection and try again.' });
@@ -484,7 +508,7 @@ export function SecurityHome() {
             });
             await refreshPendingCount();
             setStatus({ kind: 'pending-sync', movementType, employeeName: selected.employeeName });
-            setTimeout(resetSelection, AUTO_RESET_DELAY_MS);
+            scheduleAutoReset();
           } catch {
             setStatus({ kind: 'error', message: 'Unable to save this record — both the network request and offline storage failed. Please try again.' });
           }

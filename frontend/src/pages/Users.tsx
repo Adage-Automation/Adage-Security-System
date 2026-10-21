@@ -55,10 +55,31 @@ export function Users() {
   const [resetForm, setResetForm] = useState({ newPassword: '', confirmPassword: '' });
   const [resetError, setResetError] = useState<string | null>(null);
   const [resetSaving, setResetSaving] = useState(false);
+  // A Set, not a single id — toggling one row's status shouldn't block a
+  // concurrent toggle on a different row (only guards against a double
+  // submit on the *same* row). Found in self-review of the 2026-10 audit fix.
+  const [togglingIds, setTogglingIds] = useState<Set<number>>(new Set());
 
-  const modalRef = useRef<HTMLDivElement>(null);
-  const modalFirstFieldRef = useRef<HTMLInputElement>(null);
-  const activeModal = editing ? 'edit' : resetting ? 'reset' : null;
+  // Edit and Reset Password each get their own modal ref and first-field
+  // ref — they used to share one of each, which (a) left Reset Password's
+  // first field never auto-focused, since the shared ref was only ever
+  // wired to Edit's Name field, and (b) relied on editing/resetting never
+  // both being set at once purely by convention, not anything enforced.
+  // Found in the 2026-10 audit.
+  const editModalRef = useRef<HTMLDivElement>(null);
+  const editFirstFieldRef = useRef<HTMLInputElement>(null);
+  const resetModalRef = useRef<HTMLDivElement>(null);
+  const resetFirstFieldRef = useRef<HTMLInputElement>(null);
+
+  // The success banner lives at the top of the page (next to Add User),
+  // but Disable/Reset Password act on a row that can be scrolled well
+  // below it — scroll up so the confirmation is actually seen instead of
+  // landing silently off-screen. Found in the 2026-10 audit.
+  function flashSuccess(msg: string) {
+    setSuccessMsg(msg);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setTimeout(() => setSuccessMsg(null), 4000);
+  }
 
   function load() {
     setLoading(true);
@@ -77,11 +98,13 @@ export function Users() {
   useEffect(load, []);
 
   // Same focus + Escape + Tab-trap pattern already used by Employees.tsx's
-  // edit modal — only one of the two modals here is ever open at a time,
-  // so both share this single hook call.
-  useFocusTrap(!!activeModal, modalRef, modalFirstFieldRef, () => {
-    if (editing && !editSaving) setEditing(null);
-    if (resetting && !resetSaving) setResetting(null);
+  // edit modal — editing/resetting are mutually exclusive (enforced in
+  // startEditing/startResetting below), so one hook call per modal is safe.
+  useFocusTrap(!!editing, editModalRef, editFirstFieldRef, () => {
+    if (!editSaving) setEditing(null);
+  });
+  useFocusTrap(!!resetting, resetModalRef, resetFirstFieldRef, () => {
+    if (!resetSaving) setResetting(null);
   });
 
   async function handleCreate(e: FormEvent) {
@@ -92,8 +115,7 @@ export function Users() {
     try {
       const created = await api.post<UserRow>('/users', { ...form, roleId: Number(form.roleId) });
       setForm({ name: '', email: '', username: '', password: '', roleId: '' });
-      setSuccessMsg(`${created.name} added successfully.`);
-      setTimeout(() => setSuccessMsg(null), 4000);
+      flashSuccess(`${created.name} added successfully.`);
       load();
     } catch (err: any) {
       setError(err?.message ?? 'Failed to create user.');
@@ -103,6 +125,7 @@ export function Users() {
   }
 
   async function toggleActive(user: UserRow) {
+    if (togglingIds.has(user.id)) return;
     const path = user.isActive ? 'disable' : 'enable';
     // No server-side guard against disabling your own (possibly only)
     // Admin account — an unrecoverable lockout short of direct DB access.
@@ -112,15 +135,23 @@ export function Users() {
         return;
       }
     }
+    setTogglingIds((prev) => new Set(prev).add(user.id));
     try {
       const updated = await api.patch<UserRow>(`/users/${user.id}/${path}`);
       setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
     } catch (err: any) {
       setError(err?.message ?? `Failed to ${path} user.`);
+    } finally {
+      setTogglingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(user.id);
+        return next;
+      });
     }
   }
 
   function startEditing(user: UserRow) {
+    setResetting(null);
     setEditing(user);
     setEditForm({ name: user.name, email: user.email, roleId: String(user.role.id) });
     setEditError(null);
@@ -147,6 +178,7 @@ export function Users() {
   }
 
   function startResetting(user: UserRow) {
+    setEditing(null);
     setResetting(user);
     setResetForm({ newPassword: '', confirmPassword: '' });
     setResetError(null);
@@ -171,8 +203,7 @@ export function Users() {
     setResetSaving(true);
     try {
       await api.patch(`/users/${resetting.id}/reset-password`, { newPassword: resetForm.newPassword });
-      setSuccessMsg(`Password reset for ${resetting.name}.`);
-      setTimeout(() => setSuccessMsg(null), 4000);
+      flashSuccess(`Password reset for ${resetting.name}.`);
       setResetting(null);
     } catch (err: any) {
       setResetError(err?.message ?? 'Failed to reset password.');
@@ -311,7 +342,7 @@ export function Users() {
                   <button className="table-action-btn" onClick={() => startResetting(u)} style={{ marginRight: 8 }}>
                     Reset Password
                   </button>
-                  <button className="table-action-btn" onClick={() => toggleActive(u)}>
+                  <button className="table-action-btn" onClick={() => toggleActive(u)} disabled={togglingIds.has(u.id)}>
                     {u.isActive ? 'Disable' : 'Enable'}
                   </button>
                 </td>
@@ -342,7 +373,7 @@ export function Users() {
                 <button className="table-action-btn" onClick={() => startResetting(u)} style={{ flex: 1 }}>
                   Reset Password
                 </button>
-                <button className="table-action-btn" onClick={() => toggleActive(u)} style={{ flex: 1 }}>
+                <button className="table-action-btn" onClick={() => toggleActive(u)} style={{ flex: 1 }} disabled={togglingIds.has(u.id)}>
                   {u.isActive ? 'Disable' : 'Enable'}
                 </button>
               </div>
@@ -369,7 +400,7 @@ export function Users() {
 
       {editing && (
         <div className="modal-overlay" role="presentation">
-          <div ref={modalRef} className="modal-card" role="dialog" aria-modal="true" aria-labelledby="edit-user-title" style={{ textAlign: 'left', maxWidth: 440 }}>
+          <div ref={editModalRef} className="modal-card" role="dialog" aria-modal="true" aria-labelledby="edit-user-title" style={{ textAlign: 'left', maxWidth: 440 }}>
             <h3 id="edit-user-title" style={{ marginTop: 0, textAlign: 'center' }}>
               Edit User: {editing.username}
             </h3>
@@ -378,7 +409,7 @@ export function Users() {
                 <label>
                   Name<span className="required-mark"> *</span>
                   <input
-                    ref={modalFirstFieldRef}
+                    ref={editFirstFieldRef}
                     value={editForm.name}
                     onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
                     required
@@ -418,7 +449,7 @@ export function Users() {
 
       {resetting && (
         <div className="modal-overlay" role="presentation">
-          <div ref={modalRef} className="modal-card" role="dialog" aria-modal="true" aria-labelledby="reset-password-title" style={{ textAlign: 'left', maxWidth: 440 }}>
+          <div ref={resetModalRef} className="modal-card" role="dialog" aria-modal="true" aria-labelledby="reset-password-title" style={{ textAlign: 'left', maxWidth: 440 }}>
             <h3 id="reset-password-title" style={{ marginTop: 0, textAlign: 'center' }}>
               Reset Password: {resetting.username}
             </h3>
@@ -430,6 +461,7 @@ export function Users() {
                 <label>
                   New Password<span className="required-mark"> *</span>
                   <PasswordInput
+                    ref={resetFirstFieldRef}
                     id="new-password"
                     value={resetForm.newPassword}
                     onChange={(e) => setResetForm({ ...resetForm, newPassword: e.target.value })}

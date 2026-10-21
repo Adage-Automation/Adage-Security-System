@@ -139,7 +139,10 @@ describe('ReportsService', () => {
     generator.generatePng.mockRejectedValue(new Error('png generation failed'));
     prisma.emailLog.update.mockResolvedValue({ id: 77, status: 'FAILED', errorMessage: 'png generation failed' });
 
-    await expect(service.emailDailyRecord(1, '2026-09-10', 9)).rejects.toThrow('png generation failed');
+    // The real cause is persisted on the FAILED row (asserted below) —
+    // what's thrown to the client is a friendlier, generic message so
+    // internals aren't leaked. See reports.service.ts.
+    await expect(service.emailDailyRecord(1, '2026-09-10', 9)).rejects.toThrow('Failed to send email');
 
     expect(prisma.emailLog.update).toHaveBeenCalledWith(
       expect.objectContaining({

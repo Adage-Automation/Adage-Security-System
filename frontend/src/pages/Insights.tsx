@@ -1114,7 +1114,10 @@ export function Insights() {
   const pageBlocked = loading || deptComparisonLoading || employeeDetailLoading || allTimeLoading;
   // Badges the "Filters" toggle so it's clear at a glance whether anything
   // non-default is active without having to open the row to check.
-  const activeFilterCount = [team !== '', unitId !== '', movementType !== '', dayScope !== 'weekdays'].filter(Boolean).length;
+  // Includes `selectedEmployee` now that Clear resets it too (see Clear's
+  // onClick below) — it sits in the same filter row, so it should count
+  // toward "how many of these are active" the same way the other four do.
+  const activeFilterCount = [team !== '', unitId !== '', movementType !== '', dayScope !== 'weekdays', selectedEmployee !== null].filter(Boolean).length;
 
   return (
     <div className="page-wide insights-table-scope">
@@ -1454,6 +1457,14 @@ export function Insights() {
             setUnitId('');
             setMovementType('');
             setDayScope('weekdays');
+            // Employee sits in this same filter row (with its own separate
+            // X on the chip) — Clear used to deliberately skip it, which
+            // read as "Clear does nothing" whenever Team/Unit/Movement/Days
+            // already happened to be at their defaults (e.g. right after
+            // drilling into an employee from Team Breakdown, which never
+            // touches those four). Now resets it too, matching what it
+            // visually looks grouped with. Found in the 2026-10-21 UI check.
+            setSelectedEmployee(null);
           }}
         >
           Clear

@@ -73,9 +73,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function logout() {
-    await api.post('/auth/logout');
-    setUser(null);
-    localStorage.removeItem(LAST_AUTH_KEY);
+    // The caller (Header) doesn't catch — if /auth/logout rejects (e.g.
+    // offline), that used to leave the app silently "logged in" with no
+    // feedback at all. Local state is cleared regardless of whether the
+    // server call succeeds, since the user's intent (get out) still holds
+    // even without a round trip. Found in the 2026-10 audit.
+    try {
+      await api.post('/auth/logout');
+    } finally {
+      setUser(null);
+      localStorage.removeItem(LAST_AUTH_KEY);
+    }
   }
 
   function hasPermission(permission: string) {

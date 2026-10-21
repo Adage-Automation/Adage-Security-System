@@ -13,6 +13,17 @@ export function localIso(date: Date): string {
   return new Date(date.getTime() - offsetMs).toISOString().slice(0, 10);
 }
 
+// `new Date("YYYY-MM-DD")` parses as UTC midnight, not local midnight — for
+// any timezone west of UTC that's the previous local day, so setHours()
+// on the result lands on the wrong calendar day (it happens to cancel out
+// for Asia/Kolkata, which is east of UTC, which is why this went unnoticed).
+// Parses the components directly so the Date is local midnight on the
+// intended day everywhere. Found in the 2026-10 audit.
+export function localDateFromIso(iso: string): Date {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
 export function todayIso(): string {
   return localIso(new Date());
 }

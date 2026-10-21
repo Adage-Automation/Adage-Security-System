@@ -1,4 +1,4 @@
-import { CSSProperties, useEffect, useState } from 'react';
+import { CSSProperties, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { IconHistory, IconInbox } from '../components/icons';
 import { AdminNav } from '../components/AdminNav';
@@ -53,6 +53,11 @@ export function AuditLog() {
   const [skip, setSkip] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
+  // Guards against a filter reset racing a "Load More" page fetch — same
+  // monotonic-sequence pattern used elsewhere in the app (Dashboard,
+  // employee search). Without it, a stale page response landing after a
+  // filter change could append rows from the old filter onto the new table.
+  const seqRef = useRef(0);
 
   const hasActiveFilters = Boolean(entityType || userId || from || to || q.trim());
 
@@ -62,6 +67,7 @@ export function AuditLog() {
 
   function load(reset: boolean) {
     setLoading(true);
+    const seq = ++seqRef.current;
     const nextSkip = reset ? 0 : skip;
     const params = new URLSearchParams({ skip: String(nextSkip), take: String(PAGE_SIZE) });
     if (entityType) params.set('entityType', entityType);
@@ -73,15 +79,19 @@ export function AuditLog() {
     api
       .get<AuditLogRow[]>(`/audit-logs?${params.toString()}`)
       .then((res) => {
-        setRows(reset ? res : [...rows, ...res]);
+        if (seq !== seqRef.current) return;
+        setRows((prev) => (reset ? res : [...prev, ...res]));
         setHasMore(res.length === PAGE_SIZE);
         setSkip(nextSkip + res.length);
       })
       .catch(() => {
+        if (seq !== seqRef.current) return;
         if (reset) setRows([]);
         setHasMore(false);
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (seq === seqRef.current) setLoading(false);
+      });
   }
 
   useEffect(() => {

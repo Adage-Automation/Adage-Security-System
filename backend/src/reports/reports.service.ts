@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { AuditLogService } from '../audit-logs/audit-log.service';
@@ -167,7 +167,14 @@ export class ReportsService {
         entityId: failed.id,
         newValue: failed,
       });
-      throw err;
+      // The real cause (Puppeteer, Graph, network, ...) is already on the
+      // saved FAILED row (errorMessage above) for anyone checking Email
+      // Logs — but letting the raw error fall through to the global filter
+      // turned it into an identical, unhelpful "Internal server error" for
+      // every cause. This at least points the admin at where the detail
+      // lives, without leaking internals to the client. Found in the
+      // 2026-10 audit.
+      throw new InternalServerErrorException('Failed to send email. Check Email Logs for details.');
     }
   }
 

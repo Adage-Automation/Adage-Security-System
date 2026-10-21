@@ -60,8 +60,15 @@ export function Settings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [confirmation, setConfirmation] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
+  // Without this, a failed initial load rendered the same blank form (every
+  // field empty, flagged invalid only once Save was clicked) as a genuinely
+  // unseeded one — nothing told the admin the fetch itself had failed.
+  // Found in the 2026-10 audit.
+  const [loadError, setLoadError] = useState(false);
 
-  useEffect(() => {
+  function load() {
+    setLoading(true);
+    setLoadError(false);
     api
       .get<Record<string, string>>('/settings')
       .then((res) => {
@@ -71,9 +78,12 @@ export function Settings() {
       .catch(() => {
         setSaved({});
         setDraft({});
+        setLoadError(true);
       })
       .finally(() => setLoading(false));
-  }, []);
+  }
+
+  useEffect(load, []);
 
   const isDirty = FIELDS.some((f) => (draft[f.key] ?? '') !== (saved[f.key] ?? ''));
 
@@ -82,9 +92,12 @@ export function Settings() {
     if (errors[key]) setErrors((e) => ({ ...e, [key]: '' }));
   }
 
-  function validateAll(): boolean {
+  // Only validates the fields actually being saved — an unseeded/invalid
+  // field the admin isn't touching right now shouldn't block an unrelated,
+  // possibly urgent, fix to a different field. Found in the 2026-10 audit.
+  function validateChanged(changed: Field[]): boolean {
     const nextErrors: Record<string, string> = {};
-    for (const f of FIELDS) {
+    for (const f of changed) {
       const value = (draft[f.key] ?? '').trim();
       if (f.required && !value) {
         nextErrors[f.key] = `${f.label.split(' (')[0]} is required`;
@@ -93,18 +106,18 @@ export function Settings() {
       const customError = f.validate?.(draft[f.key] ?? '');
       if (customError) nextErrors[f.key] = customError;
     }
-    setErrors(nextErrors);
+    setErrors((e) => ({ ...e, ...nextErrors }));
     return Object.keys(nextErrors).length === 0;
   }
 
   async function saveAll() {
-    if (!validateAll()) {
+    const changed = FIELDS.filter((f) => (draft[f.key] ?? '') !== (saved[f.key] ?? ''));
+    if (changed.length === 0) return;
+    if (!validateChanged(changed)) {
       setConfirmation({ kind: 'error', message: 'Fix the highlighted fields before saving.' });
       setTimeout(() => setConfirmation(null), 2500);
       return;
     }
-    const changed = FIELDS.filter((f) => (draft[f.key] ?? '') !== (saved[f.key] ?? ''));
-    if (changed.length === 0) return;
 
     setSaving(true);
     // Promise.allSettled, not Promise.all — a mid-batch failure with
@@ -159,6 +172,15 @@ export function Settings() {
           slow connection. Found in the 2026-09-28 admin-page audit.
           TableSkeleton isn't a fit here (this is a field list, not a
           table), so a small field-shaped placeholder is used instead. */}
+      {!loading && loadError && (
+        <div className="status-banner error" role="alert">
+          Failed to load settings.{' '}
+          <button type="button" onClick={load} style={{ textDecoration: 'underline', background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0, font: 'inherit' }}>
+            Retry
+          </button>
+        </div>
+      )}
+
       {loading && (
         <div className="section-card" aria-hidden="true">
           {FIELDS.map((f) => (

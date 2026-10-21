@@ -125,6 +125,11 @@ export function Dashboard() {
   // used for every debounced search in this app (employee search, audit
   // log, etc.). Found while self-reviewing this change before commit.
   const summaryModalSeqRef = useRef(0);
+  // Same guard for the main table/summary fetches below — a fast filter
+  // or date switch while a slow earlier response is still in flight could
+  // otherwise land after the newer one and show stale data as current.
+  const recordsSeqRef = useRef(0);
+  const summarySeqRef = useRef(0);
 
   const isToday = date === todayIso();
 
@@ -180,25 +185,35 @@ export function Dashboard() {
   };
 
   const fetchSummary = useCallback(() => {
+    const seq = ++summarySeqRef.current;
     api
       .get<{ totalEmployees: number; totalEntries: number; totalExits: number; currentlyInside: number }>(`/dashboard/summary?date=${date}`)
-      .then(setSummary)
-      .catch(() => setSummary(null));
+      .then((res) => {
+        if (seq === summarySeqRef.current) setSummary(res);
+      })
+      .catch(() => {
+        if (seq === summarySeqRef.current) setSummary(null);
+      });
   }, [date]);
 
   const fetchRecords = useCallback(
     (showSkeleton: boolean) => {
       if (showSkeleton) setRecordsLoading(true);
+      const seq = ++recordsSeqRef.current;
       const params = new URLSearchParams({ date });
       if (selectedEmployee) params.set('employeeId', String(selectedEmployee.id));
       if (movementType) params.set('movementType', movementType);
       if (recordedByUserId) params.set('recordedByUserId', recordedByUserId);
       api
         .get<MovementRecord[]>(`/movements?${params.toString()}`)
-        .then(setRecords)
-        .catch(() => setRecords([]))
+        .then((res) => {
+          if (seq === recordsSeqRef.current) setRecords(res);
+        })
+        .catch(() => {
+          if (seq === recordsSeqRef.current) setRecords([]);
+        })
         .finally(() => {
-          if (showSkeleton) setRecordsLoading(false);
+          if (showSkeleton && seq === recordsSeqRef.current) setRecordsLoading(false);
         });
     },
     [date, selectedEmployee, movementType, recordedByUserId],
@@ -409,7 +424,7 @@ export function Dashboard() {
           <label>
             Date
             <div className="date-quick-row">
-              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} max={todayIso()} />
               <button type="button" className={`quick-date-btn ${date === todayIso() ? 'active' : ''}`} onClick={() => setDate(todayIso())}>
                 Today
               </button>
@@ -509,9 +524,20 @@ export function Dashboard() {
         )}
       </div>
 
-      {recordsLoading && records.length === 0 && <TableSkeleton columns={5} />}
+      {/* Was `recordsLoading && records.length === 0` — correct for avoiding
+          a skeleton flash on the 30s background poll (which never sets
+          recordsLoading), but that same condition let a *user-driven*
+          date/filter change (e.g. Today -> Yesterday) keep rendering the
+          OLD date's table underneath while the new one loaded, since
+          `records` wasn't cleared yet — actively misleading on a
+          date-filtered dashboard, not just stale-looking. Gating the table
+          on `!recordsLoading` too replaces it with the skeleton for any
+          user-driven reload, while a silent background poll (recordsLoading
+          never true) still updates in place with no flicker. Found in the
+          2026-10-21 UI check. */}
+      {recordsLoading && <TableSkeleton columns={5} />}
 
-      {records.length > 0 && (
+      {!recordsLoading && records.length > 0 && (
         <>
           <table className="records-table">
             <thead>

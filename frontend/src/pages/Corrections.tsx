@@ -5,7 +5,7 @@ import { IconEdit, IconPlus, IconInbox, IconX, IconCheckCircle } from '../compon
 import { AdminNav } from '../components/AdminNav';
 import { TableSkeleton } from '../components/TableSkeleton';
 import { OfflineBadge } from '../components/OfflineBadge';
-import { todayIso, formatTime } from '../utils/date';
+import { todayIso, formatTime, localDateFromIso } from '../utils/date';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 
 function initials(name: string): string {
@@ -47,15 +47,27 @@ export function Corrections() {
   const searchBoxRef = useRef<HTMLDivElement>(null);
   const modalCloseRef = useRef<HTMLButtonElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
+  // Guards against a slower response for an earlier-selected employee/date
+  // landing after a faster one for whatever's selected now, overwriting
+  // the table with the wrong day's records — same pattern as searchSeqRef
+  // below. Found in the 2026-10 audit.
+  const recordsSeqRef = useRef(0);
 
   function loadRecords() {
     if (!selected) return;
     setRecordsLoading(true);
+    const seq = ++recordsSeqRef.current;
     api
       .get<MovementRecord[]>(`/movements/employee/${selected.id}?date=${date}`)
-      .then(setRecords)
-      .catch(() => setRecords([]))
-      .finally(() => setRecordsLoading(false));
+      .then((res) => {
+        if (seq === recordsSeqRef.current) setRecords(res);
+      })
+      .catch(() => {
+        if (seq === recordsSeqRef.current) setRecords([]);
+      })
+      .finally(() => {
+        if (seq === recordsSeqRef.current) setRecordsLoading(false);
+      });
   }
 
   useEffect(loadRecords, [selected, date]);
@@ -128,8 +140,9 @@ export function Corrections() {
     // A cleared native date input sends "" — new Date("") is an Invalid
     // Date, which used to throw a raw "Invalid time value" RangeError
     // from .toISOString() below instead of a friendly message (found in
-    // the 2026-09-10 audit).
-    const movementAt = new Date(date);
+    // the 2026-09-10 audit). localDateFromIso (not new Date(date) directly)
+    // avoids a separate timezone bug — see its own comment.
+    const movementAt = date ? localDateFromIso(date) : new Date(NaN);
     if (!date || Number.isNaN(movementAt.getTime())) {
       setError('Please select a valid date above before saving.');
       return;
