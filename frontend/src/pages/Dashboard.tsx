@@ -207,7 +207,17 @@ export function Dashboard() {
       api
         .get<MovementRecord[]>(`/movements?${params.toString()}`)
         .then((res) => {
-          if (seq === recordsSeqRef.current) setRecords(res);
+          if (seq !== recordsSeqRef.current) return;
+          setRecords(res);
+          // No employee/movement/recordedBy filter is active, so this
+          // request is already identical to the unfiltered one the
+          // "Recorded By" options effect below would otherwise fire —
+          // reuse it instead of sending a second request per date change.
+          if (!selectedEmployee && !movementType && !recordedByUserId) {
+            const byId = new Map<number, string>();
+            for (const r of res) if (r.recordedBy) byId.set(r.recordedBy.id, r.recordedBy.name);
+            setRecordedByOptions([...byId.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)));
+          }
         })
         .catch(() => {
           if (seq === recordsSeqRef.current) setRecords([]);
@@ -222,9 +232,11 @@ export function Dashboard() {
   // Discovers "Recorded By" dropdown options from whoever actually
   // recorded a movement on this date — independent of the current
   // recordedByUserId filter itself, so picking a unit doesn't make the
-  // other units disappear from the dropdown. Re-runs only when the date
-  // changes, same seeding pattern Insights uses for its Unit filter.
+  // other units disappear from the dropdown. Only needed while a
+  // filter is active: with none active, fetchRecords' own request is
+  // already unfiltered and populates the options itself (see above).
   useEffect(() => {
+    if (!selectedEmployee && !movementType && !recordedByUserId) return;
     api
       .get<MovementRecord[]>(`/movements?date=${date}`)
       .then((res) => {
@@ -235,7 +247,7 @@ export function Dashboard() {
         setRecordedByOptions([...byId.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)));
       })
       .catch(() => setRecordedByOptions([]));
-  }, [date]);
+  }, [date, selectedEmployee, movementType, recordedByUserId]);
 
   useEffect(() => {
     fetchSummary();

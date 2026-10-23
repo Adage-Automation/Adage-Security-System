@@ -3,6 +3,7 @@ import { Response } from 'express';
 import { SessionAuthGuard } from '../common/guards/session-auth.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
+import { todayInAppTimezone } from '../common/utils/day-range';
 import { InsightsService } from './insights.service';
 import { InsightsQueryDto } from './dto/insights-query.dto';
 import { DrillDownQueryDto } from './dto/drill-down-query.dto';
@@ -86,7 +87,7 @@ export class InsightsController {
   private sendExcel(res: Response, buffer: Buffer, filenameBase: string) {
     res.set({
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': `attachment; filename="${filenameBase}-${new Date().toISOString().slice(0, 10)}.xlsx"`,
+      'Content-Disposition': `attachment; filename="${filenameBase}-${todayInAppTimezone()}.xlsx"`,
     });
     res.send(buffer);
   }

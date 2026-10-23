@@ -7,6 +7,7 @@ import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { parseOptionalInt } from '../common/utils/parse-optional-int';
+import { todayInAppTimezone } from '../common/utils/day-range';
 import { EmployeesService } from './employees.service';
 import { CreateEmployeeDto, UpdateEmployeeDto } from './dto/employee.dto';
 
@@ -74,7 +75,7 @@ export class EmployeesController {
   @RequirePermissions('MANAGE_EMPLOYEES')
   async export(@Res() res: Response) {
     const buffer = await this.employeesService.exportToExcel();
-    const filename = `employees-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const filename = `employees-${todayInAppTimezone()}.xlsx`;
     res.set({
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'Content-Disposition': `attachment; filename="${filename}"`,

@@ -16,12 +16,24 @@ export function useScrollRestoration(key: string, ready: boolean) {
   useEffect(() => {
     if (!ready || restored.current) return;
     restored.current = true;
-    const saved = sessionStorage.getItem(`scroll:${key}`);
-    if (saved) window.scrollTo(0, Number(saved));
+    // sessionStorage can throw in some privacy modes — losing restored
+    // scroll position is harmless, never worth crashing the page over.
+    try {
+      const saved = sessionStorage.getItem(`scroll:${key}`);
+      if (saved) window.scrollTo(0, Number(saved));
+    } catch {
+      /* ignore */
+    }
   }, [key, ready]);
 
   useEffect(() => {
-    const onScroll = () => sessionStorage.setItem(`scroll:${key}`, String(window.scrollY));
+    const onScroll = () => {
+      try {
+        sessionStorage.setItem(`scroll:${key}`, String(window.scrollY));
+      } catch {
+        /* ignore */
+      }
+    };
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
   }, [key]);

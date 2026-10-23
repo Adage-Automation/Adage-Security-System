@@ -270,8 +270,12 @@ export class EmployeesService {
       throw new BadRequestException(`Too many rows — split into batches of ${MAX_ROWS} or fewer.`);
     }
 
-    const cellText = (row: ExcelJS.Row, col: number | undefined) =>
-      col ? String(row.getCell(col).value ?? '').trim() : '';
+    // .text (not .value) is exceljs's display-text accessor — .value is a
+    // string only for plain cells; a hyperlink cell (e.g. Excel
+    // auto-linkifying a pasted email) or a rich-text cell (mixed
+    // formatting from a paste) returns an object there, which would
+    // otherwise stringify to "[object Object]".
+    const cellText = (row: ExcelJS.Row, col: number | undefined) => (col ? row.getCell(col).text.trim() : '');
 
     const results: Array<{ row: number; employeeCode: string; employeeName: string; status: 'created' | 'skipped'; reason?: string }> = [];
 

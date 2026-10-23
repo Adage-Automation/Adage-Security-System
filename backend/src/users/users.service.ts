@@ -180,7 +180,7 @@ export class UsersService {
 
   async resetPassword(id: number, newPassword: string, actingUserId: number) {
     const passwordHash = await argon2.hash(newPassword);
-    await this.prisma.user.update({ where: { id }, data: { passwordHash } });
+    await this.prisma.user.update({ where: { id }, data: { passwordHash, resetTokenHash: null, resetTokenExpiresAt: null } });
     await this.auditLog.record({
       userId: actingUserId,
       action: 'USER_PASSWORD_RESET',

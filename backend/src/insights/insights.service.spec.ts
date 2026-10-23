@@ -221,6 +221,22 @@ describe('InsightsService.getSummary', () => {
     expect(result.avgDurationTrend).toEqual([{ date: '2026-10-01', avgHours: 9.5 }]);
   });
 
+  it('keeps a day in the duration/shortfall/missing-movements trends even when its only movement is filtered out of the tally charts', async () => {
+    prisma.movementRecord.findMany.mockResolvedValue([
+      // Overnight shift crossing midnight: only the EXIT lands on 10-01.
+      movement({ employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-01T02:00:00.000Z') }), // 07:30 IST
+    ]);
+
+    const result = await service.getSummary({ from: '2026-10-01', to: '2026-10-01', movementType: 'ENTRY' } as any);
+
+    // attendanceTrend is correctly empty for 10-01 under the ENTRY filter...
+    expect(result.attendanceTrend).toEqual([]);
+    // ...but the day must still appear in missingExits' trend (and stay
+    // consistent with the KPI number above it), not vanish silently.
+    expect(result.exceptions.missingEntries).toBe(1);
+    expect(result.missingExits.trend).toEqual([{ date: '2026-10-01', count: 0, missingEntryCount: 1 }]);
+  });
+
   it('defaults to the last 30 days when from/to are omitted', async () => {
     prisma.movementRecord.findMany.mockResolvedValue([]);
 
@@ -769,6 +785,24 @@ describe('InsightsService.getEmployeeDetail', () => {
     await service.getEmployeeDetail({ employeeId: '1', from: '2026-10-01', to: '2026-10-01' } as any);
 
     expect(prisma.movementRecord.findMany.mock.calls[0][0].where.employeeId).toBe(1);
+  });
+
+  it('still computes employeeAvgHours/employeeDurationBucket for an inactive employee, who is excluded from the comparison roster', async () => {
+    prisma.employee.findUnique.mockResolvedValue({ id: 1, employeeName: 'Departed Guard', employeeCode: 'EMP001', team: 'Testing', isActive: false });
+    // Active roster used for the comparison histogram — deliberately
+    // doesn't include employee 1, the one being viewed.
+    prisma.employee.findMany.mockResolvedValue([{ id: 2, employeeName: 'Bob' }]);
+    prisma.movementRecord.findMany.mockResolvedValue([
+      movement({ employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-01T04:00:00.000Z') }), // 09:30
+      movement({ employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-01T13:30:00.000Z') }), // 19:00 -> 9.5h
+    ]);
+
+    const result: any = await service.getEmployeeDetail({ employeeId: '1', from: '2026-10-01', to: '2026-10-01' } as any);
+
+    expect(result.employeeAvgHours).toBe(9.5);
+    expect(result.employeeDurationBucket).toBe(9.5);
+    // Not pulled into the active-only comparison population either.
+    expect(result.durationDistribution.every((bucket: any) => bucket.employees.every((e: any) => e.name !== 'Departed Guard'))).toBe(true);
   });
 
   // durationDistribution/employeeAvgHours — company-wide comparison, so

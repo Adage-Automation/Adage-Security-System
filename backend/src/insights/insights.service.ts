@@ -252,6 +252,24 @@ export class InsightsService {
     const correctedCount = (await this.fetchCorrectedMovements({ start, end, team: query.team, unitId })).length;
 
     const sortedDates = [...attendanceByDate.keys()].sort();
+    // attendanceByDate (and therefore sortedDates) only gets a key when
+    // typeMatches — correct for attendanceTrend/uniqueEmployeesByDay,
+    // which are genuinely about ENTRY/EXIT counts under that filter. But
+    // durationByDate/shortfallByDate/longDurationByDate/missingExit(Entry)ByDate
+    // are built from empDays over the *unfiltered* movements array, so a
+    // day whose only movement was the filtered-out type (e.g. filtering to
+    // ENTRY on a day with just an overnight EXIT) has a key there but not
+    // in sortedDates — silently dropping that day from the trend lines
+    // below while the KPI numbers above them still counted it. Found in
+    // the 2026-10 audit.
+    const unfilteredDates = new Set<string>([
+      ...durationByDate.keys(),
+      ...shortfallByDate.keys(),
+      ...longDurationByDate.keys(),
+      ...missingExitByDate.keys(),
+      ...missingEntryByDate.keys(),
+    ]);
+    const sortedUnfilteredDates = [...unfilteredDates].sort();
 
     return {
       range: { from, to },
@@ -271,7 +289,7 @@ export class InsightsService {
       // reach 100% and leave the tooltip's count disagreeing with the
       // drill-through's row count. Fixed 2026-10-13, by request.
       totalRosterSize: teamRoster.filter((e) => e.isActive).length,
-      avgDurationTrend: sortedDates.map((date) => {
+      avgDurationTrend: sortedUnfilteredDates.map((date) => {
         const d = durationByDate.get(date);
         return { date, avgHours: d && d.count > 0 ? Math.round((d.sum / d.count) * 10) / 10 : null };
       }),
@@ -283,20 +301,20 @@ export class InsightsService {
       hoursShortfall: {
         shortfallDays,
         totalEmployeeDays: completeDays,
-        trend: sortedDates.map((date) => ({ date, shortfallCount: shortfallByDate.get(date) ?? 0 })),
+        trend: sortedUnfilteredDates.map((date) => ({ date, shortfallCount: shortfallByDate.get(date) ?? 0 })),
       },
       hoursLongDuration: {
         longDurationDays,
         totalEmployeeDays: completeDays,
         threshold: longDurationHours,
-        trend: sortedDates.map((date) => ({ date, longDurationCount: longDurationByDate.get(date) ?? 0 })),
+        trend: sortedUnfilteredDates.map((date) => ({ date, longDurationCount: longDurationByDate.get(date) ?? 0 })),
       },
       missingExits: {
         count: missingExitCount,
         // missingEntryCount is included here too (not a separate trend
         // field) so the frontend can draw both as one "Missing Movements"
         // chart instead of two near-identical day-trend charts.
-        trend: sortedDates.map((date) => ({
+        trend: sortedUnfilteredDates.map((date) => ({
           date,
           count: missingExitByDate.get(date) ?? 0,
           missingEntryCount: missingEntryByDate.get(date) ?? 0,
@@ -793,14 +811,29 @@ export class InsightsService {
       const employees = (bucketEmployees.get(slot) ?? []).sort((a, b) => a.name.localeCompare(b.name));
       durationDistribution.push({ hours: Math.round((slot / 4) * 100) / 100, count: employees.length, employees });
     }
-    const employeeHours = hoursByEmployee.get(employeeId);
-    const employeeAvgHours = employeeHours ? Math.round((employeeHours.sum / employeeHours.count) * 10) / 10 : null;
+    // Computed from `empDays` (this employee's own aggregates, already
+    // fetched above with no active/inactive filter) rather than read out
+    // of hoursByEmployee — that map is deliberately active-only, since
+    // it's also the comparison histogram's population. Reading the
+    // viewed employee's own figure from it meant an inactive employee
+    // (reachable here via Team Breakdown's drill-down, which has no
+    // isActive filter) got a blank average and no highlighted point,
+    // even though their daily-hours chart above it drew real numbers.
+    // Found in the 2026-10 audit.
+    let employeeHoursSum = 0;
+    let employeeHoursCount = 0;
+    for (const agg of empDays) {
+      if (agg.employeeId !== employeeId || !this.isDayComplete(agg)) continue;
+      employeeHoursSum += this.durationHours(agg.firstEntry!, agg.lastExit!);
+      employeeHoursCount++;
+    }
+    const employeeAvgHours = employeeHoursCount > 0 ? Math.round((employeeHoursSum / employeeHoursCount) * 10) / 10 : null;
     // Which exact durationDistribution bucket this employee landed in —
     // computed with the identical formula used to build the histogram
     // above, not re-derived from the already-rounded employeeAvgHours
     // (1-decimal) on the frontend, which could land on a different
     // quarter-hour bucket than the real one at a rounding boundary.
-    const employeeDurationBucket = employeeHours ? Math.round((employeeHours.sum / employeeHours.count) * 4) / 4 : null;
+    const employeeDurationBucket = employeeHoursCount > 0 ? Math.round((employeeHoursSum / employeeHoursCount) * 4) / 4 : null;
 
     return {
       employee,

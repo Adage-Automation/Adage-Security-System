@@ -309,6 +309,20 @@ describe('EmployeesService importFromExcel', () => {
     expect(result.created).toBe(1);
   });
 
+  it('reads a hyperlinked Email cell by its display text, not the underlying object (Excel auto-linkifies pasted emails)', async () => {
+    const buffer = await buildWorkbook(['Employee Code', 'Name', 'Email', 'Car Number'], [['EMP701', 'Linked Email', '', '']]);
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as any);
+    const sheet = workbook.getWorksheet('Employees')!;
+    sheet.getRow(2).getCell(3).value = { text: 'jane.doe@example.com', hyperlink: 'mailto:jane.doe@example.com' } as any;
+    const linkedBuffer = Buffer.from(await workbook.xlsx.writeBuffer());
+
+    const result = await service.importFromExcel(linkedBuffer, 1);
+
+    expect(result.created).toBe(1);
+    expect(prisma.employee.create).toHaveBeenCalledWith({ data: expect.objectContaining({ email: 'jane.doe@example.com' }) });
+  });
+
   it('rejects a file missing the required headers', async () => {
     const buffer = await buildWorkbook(['Code', 'Full Name'], [['EMP501', 'Someone']]);
 

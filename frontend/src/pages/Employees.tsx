@@ -9,6 +9,7 @@ import { Th } from '../components/SortableTh';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import { downloadFile } from '../utils/downloadFile';
 import { toggleSort, sortRows, SortState } from '../utils/sort';
+import { todayIso } from '../utils/date';
 
 const PAGE_SIZE = 50;
 
@@ -299,7 +300,7 @@ export function Employees() {
     setExporting(true);
     setError(null);
     try {
-      await downloadFile('/api/employees/export', `employees-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      await downloadFile('/api/employees/export', `employees-${todayIso()}.xlsx`);
     } catch (err: any) {
       setError(err?.message ?? 'Failed to export employees.');
     } finally {
