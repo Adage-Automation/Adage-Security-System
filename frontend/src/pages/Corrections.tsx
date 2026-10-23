@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { Employee, MovementRecord, MovementType } from '../types';
 import { IconEdit, IconPlus, IconInbox, IconX, IconCheckCircle } from '../components/icons';
@@ -18,11 +18,17 @@ function initials(name: string): string {
 }
 
 interface EditState {
-  mode: 'correct' | 'missing';
-  originalId?: number;
   movementType: MovementType;
   time: string; // HH:mm
   reason: string;
+}
+
+interface MissingTodayRow {
+  employeeId: number;
+  employeeName: string;
+  employeeCode: string;
+  team: string | null;
+  status: 'missingExit' | 'missingEntry';
 }
 
 export function Corrections() {
@@ -53,6 +59,60 @@ export function Corrections() {
   // below. Found in the 2026-10 audit.
   const recordsSeqRef = useRef(0);
 
+  // Who's missing an ENTRY or EXIT on the selected date, so an admin isn't
+  // stuck searching employees one at a time to find who actually needs a
+  // correction. Reuses Insights' existing per-day status classification
+  // (same `buildEmployeeDayAggs`/isDayComplete pipeline that backs the
+  // Daily Roster modal) rather than duplicating that logic here — `rows`
+  // there already excludes anyone with zero movements that day (shown
+  // separately there as `noMovement`, deliberately not called "absent",
+  // since it just as easily means leave/holiday/remote work as a missed
+  // tap) — exactly the "tapped once, not twice" population this list
+  // should show, not everyone with no data at all. Added 2026-10-23, by
+  // request.
+  const [missingToday, setMissingToday] = useState<MissingTodayRow[]>([]);
+  const [missingTodayLoading, setMissingTodayLoading] = useState(true);
+  const missingTodaySeqRef = useRef(0);
+  // Disables the row being selected (not every row — see the matching
+  // Set-based guard in Users.tsx) while its full Employee record loads,
+  // and surfaces a failure without silently doing nothing.
+  const [selectingId, setSelectingId] = useState<number | null>(null);
+
+  function loadMissingToday() {
+    setMissingTodayLoading(true);
+    const seq = ++missingTodaySeqRef.current;
+    api
+      .get<{ rows: Array<{ employeeId: number; employeeName: string; employeeCode: string; team: string | null; status: 'complete' | 'missingExit' | 'missingEntry' }> }>(
+        `/insights/daily-duration?date=${date}`,
+      )
+      .then((res) => {
+        if (seq !== missingTodaySeqRef.current) return;
+        setMissingToday(
+          res.rows
+            .filter((r): r is MissingTodayRow => r.status !== 'complete')
+            .sort((a, b) => a.employeeName.localeCompare(b.employeeName)),
+        );
+      })
+      .catch(() => {
+        if (seq === missingTodaySeqRef.current) setMissingToday([]);
+      })
+      .finally(() => {
+        if (seq === missingTodaySeqRef.current) setMissingTodayLoading(false);
+      });
+  }
+
+  useEffect(loadMissingToday, [date]);
+
+  function selectFromMissingList(employeeId: number) {
+    setSelectingId(employeeId);
+    setError(null);
+    api
+      .get<Employee>(`/employees/${employeeId}`)
+      .then((emp) => setSelected(emp))
+      .catch((err: any) => setError(err?.message ?? 'Failed to load this employee. Please try again.'))
+      .finally(() => setSelectingId(null));
+  }
+
   function loadRecords() {
     if (!selected) return;
     setRecordsLoading(true);
@@ -71,6 +131,18 @@ export function Corrections() {
   }
 
   useEffect(loadRecords, [selected, date]);
+
+  // "Correct" an existing record was removed (2026-10-23, by request) — a
+  // record that already has a real recorded time can never be edited,
+  // only a genuine gap (no ENTRY, no EXIT, or neither, for this
+  // employee/date) can be filled in. `null` while records are still
+  // loading so the add-missing button doesn't flash into existence for a
+  // split second based on the previous employee/date's (stale) records.
+  const missingTypes = useMemo<MovementType[]>(() => {
+    if (recordsLoading) return [];
+    const present = new Set(records.map((r) => r.movementType));
+    return (['ENTRY', 'EXIT'] as MovementType[]).filter((t) => !present.has(t));
+  }, [records, recordsLoading]);
 
   useFocusTrap(!!edit, modalRef, modalCloseRef, () => {
     if (!saving) setEdit(null);
@@ -114,20 +186,9 @@ export function Corrections() {
     return () => document.removeEventListener('mousedown', closeIfOutside);
   }, [dropdownOpen]);
 
-  function openCorrect(record: MovementRecord) {
-    const d = new Date(record.movementAt);
-    setEdit({
-      mode: 'correct',
-      originalId: record.id,
-      movementType: record.movementType,
-      time: `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`,
-      reason: '',
-    });
-    setError(null);
-  }
-
   function openMissing() {
-    setEdit({ mode: 'missing', movementType: 'ENTRY', time: '09:00', reason: '' });
+    if (missingTypes.length === 0) return;
+    setEdit({ movementType: missingTypes[0], time: '09:00', reason: '' });
     setError(null);
   }
 
@@ -162,25 +223,20 @@ export function Corrections() {
     movementAt.setHours(hours, minutes, 0, 0);
 
     try {
-      if (edit.mode === 'correct' && edit.originalId) {
-        await api.post(`/movements/${edit.originalId}/correct`, {
-          employeeId: selected.id,
-          movementType: edit.movementType,
-          movementAt: movementAt.toISOString(),
-          correctionReason: edit.reason.trim(),
-        });
-        setSuccessMsg('Record corrected successfully.');
-      } else {
-        await api.post('/movements/missing', {
-          employeeId: selected.id,
-          movementType: edit.movementType,
-          movementAt: movementAt.toISOString(),
-          correctionReason: edit.reason.trim(),
-        });
-        setSuccessMsg('Missing record added successfully.');
-      }
+      await api.post('/movements/missing', {
+        employeeId: selected.id,
+        movementType: edit.movementType,
+        movementAt: movementAt.toISOString(),
+        correctionReason: edit.reason.trim(),
+      });
+      setSuccessMsg('Missing record added successfully.');
       setEdit(null);
       loadRecords();
+      // Otherwise this employee would keep showing in the "missing a
+      // movement" list below until the date happened to change again —
+      // stale the moment the gap it's listing was just filled. Found in
+      // the 2026-10-23 dual-perspective review.
+      loadMissingToday();
       setTimeout(() => setSuccessMsg(null), 3000);
     } catch (err: any) {
       setError(err?.message ?? 'Failed to save. Please try again.');
@@ -287,7 +343,6 @@ export function Corrections() {
                 <th>Time</th>
                 <th>Movement</th>
                 <th>Recorded By</th>
-                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -299,11 +354,6 @@ export function Corrections() {
                   </td>
                   <td><span className={`movement-badge ${r.movementType}`}>{r.movementType}</span></td>
                   <td>{r.recordedBy?.name}</td>
-                  <td>
-                    <button className="table-action-btn" onClick={() => openCorrect(r)}>
-                      Correct
-                    </button>
-                  </td>
                 </tr>
               ))}
             </tbody>
@@ -322,9 +372,6 @@ export function Corrections() {
                     <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Recorded by: {r.recordedBy.name}</div>
                   )}
                 </div>
-                <button className="table-action-btn" onClick={() => openCorrect(r)}>
-                  Correct
-                </button>
               </div>
             ))}
           </div>
@@ -339,30 +386,76 @@ export function Corrections() {
             </div>
           )}
 
-          <div className="action-row">
-            <button onClick={openMissing}>
-              <IconPlus />
-              Add Missing Record
-            </button>
-          </div>
+          {/* A record that already has a real recorded time can no longer be
+              edited (2026-10-23, by request) — only a genuine gap can be
+              filled in, so this is the one remaining action on this page. */}
+          {!recordsLoading && missingTypes.length > 0 && (
+            <div className="action-row">
+              <button onClick={openMissing}>
+                <IconPlus />
+                {missingTypes.length === 2 ? 'Add Missing Record' : `Add Missing ${missingTypes[0]}`}
+              </button>
+            </div>
+          )}
+          {!recordsLoading && records.length > 0 && missingTypes.length === 0 && (
+            <div className="empty-hint" style={{ marginTop: 12 }}>
+              Both ENTRY and EXIT are already recorded for this day — nothing to add.
+            </div>
+          )}
         </>
       )}
 
       {!selected && (
-        <div className="empty-state">
-          <IconEdit />
-          <div className="empty-title">Select a date and employee</div>
-          <div className="empty-hint">Search above to view and correct their movement records.</div>
-        </div>
+        <>
+          <div className="date-heading" style={{ marginTop: 20, justifyContent: 'flex-start', textAlign: 'left' }}>
+            Missing a movement on {date}
+          </div>
+          {error && <div className="error-text" style={{ marginBottom: 8 }}>{error}</div>}
+          {missingTodayLoading && <TableSkeleton columns={3} />}
+          {!missingTodayLoading && missingToday.length === 0 && (
+            <div className="empty-state">
+              <IconCheckCircle />
+              <div className="empty-title">Nothing missing on this date</div>
+              <div className="empty-hint">Everyone who tapped on {date} has both an ENTRY and an EXIT recorded. Search above to review someone's history directly.</div>
+            </div>
+          )}
+          {!missingTodayLoading && missingToday.length > 0 && (
+            <table className="records-table">
+              <thead>
+                <tr>
+                  <th>Employee</th>
+                  <th>Team</th>
+                  <th>Missing</th>
+                </tr>
+              </thead>
+              <tbody>
+                {missingToday.map((row) => (
+                  <tr
+                    key={row.employeeId}
+                    onClick={() => (selectingId ? undefined : selectFromMissingList(row.employeeId))}
+                    style={{ cursor: selectingId ? 'default' : 'pointer', opacity: selectingId === row.employeeId ? 0.6 : 1 }}
+                  >
+                    <td>
+                      {row.employeeName} <span style={{ color: 'var(--text-muted)' }}>({row.employeeCode})</span>
+                    </td>
+                    <td>{row.team ?? 'Unassigned'}</td>
+                    <td>
+                      {/* Same red/"Missing Exit"/"Missing Entry" convention as Insights' own Daily Roster modal for this exact status field. */}
+                      <span style={{ color: '#c0392b', fontWeight: 600 }}>{row.status === 'missingExit' ? 'Missing Exit' : 'Missing Entry'}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </>
       )}
 
       {edit && (
         <div className="modal-overlay" role="presentation">
           <div ref={modalRef} className="modal-card" role="dialog" aria-modal="true" aria-labelledby="correction-dialog-title" style={{ textAlign: 'left' }}>
             <h3 style={{ marginTop: 0, textAlign: 'center' }}>
-              <span id="correction-dialog-title">
-              {edit.mode === 'correct' ? 'Correct Movement Record' : 'Add Missing Record'}
-              </span>
+              <span id="correction-dialog-title">Add Missing Record</span>
             </h3>
             <form
               onSubmit={(e) => {
@@ -373,10 +466,23 @@ export function Corrections() {
               <div className="field">
                 <label>
                   Movement Type
-                  <select value={edit.movementType} onChange={(e) => setEdit({ ...edit, movementType: e.target.value as MovementType })}>
-                    <option value="ENTRY">ENTRY</option>
-                    <option value="EXIT">EXIT</option>
-                  </select>
+                  {missingTypes.length === 1 ? (
+                    // Only one type is actually missing — nothing to choose,
+                    // and offering the already-recorded type here would let
+                    // someone add a second, redundant one instead of fixing
+                    // the real gap. The backend rejects it either way, but
+                    // this keeps the form from offering a choice that can't
+                    // succeed.
+                    <input value={edit.movementType} disabled />
+                  ) : (
+                    <select value={edit.movementType} onChange={(e) => setEdit({ ...edit, movementType: e.target.value as MovementType })}>
+                      {missingTypes.map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </label>
               </div>
               <div className="field">
@@ -387,8 +493,8 @@ export function Corrections() {
               </div>
               <div className="field">
                 <label>
-                  Reason for correction (required, kept in audit log)
-                  <input value={edit.reason} onChange={(e) => setEdit({ ...edit, reason: e.target.value })} placeholder="e.g. Guard recorded wrong type by mistake" />
+                  Reason (required, kept in audit log)
+                  <input value={edit.reason} onChange={(e) => setEdit({ ...edit, reason: e.target.value })} placeholder="e.g. Guard forgot to tap out" />
                 </label>
               </div>
               {error && <div className="error-text">{error}</div>}

@@ -57,13 +57,15 @@ Edit as many fields as you need, then click **Save all changes** once — it's g
 
 There's no security-email setting here — with multiple security units (each its own shared login account on the Users screen), an emailed report is automatically sent from and CC'd to whichever account sent it. Nothing to configure per send.
 
-## Correcting a movement record
+## Adding a missing movement record
 
-Mistakes happen — a guard taps EXIT when they meant ENTRY, or forgets to record a movement at all. Corrections require the `CORRECT_RECORDS` permission — currently Admin only.
+Guards sometimes forget to tap ENTRY or EXIT entirely. Corrections require the `CORRECT_RECORDS` permission — currently Admin only.
 
-**Important: a correction never erases the original record.** The system marks the original as "superseded" and creates a new corrected record linked to it — the full history, including the mistake, is always preserved and visible in the audit log. This is by design, so movement history can never be silently altered.
+**Important: this only fills in a genuine gap — it never changes a record that already exists.** A record with a real recorded time (even a wrong one — guard tapped EXIT when they meant ENTRY, say) can no longer be edited at all, as of 2026-10-23. The old "Correct" action that let an admin change an existing record's type/time is gone; only a movement the employee is genuinely missing for that day — no ENTRY, no EXIT, or neither — can be added. (If a guard really did tap the wrong button, there's deliberately no in-app way to undo that anymore — talk to whoever manages the system if that comes up.)
 
-Navigate to **Corrections**. Search for the employee (this search includes inactive/deactivated employees too, so you can still fix history for someone who has since left) and pick the date. Their movements for that day appear in a table — tap **Correct** next to the record that's wrong, or **Add Missing Record** if a movement was never captured at all. Either way you'll be asked for the corrected movement type, time, and a **reason** — the reason is required and is stored in the audit trail alongside the correction.
+Navigate to **Corrections**. Pick a date and you'll immediately see **who's missing an ENTRY or EXIT that day** — a clickable list, so there's no need to search employees one at a time to find who actually needs fixing. It only lists people who tapped once but not twice that day; someone with zero taps at all isn't shown here (that's leave/holiday/remote work/a missed day entirely, not a one-sided gap — see Insights' own "No Movement" framing). Click anyone in the list to select them, or use the search box above (which still includes inactive/deactivated employees, so you can fix history for someone who has since left).
+
+Once an employee is selected, their movements for that day appear in a table. Below it, an **Add Missing ENTRY**/**Add Missing EXIT**/**Add Missing Record** button appears only when something is actually missing for that day — labeled for whichever one it is, or generic when both are missing; if the day already has both an ENTRY and an EXIT, no button shows at all, since there's nothing left to add. You'll be asked for the time and a **reason** — the reason is required and is stored in the audit log alongside the addition (fixed 2026-10-23 — this previously only landed on the record itself, not the Audit Log screen).
 
 ## Audit log
 

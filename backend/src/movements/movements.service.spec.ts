@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { MovementsService } from './movements.service';
 
 function makeService() {
@@ -213,49 +213,17 @@ describe('MovementsService.createMovement', () => {
   });
 });
 
-describe('MovementsService corrections', () => {
-  it('corrects append-only by superseding the original and linking a new record', async () => {
-    const { service, prisma, auditLog } = makeService();
-    const original = { id: 10, employeeId: 7, movementType: 'ENTRY', recordedByUserId: 3 };
-    const corrected = { id: 11, employeeId: 7, movementType: 'EXIT' };
-    prisma.movementRecord.findUnique.mockResolvedValueOnce(original);
-    prisma.employee.findUnique.mockResolvedValue({ id: 7 });
-    prisma.$transaction.mockResolvedValue([{}, corrected]);
-
-    await expect(
-      service.correctMovement(
-        10,
-        { employeeId: 7, movementType: 'EXIT', movementAt: '2026-09-10T08:00:00.000Z', correctionReason: 'Wrong tap' },
-        9,
-      ),
-    ).resolves.toBe(corrected);
-
-    expect(prisma.$transaction).toHaveBeenCalledWith([
-      expect.objectContaining({}),
-      expect.objectContaining({}),
-    ]);
-    expect(auditLog.record).not.toHaveBeenCalled();
-  });
-
-  it('rejects corrections for a missing employee', async () => {
-    const { service, prisma } = makeService();
-    prisma.movementRecord.findUnique.mockResolvedValue({ id: 10, employeeId: 7 });
-    prisma.employee.findUnique.mockResolvedValue(null);
-
-    await expect(
-      service.correctMovement(
-        10,
-        { employeeId: 99, movementType: 'EXIT', movementAt: '2026-09-10T08:00:00.000Z', correctionReason: 'Wrong tap' },
-        9,
-      ),
-    ).rejects.toBeInstanceOf(NotFoundException);
-    expect(prisma.$transaction).not.toHaveBeenCalled();
-  });
-
-  it('adds a missing record', async () => {
+describe('MovementsService.addMissingRecord', () => {
+  // "Correct" an existing record was removed entirely (2026-10-23) — only
+  // a genuinely missing ENTRY/EXIT can be added, never an edit of a record
+  // that already has a real recorded time. correctMovement() no longer
+  // exists; these tests replace the old 'MovementsService corrections'
+  // describe block.
+  it('adds a missing record when nothing of that type is recorded for the employee that day', async () => {
     const { service, prisma, auditLog } = makeService();
     const record = { id: 12, employeeId: 7, movementType: 'ENTRY' };
     prisma.employee.findUnique.mockResolvedValue({ id: 7 });
+    prisma.movementRecord.findFirst.mockResolvedValue(null);
     prisma.movementRecord.create.mockResolvedValue(record);
 
     await expect(
@@ -264,6 +232,55 @@ describe('MovementsService corrections', () => {
         9,
       ),
     ).resolves.toBe(record);
+    expect(auditLog.record).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 9, action: 'MISSING_MOVEMENT_ADDED', entityType: 'MovementRecord', entityId: 12, newValue: record }),
+    );
+  });
+
+  it('rejects adding a movement type that is already recorded for this employee that day — nothing missing to add', async () => {
+    const { service, prisma, auditLog } = makeService();
+    prisma.employee.findUnique.mockResolvedValue({ id: 7 });
+    prisma.movementRecord.findFirst.mockResolvedValue({ id: 5, employeeId: 7, movementType: 'ENTRY' });
+
+    await expect(
+      service.addMissingRecord(
+        { employeeId: 7, movementType: 'ENTRY', movementAt: '2026-09-10T08:00:00.000Z', correctionReason: 'Thought it was missing' },
+        9,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.movementRecord.create).not.toHaveBeenCalled();
     expect(auditLog.record).not.toHaveBeenCalled();
+  });
+
+  it('serializes the duplicate-type check and the insert under a per-employee advisory lock, so a concurrent live tap cannot land in between and recreate the duplicate the check is meant to prevent', async () => {
+    const { service, prisma } = makeService();
+    prisma.employee.findUnique.mockResolvedValue({ id: 7 });
+    prisma.movementRecord.findFirst.mockResolvedValue(null);
+    prisma.movementRecord.create.mockResolvedValue({ id: 12, employeeId: 7, movementType: 'ENTRY' });
+
+    await service.addMissingRecord(
+      { employeeId: 7, movementType: 'ENTRY', movementAt: '2026-09-10T08:00:00.000Z', correctionReason: 'Forgotten tap' },
+      9,
+    );
+
+    // Same lock-scoping check as createMovement's own test — the key must
+    // be this employee's id, not a shared/global one.
+    const [strings, ...values] = prisma.$executeRaw.mock.calls[0];
+    expect(strings.join('?')).toContain('pg_advisory_xact_lock');
+    expect(values).toEqual([7]);
+  });
+
+  it('rejects adding a record for a missing employee', async () => {
+    const { service, prisma } = makeService();
+    prisma.employee.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.addMissingRecord(
+        { employeeId: 99, movementType: 'ENTRY', movementAt: '2026-09-10T08:00:00.000Z', correctionReason: 'Forgotten tap' },
+        9,
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.movementRecord.findFirst).not.toHaveBeenCalled();
+    expect(prisma.movementRecord.create).not.toHaveBeenCalled();
   });
 });

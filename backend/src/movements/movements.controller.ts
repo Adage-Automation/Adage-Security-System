@@ -6,7 +6,7 @@ import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { parseOptionalInt } from '../common/utils/parse-optional-int';
 import { MovementsService } from './movements.service';
-import { CreateMovementDto, CorrectMovementDto } from './dto/movement.dto';
+import { CreateMovementDto, AddMissingRecordDto } from './dto/movement.dto';
 
 @Controller('movements')
 @UseGuards(SessionAuthGuard, PermissionsGuard)
@@ -50,15 +50,11 @@ export class MovementsController {
     return this.movementsService.listByEmployeeAndDate(id, date);
   }
 
-  @Post(':id/correct')
-  @RequirePermissions('CORRECT_RECORDS')
-  correct(@Param('id', ParseIntPipe) id: number, @Body() dto: CorrectMovementDto, @CurrentUser() user: any) {
-    return this.movementsService.correctMovement(id, dto, user.id);
-  }
-
+  // No `:id/correct` endpoint anymore — "correct" an existing record was
+  // removed (2026-10-23); only a genuinely missing movement can be added.
   @Post('missing')
   @RequirePermissions('CORRECT_RECORDS')
-  addMissing(@Body() dto: CorrectMovementDto, @CurrentUser() user: any) {
+  addMissing(@Body() dto: AddMissingRecordDto, @CurrentUser() user: any) {
     return this.movementsService.addMissingRecord(dto, user.id);
   }
 }

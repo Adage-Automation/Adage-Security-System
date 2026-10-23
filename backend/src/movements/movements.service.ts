@@ -1,8 +1,8 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../audit-logs/audit-log.service';
-import { dayRange } from '../common/utils/day-range';
-import { CreateMovementDto, CorrectMovementDto } from './dto/movement.dto';
+import { dayRange, formatDateInAppTimezone } from '../common/utils/day-range';
+import { CreateMovementDto, AddMissingRecordDto } from './dto/movement.dto';
 
 export interface CreateMovementResult {
   created: boolean;
@@ -248,60 +248,72 @@ export class MovementsService {
     };
   }
 
-  // Append-only correction (§42, decided deliberately): the original row
-  // is never mutated. It's flagged superseded and a new record is created
-  // and linked back to it, preserving full history for the audit log.
-  async correctMovement(originalId: number, dto: CorrectMovementDto, correctedByUserId: number) {
-    const original = await this.prisma.movementRecord.findUnique({ where: { id: originalId } });
-    if (!original) {
-      throw new NotFoundException('Movement record not found');
-    }
-    // Without this, a stale/invalid employeeId reaches Prisma and throws an
-    // unhandled FK-violation error (raw 500) instead of a clean 404 —
-    // found in the 2026-09-04 audit.
+  // Admin correction, narrowed by request (2026-10-23): previously an
+  // admin could "correct" ANY existing record's type/time (append-only —
+  // the original was superseded and a replacement inserted), covering
+  // both "guard tapped the wrong button" and "guard forgot to tap
+  // entirely". That first case is now removed — a record that already
+  // has a real recorded time can never be changed, full stop. Only a true
+  // gap (the employee has no ENTRY, no EXIT, or neither, for that day)
+  // can be filled in. The old correctMovement()/supersede-chain code (and
+  // its `/movements/:id/correct` endpoint) is deleted outright rather
+  // than kept dead, per the same reasoning that motivated it being
+  // tightened in the first place — a removed capability shouldn't still
+  // be reachable through a request a stale client or a crafted body could
+  // send. `isSuperseded`/`correctionOfId` stay in the schema only for
+  // historical rows created before this change.
+  async addMissingRecord(dto: AddMissingRecordDto, createdByUserId: number) {
     const employee = await this.prisma.employee.findUnique({ where: { id: dto.employeeId } });
     if (!employee) {
       throw new NotFoundException('Employee not found');
     }
 
-    const [, corrected] = await this.prisma.$transaction([
-      this.prisma.movementRecord.update({
-        where: { id: originalId },
-        data: { isSuperseded: true },
-      }),
-      this.prisma.movementRecord.create({
+    const movementAt = new Date(dto.movementAt);
+    const calendarDate = formatDateInAppTimezone(movementAt);
+    const { start, end } = dayRange(calendarDate);
+
+    // The authoritative enforcement of "only a true gap can be filled" —
+    // never rely on the frontend alone to only offer the missing type(s).
+    // A non-superseded record of this exact type already existing for
+    // this employee on this calendar day means there's nothing missing to
+    // add; this isn't a rare edge case either, since the UI is expected to
+    // hide the option entirely once it's no longer missing.
+    //
+    // Wrapped in the same per-employee advisory lock createMovement uses
+    // (2026-09-22 audit) — without it, a guard's live tap for this exact
+    // employee/type/day could land between the check below and the create,
+    // recreating the very duplicate this check exists to prevent. An admin
+    // filling this form is rare enough that the race is narrow, but the
+    // lock is nearly free and this app already has the pattern, so there's
+    // no reason to leave the gap open. Found in the 2026-10-23 audit.
+    const record = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${dto.employeeId})`;
+
+      const existing = await tx.movementRecord.findFirst({
+        where: { employeeId: dto.employeeId, movementType: dto.movementType, isSuperseded: false, movementAt: { gte: start, lt: end } },
+      });
+      if (existing) {
+        throw new BadRequestException(`An ${dto.movementType} is already recorded for this employee on ${calendarDate} — nothing missing to add.`);
+      }
+
+      return tx.movementRecord.create({
         data: {
           employeeId: dto.employeeId,
           movementType: dto.movementType,
-          movementAt: new Date(dto.movementAt),
-          recordedByUserId: original.recordedByUserId,
-          correctionOfId: originalId,
-          correctedByUserId,
+          movementAt,
+          recordedByUserId: createdByUserId,
+          correctedByUserId: createdByUserId,
           correctionReason: dto.correctionReason,
         },
-      }),
-    ]);
+      });
+    });
 
-    return corrected;
-  }
-
-  // Adds a movement missed entirely (e.g. guard forgot to record it) —
-  // not a correction of an existing row, so no supersede chain.
-  async addMissingRecord(dto: CorrectMovementDto, createdByUserId: number) {
-    const employee = await this.prisma.employee.findUnique({ where: { id: dto.employeeId } });
-    if (!employee) {
-      throw new NotFoundException('Employee not found');
-    }
-
-    const record = await this.prisma.movementRecord.create({
-      data: {
-        employeeId: dto.employeeId,
-        movementType: dto.movementType,
-        movementAt: new Date(dto.movementAt),
-        recordedByUserId: createdByUserId,
-        correctedByUserId: createdByUserId,
-        correctionReason: dto.correctionReason,
-      },
+    await this.auditLog.record({
+      userId: createdByUserId,
+      action: 'MISSING_MOVEMENT_ADDED',
+      entityType: 'MovementRecord',
+      entityId: record.id,
+      newValue: record,
     });
 
     return record;

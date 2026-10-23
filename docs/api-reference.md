@@ -58,8 +58,7 @@ Body: `{ token: string, newPassword: string }` (`newPassword` min 8 characters).
 | POST | `/movements` | `RECORD_ENTRY` \| `RECORD_EXIT` | See below |
 | GET | `/movements?date=&employeeId=&movementType=` | `VIEW_DASHBOARD` | All filters optional |
 | GET | `/movements/employee/:id?date=` | `VIEW_EMPLOYEE_HISTORY` | One employee's movements for one date |
-| POST | `/movements/:id/correct` | `CORRECT_RECORDS` | Append-only correction (see below) |
-| POST | `/movements/missing` | `CORRECT_RECORDS` | Adds a movement that was never recorded at all |
+| POST | `/movements/missing` | `CORRECT_RECORDS` | Adds a movement that was never recorded at all (see below) |
 
 ### `POST /movements` — creating a movement
 
@@ -82,14 +81,11 @@ The client must show a confirmation prompt and resubmit with `confirmed: true` t
 
 The "read last movement, then write" check above is wrapped in a Postgres advisory lock (`pg_advisory_xact_lock`) scoped to `employeeId`, so two requests for the *same* employee arriving at nearly the same instant (two guards on two different devices) are serialized rather than racing each other into two undetected duplicates — a different employee's request is never blocked by this. See [decisions.md](./decisions.md#offline-sync-preserve-the-real-tap-time-within-bounds).
 
-### `POST /movements/:id/correct`
-
-Body (`CorrectMovementDto`): `{ movementType, employeeId, movementAt (ISO string), correctionReason }`
-Marks the record at `:id` as `isSuperseded`, creates a new linked record with the corrected values. Does not delete anything.
-
 ### `POST /movements/missing`
 
-Same body shape as above. Adds a brand-new record (no `correctionOf` link) for a movement that was never captured at all.
+Body (`AddMissingRecordDto`): `{ movementType, employeeId, movementAt (ISO string), correctionReason }`. Adds a brand-new record for a movement the employee is genuinely missing that day.
+
+**There is no endpoint to edit an existing record.** `POST /movements/:id/correct` and `MovementsService.correctMovement` were removed entirely 2026-10-23 — a record that already has a real recorded time can never be changed, by request. The server enforces this itself (not just the frontend): `addMissingRecord` rejects with a 400 if a non-superseded record of that exact `movementType` already exists for that employee on that calendar day (app-timezone), so a stale client or a direct API call can't add a redundant/conflicting one either. `isSuperseded`/`correctionOfId` remain on `MovementRecord` only for rows created before this change. See [decisions.md](./decisions.md#record-correction-append-only-not-soft-edit).
 
 
 ## Dashboard

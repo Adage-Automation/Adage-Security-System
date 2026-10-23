@@ -36,22 +36,27 @@ export class CreateMovementDto {
   clientMovementAt?: string;
 }
 
-export class CorrectMovementDto {
+// Fills in a movement an employee is genuinely missing for a day (no
+// ENTRY, no EXIT, or neither) — never edits a record that already has a
+// real recorded time (see the comment on MovementsService.addMissingRecord
+// for why "Correct" an existing record was removed, 2026-10-23).
+export class AddMissingRecordDto {
   @IsIn(['ENTRY', 'EXIT'])
   movementType: 'ENTRY' | 'EXIT';
 
   @IsInt()
   employeeId: number;
 
-  // ISO timestamp for the corrected movement. @IsISO8601 rather than
+  // ISO timestamp for the movement being added. @IsISO8601 rather than
   // @IsString — an unvalidated string reaches `new Date(...)` unchanged,
   // producing "Invalid Date" and an uncaught Prisma error (raw 500)
   // instead of a clean validation error.
   @IsISO8601()
   movementAt: string;
 
-  // Required per the design (spec §42: every correction is accountable in
-  // the audit log) — @IsString alone accepts "", silently defeating that.
+  // Required per the design (spec §42: every correction/addition is
+  // accountable in the audit log) — @IsString alone accepts "", silently
+  // defeating that.
   @IsString()
   @IsNotEmpty()
   correctionReason: string;
