@@ -5,6 +5,7 @@ import { Employee, MovementRecord } from '../types';
 import { IconArrowLeft, IconMail, IconCheckCircle, IconXCircle, IconInbox, IconClock } from '../components/icons';
 import { TableSkeleton } from '../components/TableSkeleton';
 import { OfflineBadge } from '../components/OfflineBadge';
+import { AddedBadge } from '../components/AddedBadge';
 import { todayIso, formatTime } from '../utils/date';
 
 function initials(name: string): string {
@@ -178,6 +179,7 @@ export function EmployeeDetails() {
                   <td>
                     {formatTime(r.movementAt)}
                     {r.recordedOffline && <OfflineBadge />}
+                    <AddedBadge record={r} />
                   </td>
                   <td><span className={`movement-badge ${r.movementType}`}>{r.movementType}</span></td>
                   <td>{r.recordedBy?.name}</td>
@@ -193,6 +195,7 @@ export function EmployeeDetails() {
                   <span>
                     {formatTime(r.movementAt)}
                     {r.recordedOffline && <OfflineBadge />}
+                    <AddedBadge record={r} />
                   </span>
                   <span className={`movement-badge ${r.movementType}`}>{r.movementType}</span>
                 </div>

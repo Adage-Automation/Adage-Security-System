@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../audit-logs/audit-log.service';
-import { dayRange, formatDateInAppTimezone } from '../common/utils/day-range';
+import { dayRange, dateRangeInclusive, formatDateInAppTimezone } from '../common/utils/day-range';
 import { CreateMovementDto, AddMissingRecordDto } from './dto/movement.dto';
 
 export interface CreateMovementResult {
@@ -182,6 +182,75 @@ export class MovementsService {
     return { created: true, requiresConfirmation: false, record: outcome.record };
   }
 
+  // Backs the Missing Movements page's own list of "who actually needs
+  // something added" — scoped to CORRECT_RECORDS (the same permission
+  // that gates the rest of this page) rather than reusing Insights'
+  // richer `/insights/daily-duration`, which needs VIEW_REPORTS. Security
+  // holds CORRECT_RECORDS but deliberately not VIEW_REPORTS (that still
+  // gates the separate, HR/Admin-only workforce-analytics dashboard) —
+  // added 2026-10-26, by request, so this list can't quietly need a
+  // permission Security was never meant to have.
+  //
+  // Presence-only PER CALENDAR DAY, same simple rule the frontend's own
+  // "which type is missing" check already uses (not Insights' stricter
+  // isDayComplete, which also cares about movement ordering) — someone
+  // with ANY ENTRY and ANY EXIT on a given day, in any order, isn't
+  // missing anything for that day, matching exactly what
+  // addMissingRecord above would and wouldn't allow adding.
+  //
+  // Takes a range (not just one date) so the page's Attendance Month view
+  // can show every gap across the whole 26th-25th cycle in one list, not
+  // just whichever single day happens to be selected. `from === to` for
+  // the page's plain single-date view — same query shape either way, one
+  // path to maintain. Widened from a single `date` param 2026-10-26, by
+  // request.
+  async missingInRange(from: string, to: string) {
+    const { start, end } = dateRangeInclusive(from, to);
+    const movements = await this.prisma.movementRecord.findMany({
+      where: { isSuperseded: false, movementAt: { gte: start, lt: end } },
+      select: {
+        employeeId: true,
+        movementType: true,
+        movementAt: true,
+        employee: { select: { employeeName: true, employeeCode: true, team: true } },
+      },
+    });
+
+    const byDayAndEmployee = new Map<
+      string,
+      { date: string; employeeId: number; employeeName: string; employeeCode: string; team: string | null; hasEntry: boolean; hasExit: boolean }
+    >();
+    for (const m of movements) {
+      if (!m.employee) continue;
+      const date = formatDateInAppTimezone(m.movementAt);
+      const key = `${date}|${m.employeeId}`;
+      const bucket = byDayAndEmployee.get(key) ?? {
+        date,
+        employeeId: m.employeeId,
+        employeeName: m.employee.employeeName,
+        employeeCode: m.employee.employeeCode,
+        team: m.employee.team,
+        hasEntry: false,
+        hasExit: false,
+      };
+      if (m.movementType === 'ENTRY') bucket.hasEntry = true;
+      else bucket.hasExit = true;
+      byDayAndEmployee.set(key, bucket);
+    }
+
+    return [...byDayAndEmployee.values()]
+      .filter((b) => b.hasEntry !== b.hasExit)
+      .map((b) => ({
+        date: b.date,
+        employeeId: b.employeeId,
+        employeeName: b.employeeName,
+        employeeCode: b.employeeCode,
+        team: b.team,
+        status: (b.hasEntry ? 'missingExit' : 'missingEntry') as 'missingExit' | 'missingEntry',
+      }))
+      .sort((a, b) => (a.date === b.date ? a.employeeName.localeCompare(b.employeeName) : a.date.localeCompare(b.date)));
+  }
+
   async listByEmployeeAndDate(employeeId: number, date: string) {
     const { start, end } = dayRange(date);
     return this.prisma.movementRecord.findMany({
@@ -191,7 +260,12 @@ export class MovementsService {
         movementAt: { gte: start, lt: end },
       },
       orderBy: { movementAt: 'asc' },
-      include: { recordedBy: { select: { id: true, name: true } } },
+      // `correctedBy` (plus the already-unselected-by-default scalar
+      // `correctionReason`) lets the frontend flag a record that was
+      // backfilled via Missing Movements rather than tapped live — see
+      // AddedBadge. Added 2026-10-26, by request, now that Security (not
+      // just Admin) can add these.
+      include: { recordedBy: { select: { id: true, name: true } }, correctedBy: { select: { id: true, name: true } } },
     });
   }
 
@@ -216,6 +290,7 @@ export class MovementsService {
       include: {
         employee: { select: { id: true, employeeName: true, employeeCode: true } },
         recordedBy: { select: { id: true, name: true } },
+        correctedBy: { select: { id: true, name: true } },
       },
     });
   }

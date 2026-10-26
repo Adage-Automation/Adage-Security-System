@@ -50,6 +50,17 @@ export class MovementsController {
     return this.movementsService.listByEmployeeAndDate(id, date);
   }
 
+  // Scoped to CORRECT_RECORDS (not VIEW_REPORTS) specifically so Security
+  // can use the Missing Movements page's own list without also needing
+  // the separate, broader Insights permission. `from`/`to` — same value
+  // for both on the page's plain single-date view, a full attendance
+  // cycle on its Attendance Month view. See MovementsService.missingInRange.
+  @Get('missing-summary')
+  @RequirePermissions('CORRECT_RECORDS')
+  missingSummary(@Query('from') from: string, @Query('to') to: string) {
+    return this.movementsService.missingInRange(from, to);
+  }
+
   // No `:id/correct` endpoint anymore — "correct" an existing record was
   // removed (2026-10-23); only a genuinely missing movement can be added.
   @Post('missing')

@@ -8,6 +8,7 @@ import { EmployeeLink } from '../components/EmployeeLink';
 import { TableSkeleton } from '../components/TableSkeleton';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import { OfflineBadge } from '../components/OfflineBadge';
+import { AddedBadge } from '../components/AddedBadge';
 import { WelcomeBanner } from '../components/WelcomeBanner';
 import { useAuth } from '../auth/useAuth';
 import { useScrollRestoration } from '../hooks/useScrollRestoration';
@@ -571,6 +572,7 @@ export function Dashboard() {
                   <td>
                     {formatTime(r.movementAt)}
                     {r.recordedOffline && <OfflineBadge />}
+                    <AddedBadge record={r} />
                   </td>
                   <td><span className={`movement-badge ${r.movementType}`}>{r.movementType}</span></td>
                   <td>{r.recordedBy?.name}</td>
@@ -587,6 +589,7 @@ export function Dashboard() {
                   <div style={{ fontSize: 12, color: '#666' }}>
                     {new Date(r.movementAt).toLocaleString('en-IN')}
                     {r.recordedOffline && <OfflineBadge />}
+                    <AddedBadge record={r} />
                   </div>
                 </div>
                 <span className={`movement-badge ${r.movementType}`}>{r.movementType}</span>

@@ -1,5 +1,71 @@
 # Changelog
 
+## 2026-10-26 (cont. 5) — Doc sweep: a broken cross-reference and two stale schema descriptions
+
+Requested full re-check, docs this time swept across the *entire* `docs/` tree rather than just the files already known to be touched — found three real issues outside today's usual set:
+
+- **`user-guide-hr.md` linked to `user-guide-admin.md#correcting-a-movement-record`** — an anchor that stopped existing the moment that section got renamed to "Missing Movements" earlier today. Fixed the link and the surrounding sentence, which still described the old edit-an-existing-record behavior.
+- **`README.md`** still said "only Admin gets Users/Corrections/Audit Log/Settings" — no longer true since Security was granted `CORRECT_RECORDS`.
+- **`database-schema.md`** described `isSuperseded`/`correctionOfId`/`correctedByUserId`/`correctionReason` as one single "append-only correction chain" — true before 2026-10-23, but `correctedByUserId`/`correctionReason` are still very much active (every Missing Movements addition sets them) while `isSuperseded`/`correctionOfId` are now historical-only (nothing sets them on a new row since the old "correct an existing record" capability was removed). Split the description into the two distinct, now-unrelated groups so a developer reading the schema fresh doesn't think adding a record still creates a chain.
+- Also tightened `security.md`'s audit-trail description ("every correction" → "every movement added via Missing Movements").
+
+Nothing code-level changed — build/test results are identical to the prior entry (backend 19/19 suites, 183/183 tests; frontend 6/6 suites, 22/22 tests; both builds clean), re-run anyway as the final gate before committing.
+
+## 2026-10-26 (cont. 4) — A visible "added" badge for records backfilled via Missing Movements
+
+Direct request: is there a mark showing a record was added through Missing Movements (now reachable from a Security login, not just Admin)? There wasn't — `correctedByUserId` already distinguished a backfilled record from a real-time tap in the database, but nothing displayed it.
+
+- **New `AddedBadge` component**, same pill styling and tooltip pattern as the existing `OfflineBadge` (a distinct blue instead of amber, so the two provenance flags read as different things at a glance). Tooltip shows who added it and their reason, if one was given.
+- **Backend**: `listByEmployeeAndDate` and `listWithFilters` now also `include` the `correctedBy` relation (name), alongside the `recordedBy` they already included — the scalar `correctionReason`/`correctedByUserId` were already returned by default, just never joined to a name or exposed to the frontend type.
+- **Wired in everywhere `OfflineBadge` already appears** — Dashboard, EmployeeDetails, and Corrections' own record-review table — so anyone looking at a day's records, Security included, can tell a backfilled entry from a live tap at a glance, not just via Insights' drill-down or the Audit Log (both of which Security can't see).
+
+Build/typecheck clean. Backend: 19/19 suites, 183/183 tests pass (unchanged — no new backend test needed, since this is a straightforward Prisma `include` addition over already-existing, already-tested fields, not new logic). Frontend: 6/6 suites, 22/22 tests pass. Docs updated (`api-reference.md`, `decisions.md`).
+
+## 2026-10-26 (cont. 3) — Reason is now optional; full flow re-verified end to end
+
+Direct request: don't require the Reason field on Add Missing (or drop it); then re-check the entire add-a-missing-record flow.
+
+- **`correctionReason` is optional, not removed.** `AddMissingRecordDto` dropped `@IsNotEmpty()` for `@IsOptional()`; the frontend dropped its "A reason is required" check and sends `undefined` instead of `''` when left blank. Chose "optional" over "removed outright" — a reason is still useful context when someone has one, and both places that display it (Audit Log, Insights' "corrected" drill-down) already rendered an absent reason gracefully from before this change, so there was no reason to lose the field entirely.
+- **Re-traced the whole flow end to end** (list load → row click or quick-Add → employee+date sync → records review → modal → save → both the records table and the missing list refreshing afterward) for both the plain single-date view and the new Attendance Month view: correct in every case, no new issues found beyond the one already fixed in this same session (the date-sync fix for Attendance Month rows).
+- Confirmed the two existing consumers of `correctionReason` (`AuditLog`'s underlying payload, Insights' "corrected" drill-down/export) needed no changes — both already null-safe (`correctionReason ?? ''`, `|| '—'`), a leftover from when a reason could already be `null` on rows predating the original 2026-09-03 design.
+
+Build/typecheck clean. Backend: 19/19 suites, 183/183 tests pass (1 new test: adding a missing record with no reason at all). Frontend: 6/6 suites, 22/22 tests pass. Docs updated (`api-reference.md`, `decisions.md`, both user guides).
+
+## 2026-10-26 (cont. 2) — Attendance Month filter replaces Today/Yesterday
+
+Direct follow-up: drop the Today/Yesterday quick buttons in favor of a plain calendar input plus an Attendance Month filter (prev/next-arrow cycle stepping), matching the pattern Insights already uses.
+
+- **New Attendance Month filter**, same `attendanceMonthRange()` helper and UI (pill + prev/next chevrons) as Insights — steps through 26th-to-25th pay cycles instead of calendar months. Picking a date directly in the calendar field always switches back out of it (value-driven, same as Insights' own presets — no separate persistent "mode" flag).
+- **`GET /movements/missing-today?date=` widened into `GET /movements/missing-summary?from=&to=`** (`MovementsService.missingInRange`, replacing `missingToday`) — `from === to` for the plain single-date view, a full attendance cycle for the new filter. Evaluated independently **per calendar day** (a `(date, employeeId)` bucket, not just `employeeId`), so being complete on one day of a multi-day range never masks a gap on another day in the same range.
+- **The missing-movements table/cards grow a Date column** when Attendance Month is active (hidden in the plain single-date view, where it would just repeat the same date on every row).
+- **Selecting a row now syncs the page's date field to that row's own date** — a real correctness fix, not just UI polish: without it, reviewing or adding a movement for, say, the 3rd of the month while viewing a whole Attendance Month would have built the new record against whatever date was leftover in the (otherwise-unused-in-that-view) single-date field instead of the 3rd. Harmless in the plain single-date view, since every row's date there already equals the one being queried.
+- The "today's rows may just be people still on-site" caveat now shows whenever the *active view's range* reaches today (checked against `from`/`to`, not just `date === todayIso()`), so it still applies correctly when Attendance Month's current cycle includes today.
+
+Build/typecheck clean. Backend: 19/19 suites, 182/182 tests pass (3 tests for `missingInRange`, including one specifically asserting per-day evaluation — present on one day of a range must never cover a gap on another day of the same range). Frontend: 6/6 suites, 22/22 tests pass. Docs updated (`api-reference.md`, `decisions.md`, both user guides).
+
+## 2026-10-26 (cont.) — Date field defaults to a settled day, and a one-tap Add
+
+Direct follow-up: make the date field better for finding missing records, and make adding one faster.
+
+- **Defaults to Yesterday, not Today.** While someone's shift is still in progress, "missing EXIT" usually just means they haven't tapped out yet — not a real gap. Defaulting to Today buried genuine misses under everyone still on-site; Yesterday is a settled day, so every one-sided result there is an actual thing to fix. Today is still one tap away via the same quick-date buttons Dashboard already has (`Today`/`Yesterday`, `max` capped at today) — added here too, since the plain date input had none.
+- **A caveat banner on Today specifically**, since the list can't tell "hasn't left yet" apart from "forgot to tap" — it just says so, rather than implying everyone shown forgot something.
+- **A one-tap "Add" button per row** in the missing-movements list (both the table and its mobile card layout), alongside the existing "click the row to review their records first" behavior. Jumps straight to the Add form with the correct type pre-filled, for the common case where there's nothing to actually review before adding. Fixed a related rendering hiccup: the modal's Movement Type field switched its length-check from `=== 1` to `!== 2` so the pre-filled type displays correctly immediately, instead of a split second of an empty dropdown while that employee's own records are still loading in the background.
+- **Caught and fixed a real mobile-breakage bug introduced in this same change**: the missing-movements list used `className="records-table"`, which `global.css` hides entirely below 640px in favor of a `.record-cards` layout — without one, this list would have shown zero rows on a phone, the exact bug class a 2026-09-25 audit already found and fixed across every other table in the app. Security, who this page now also serves, is the role most likely to actually be on a phone here. Added the matching card markup (with its own "Add" button) before this ever shipped.
+
+Build/typecheck clean. Frontend: 6/6 suites, 22/22 tests pass. Docs updated (`user-guide-admin.md`, `user-guide-security.md`).
+
+## 2026-10-26 — Missing Movements opened to Security, renamed from "Corrections"
+
+Two requests: give Security access to the (now much safer, since it can only add, never edit) page from 2026-10-23, and reconsider the name — "Corrections"/"Correct Records" no longer fits a page that corrects nothing, only fills in a genuine gap.
+
+- **Security now holds `CORRECT_RECORDS`.** Safe specifically because of the 2026-10-23 change — this page can no longer rewrite what a guard actually tapped, only add a movement that's genuinely missing. A guard is often the one who'd actually notice a missed tap during their own shift.
+- **New `GET /movements/missing-today?date=`, scoped to `CORRECT_RECORDS` (not `VIEW_REPORTS`).** The page's own "who's missing a movement today" list previously reused Insights' `/insights/daily-duration`, which needs `VIEW_REPORTS` — a permission Security deliberately doesn't have and shouldn't need just for this page. Rather than widen that broader permission to Security (which would also unlock the HR/Admin workforce-analytics dashboard), built a small, focused endpoint under the movements module instead, using simple ENTRY/EXIT presence — the exact same rule `addMissingRecord` itself enforces, so the list and the add-button gating can never disagree.
+- **Renamed everywhere user-facing**: nav label, page heading, both user guides, and `api-reference.md`/`decisions.md`/`architecture.md`/`AI_AGENT_CONTEXT.md`/`developer-guide.md` now call it **Missing Movements**. The component file (`Corrections.tsx`), route (`/corrections`), and permission name (`CORRECT_RECORDS`) are unchanged — implementation details, not what anyone reads.
+- **Fixed two stale references to the deleted `correctMovement` method** found while updating the docs — `developer-guide.md`'s "state-changing conventions" section still told future readers to use "the supersede-and-insert pattern in `MovementsService.correctMovement`," which hasn't existed since 2026-10-23.
+- **Production permission grant**: editing `DEFAULT_ROLE_PERMISSIONS` in code doesn't retroactively update an already-seeded database, and re-running the seed script isn't safe against production (it also creates dev-only test accounts with a known password if they don't already exist there). Ran a small, scoped, idempotent script instead — read the current state first, inserted exactly the one `(SECURITY, CORRECT_RECORDS)` row, confirmed the result. Nothing else in the database was touched; confirmed Security's full permission list is exactly the expected 7, no more.
+
+Build/typecheck clean. Backend: 19/19 suites, 181/181 tests pass (2 new tests for `missingToday`'s presence-only classification). Frontend: 6/6 suites, 22/22 tests pass. Docs updated across the board.
+
 ## 2026-10-23 (cont. 3) — Dual-perspective review of today's Corrections changes: a race and a stale list
 
 A requested "check as a user and as a developer" pass over today's Corrections changes. Found two real issues, both fixed:

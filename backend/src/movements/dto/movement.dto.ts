@@ -1,4 +1,4 @@
-import { IsBoolean, IsIn, IsInt, IsISO8601, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsISO8601, IsOptional, IsString } from 'class-validator';
 
 export class CreateMovementDto {
   @IsInt()
@@ -54,10 +54,10 @@ export class AddMissingRecordDto {
   @IsISO8601()
   movementAt: string;
 
-  // Required per the design (spec §42: every correction/addition is
-  // accountable in the audit log) — @IsString alone accepts "", silently
-  // defeating that.
+  // Optional — made so 2026-10-26, by request. Still stored (and still
+  // what shows in the audit log and the "corrected" drill-down) whenever
+  // someone does leave one, just no longer a blocker to save without it.
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  correctionReason: string;
+  correctionReason?: string;
 }

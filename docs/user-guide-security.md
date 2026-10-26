@@ -60,6 +60,14 @@ Tap **DASHBOARD** at the bottom of the main screen to look up past records — f
 
 If an employee asks for their entry/exit history for a specific day (e.g. for a leave application), see [user-guide-hr.md](./user-guide-hr.md#emailing-a-record) — the process is identical regardless of your role.
 
+## Adding a movement someone forgot to tap (Missing Movements)
+
+If you notice someone tapped ENTRY but never tapped EXIT (or the other way round) — maybe at the end of your shift, or an employee asks you to check — tap **Missing Movements** in the nav bar (reachable from the Dashboard screen). Added 2026-10-26, so Security can fix this directly instead of asking Admin every time.
+
+The date defaults to **Yesterday**, not Today — while someone's shift is still going, "missing EXIT" usually just means they haven't left yet, not that anything was actually forgotten; Yesterday is a settled day, so anyone showing up there genuinely needs fixing. Pick any date directly with the calendar field, or tap **Attendance Month** to see every gap across the whole pay-cycle at once (26th-to-25th, with prev/next arrows to step between cycles — same Attendance Month filter Insights has). Whenever the current view reaches today, a reminder shows that some of its "missing" rows may just be people currently on-site.
+
+You'll immediately see a list of everyone missing an ENTRY or EXIT that day. Tap **Add** next to anyone in the list to go straight to the form for them, or tap the row itself first if you want to glance at their day's records before adding anything. Either way you'll be asked for the time — a reason is optional, but still worth adding if you have one, since it's kept in the audit log alongside the record. You can also search for someone by name/code if they're not on the list. This page can only ever **add** a movement that's genuinely missing — it can never change a record that already has a real time on it, even if you think the type is wrong. If both an ENTRY and an EXIT already exist for that person that day, there's nothing to add and no button will show.
+
 ## Logging out
 
 Tap **Logout** in the top-right corner when you finish your shift, especially on a shared device.

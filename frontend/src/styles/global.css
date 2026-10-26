@@ -1189,6 +1189,25 @@ table.records-table th {
   cursor: help;
 }
 
+/* Same pill shape/weight as .offline-badge, a distinct blue so the two
+   provenance flags (offline-synced vs. backfilled via Missing Movements)
+   read as different things at a glance rather than both looking like the
+   same "something unusual happened" amber. */
+.added-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  background: #e3edf9;
+  color: #2b5a94;
+  border: 1px solid #bfd6ef;
+  cursor: help;
+}
+
 .working-hours-banner {
   display: flex;
   align-items: center;

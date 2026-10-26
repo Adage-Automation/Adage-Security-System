@@ -237,6 +237,20 @@ describe('MovementsService.addMissingRecord', () => {
     );
   });
 
+  it('adds a missing record with no reason at all — optional, not required, since 2026-10-26', async () => {
+    const { service, prisma, auditLog } = makeService();
+    const record = { id: 13, employeeId: 7, movementType: 'EXIT', correctionReason: null };
+    prisma.employee.findUnique.mockResolvedValue({ id: 7 });
+    prisma.movementRecord.findFirst.mockResolvedValue(null);
+    prisma.movementRecord.create.mockResolvedValue(record);
+
+    await expect(
+      service.addMissingRecord({ employeeId: 7, movementType: 'EXIT', movementAt: '2026-09-10T08:00:00.000Z' } as any, 9),
+    ).resolves.toBe(record);
+    expect(prisma.movementRecord.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ correctionReason: undefined }) }));
+    expect(auditLog.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'MISSING_MOVEMENT_ADDED', entityId: 13 }));
+  });
+
   it('rejects adding a movement type that is already recorded for this employee that day — nothing missing to add', async () => {
     const { service, prisma, auditLog } = makeService();
     prisma.employee.findUnique.mockResolvedValue({ id: 7 });
@@ -282,5 +296,56 @@ describe('MovementsService.addMissingRecord', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(prisma.movementRecord.findFirst).not.toHaveBeenCalled();
     expect(prisma.movementRecord.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('MovementsService.missingInRange', () => {
+  // Backs the Missing Movements page's own list — scoped to
+  // CORRECT_RECORDS so Security (who has that but not VIEW_REPORTS) can
+  // use it without reaching into Insights. Presence-only PER CALENDAR
+  // DAY, same simple rule addMissingRecord itself uses (not Insights'
+  // stricter isDayComplete). Added 2026-10-26, by request; widened from a
+  // single `date` to a `from`/`to` range the same day so the page's
+  // Attendance Month view can list gaps across a whole cycle.
+  it('lists only employees with exactly one of ENTRY/EXIT that day, labeled by whichever is missing', async () => {
+    const { service, prisma } = makeService();
+    prisma.movementRecord.findMany.mockResolvedValue([
+      // Alice: only ENTRY -> missing EXIT.
+      { employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-01T04:00:00.000Z'), employee: { employeeName: 'Alice', employeeCode: 'E1', team: 'Testing' } },
+      // Bob: only EXIT -> missing ENTRY.
+      { employeeId: 2, movementType: 'EXIT', movementAt: new Date('2026-10-01T10:00:00.000Z'), employee: { employeeName: 'Bob', employeeCode: 'E2', team: null } },
+      // Carol: both -> not missing anything, excluded entirely.
+      { employeeId: 3, movementType: 'ENTRY', movementAt: new Date('2026-10-01T04:00:00.000Z'), employee: { employeeName: 'Carol', employeeCode: 'E3', team: 'Testing' } },
+      { employeeId: 3, movementType: 'EXIT', movementAt: new Date('2026-10-01T10:00:00.000Z'), employee: { employeeName: 'Carol', employeeCode: 'E3', team: 'Testing' } },
+    ]);
+
+    const result = await service.missingInRange('2026-10-01', '2026-10-01');
+
+    expect(result).toEqual([
+      { date: '2026-10-01', employeeId: 1, employeeName: 'Alice', employeeCode: 'E1', team: 'Testing', status: 'missingExit' },
+      { date: '2026-10-01', employeeId: 2, employeeName: 'Bob', employeeCode: 'E2', team: null, status: 'missingEntry' },
+    ]);
+  });
+
+  it('returns an empty list when nobody is missing a movement in range', async () => {
+    const { service, prisma } = makeService();
+    prisma.movementRecord.findMany.mockResolvedValue([]);
+
+    await expect(service.missingInRange('2026-10-01', '2026-10-01')).resolves.toEqual([]);
+  });
+
+  it('evaluates presence per calendar day across a multi-day range — present on one day never covers a gap on another', async () => {
+    const { service, prisma } = makeService();
+    prisma.movementRecord.findMany.mockResolvedValue([
+      // Day 1: Alice has only ENTRY -> missing EXIT that day.
+      { employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-01T04:00:00.000Z'), employee: { employeeName: 'Alice', employeeCode: 'E1', team: 'Testing' } },
+      // Day 2: the same Alice has both -> not missing anything that day.
+      { employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-02T04:00:00.000Z'), employee: { employeeName: 'Alice', employeeCode: 'E1', team: 'Testing' } },
+      { employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-02T10:00:00.000Z'), employee: { employeeName: 'Alice', employeeCode: 'E1', team: 'Testing' } },
+    ]);
+
+    const result = await service.missingInRange('2026-10-01', '2026-10-02');
+
+    expect(result).toEqual([{ date: '2026-10-01', employeeId: 1, employeeName: 'Alice', employeeCode: 'E1', team: 'Testing', status: 'missingExit' }]);
   });
 });

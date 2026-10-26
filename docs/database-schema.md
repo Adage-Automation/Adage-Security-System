@@ -10,8 +10,8 @@ Role ──< RolePermission >── Permission
   ▼
  User ──< MovementRecord (recordedBy)
   │            │
-  │            ├──< MovementRecord (correctedBy)     [self-referential: corrections]
-  │            └── MovementRecord.correctionOf ──┘
+  │            ├──< MovementRecord (correctedBy)     [who backfilled a Missing Movements row — still active]
+  │            └── MovementRecord.correctionOf ──┘   [old correct-an-existing-record chain — historical rows only]
   │
   ├──< AuditLog
   └──< EmailLog (createdByUser)
@@ -61,7 +61,8 @@ Key fields:
 - `movementAt`: server-generated timestamp for a live tap — **never** trust a client-supplied time there. The one exception is a record synced from the offline queue: see `recordedOffline` below and [decisions.md](./decisions.md#offline-sync-preserve-the-real-tap-time-within-bounds).
 - `recordedOffline`: `false` unless `movementAt` came from the guard's device (offline-queue sync) instead of the server clock at creation time, and only when that client-supplied time passed a plausibility check (not more than 7 days in the past, not more than 5 minutes in the future). Surfaced in the UI as a small "offline" badge next to the time wherever movement records are listed.
 - `recordedByUserId`: which logged-in user (almost always SECURITY) tapped the button
-- `isSuperseded` / `correctionOfId` / `correctedByUserId` / `correctionReason`: the append-only correction chain. A correction never updates `movementType`/`movementAt` in place — it flags the original `isSuperseded = true` and inserts a new row pointing back at it. All "current" queries filter `isSuperseded: false`.
+- `isSuperseded` / `correctionOfId`: the original append-only correction chain — superseding an existing record was removed outright 2026-10-23 (not just hidden; see [decisions.md](./decisions.md#record-correction-append-only-not-soft-edit)), so nothing sets these on a new row anymore. Both stay on the schema only because historical rows created before that date still carry them; all "current" queries still filter `isSuperseded: false` so that old, already-superseded history stays excluded.
+- `correctedByUserId` / `correctionReason`: still actively set on every row created via Missing Movements (`MovementsService.addMissingRecord`) — these two mark a record that was backfilled rather than tapped live (surfaced in the UI as a small "added" badge next to the time), and are unrelated to the `isSuperseded`/`correctionOfId` chain above. `correctionReason` is optional (2026-10-26).
 
 Indexes: `(employeeId, movementAt)` composite (the hot path — "this employee's history"), plus single-column indexes on `movementAt`, `movementType`, `recordedByUserId`, `isSuperseded`.
 

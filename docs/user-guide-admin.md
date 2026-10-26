@@ -1,6 +1,6 @@
 # User Guide — Admin
 
-Covers everything in the [Security](./user-guide-security.md) and [HR](./user-guide-hr.md) guides, plus the screens only Admin can reach: Users, Corrections, Audit Log, and Settings. (Employees is shared with HR, not Admin-only — see the [HR guide](./user-guide-hr.md) if that's what you're looking for.)
+Covers everything in the [Security](./user-guide-security.md) and [HR](./user-guide-hr.md) guides, plus the screens only Admin can reach: Users, Audit Log, and Settings. (Employees is shared with HR, and Missing Movements is shared with Security too — not Admin-only; see the [HR guide](./user-guide-hr.md) or [Security guide](./user-guide-security.md#adding-a-movement-someone-forgot-to-tap-missing-movements) if that's what you're looking for.)
 
 ## Employee management
 
@@ -16,7 +16,7 @@ Navigate to **Employees** (also available to HR, not Admin-only).
 - **Deactivate**: marks an employee inactive instead of deleting them. They stop appearing in the Security search box, but every historical movement record stays fully intact and visible on the Dashboard. Use this when someone leaves the company — never delete an employee outright.
 - **Reactivate**: brings a deactivated employee back into the Security search box.
 
-Deactivated employees still appear when correcting historical records (see below), since you may need to fix history for someone who has since left.
+Deactivated employees still appear on Missing Movements (see below), since you may need to add a movement for someone who has since left.
 
 ## Insights (HR/Admin only)
 
@@ -37,7 +37,7 @@ A read-only reporting dashboard built from the same guard-recorded movement data
 
 Navigate to **Users**.
 
-- **Add user**: Name, Email, Username, temporary Password, and Role (SECURITY / HR / ADMIN). The role determines what they can access: Security gets the recording workflow plus Dashboard; HR gets Dashboard plus Employees (no recording — HR lands on the Dashboard after login, not the recording screen); only Admin gets Users, Corrections, Audit Log, and Settings. Choose carefully — it's not just a label.
+- **Add user**: Name, Email, Username, temporary Password, and Role (SECURITY / HR / ADMIN). The role determines what they can access: Security gets the recording workflow plus Dashboard plus Missing Movements; HR gets Dashboard plus Employees (no recording — HR lands on the Dashboard after login, not the recording screen); only Admin additionally gets Users, Audit Log, and Settings. Choose carefully — it's not just a label.
 - **Search**: filters the list by name, username, email, or role as you type.
 - **Edit**: change a user's name, email, or role after the fact — e.g. fixing a mistyped email or reassigning someone to a different role.
 - **Security units**: each security unit (gate/location) has one shared login account used by all guards at that unit — not one account per guard. That account's **Email** field is the unit's own address (e.g. `securityunit1@adage-automation.com`) and is used to both **send** and **CC** the account automatically whenever anyone logged into it sends "Email Details" — nothing to configure separately. The same applies to HR/Admin accounts, sending from and CC'ing their own login email too. Adding a new unit is just adding another shared account the same way — the new mailbox also needs adding to the Exchange access-policy scope group before its emails can actually send "as" it (until then, sends from that account fall back to a fixed address automatically, so nothing breaks — it just won't show the unit's own address as sender yet).
@@ -57,15 +57,17 @@ Edit as many fields as you need, then click **Save all changes** once — it's g
 
 There's no security-email setting here — with multiple security units (each its own shared login account on the Users screen), an emailed report is automatically sent from and CC'd to whichever account sent it. Nothing to configure per send.
 
-## Adding a missing movement record
+## Missing Movements (Security/Admin)
 
-Guards sometimes forget to tap ENTRY or EXIT entirely. Corrections require the `CORRECT_RECORDS` permission — currently Admin only.
+Navigate to **Missing Movements** (also available to Security, not Admin-only, as of 2026-10-26 — see the [Security guide](./user-guide-security.md#adding-a-movement-someone-forgot-to-tap-missing-movements)). Guards sometimes forget to tap ENTRY or EXIT entirely — this screen is where that gets fixed. Requires the `CORRECT_RECORDS` permission (Security and Admin by default; not HR).
 
-**Important: this only fills in a genuine gap — it never changes a record that already exists.** A record with a real recorded time (even a wrong one — guard tapped EXIT when they meant ENTRY, say) can no longer be edited at all, as of 2026-10-23. The old "Correct" action that let an admin change an existing record's type/time is gone; only a movement the employee is genuinely missing for that day — no ENTRY, no EXIT, or neither — can be added. (If a guard really did tap the wrong button, there's deliberately no in-app way to undo that anymore — talk to whoever manages the system if that comes up.)
+**Important: this only fills in a genuine gap — it never changes a record that already exists.** A record with a real recorded time (even a wrong one — guard tapped EXIT when they meant ENTRY, say) can no longer be edited at all, as of 2026-10-23. This screen used to be called "Corrections" and let an admin change an existing record's type/time; that capability is gone — only a movement the employee is genuinely missing for that day — no ENTRY, no EXIT, or neither — can be added. (If a guard really did tap the wrong button, there's deliberately no in-app way to undo that anymore — talk to whoever manages the system if that comes up.)
 
-Navigate to **Corrections**. Pick a date and you'll immediately see **who's missing an ENTRY or EXIT that day** — a clickable list, so there's no need to search employees one at a time to find who actually needs fixing. It only lists people who tapped once but not twice that day; someone with zero taps at all isn't shown here (that's leave/holiday/remote work/a missed day entirely, not a one-sided gap — see Insights' own "No Movement" framing). Click anyone in the list to select them, or use the search box above (which still includes inactive/deactivated employees, so you can fix history for someone who has since left).
+The date defaults to **Yesterday**, not Today — while a shift is still in progress, "missing EXIT" usually just means they haven't left yet, not a real gap; Yesterday is settled, so everyone on that list genuinely needs fixing. Pick any date directly with the calendar field, or tap **Attendance Month** (prev/next arrows to step between 26th-to-25th cycles, same as Insights' own Attendance Month filter) to see every gap across the whole cycle in one list, with a Date column added so you can tell which day each one is on. Whenever the current view reaches today, a note shows that some of its rows may just be people still on-site.
 
-Once an employee is selected, their movements for that day appear in a table. Below it, an **Add Missing ENTRY**/**Add Missing EXIT**/**Add Missing Record** button appears only when something is actually missing for that day — labeled for whichever one it is, or generic when both are missing; if the day already has both an ENTRY and an EXIT, no button shows at all, since there's nothing left to add. You'll be asked for the time and a **reason** — the reason is required and is stored in the audit log alongside the addition (fixed 2026-10-23 — this previously only landed on the record itself, not the Audit Log screen).
+Pick a date and you'll immediately see **who's missing an ENTRY or EXIT that day** — a clickable list, so there's no need to search employees one at a time to find who actually needs fixing. It only lists people who tapped once but not twice that day; someone with zero taps at all isn't shown here (that's leave/holiday/remote work/a missed day entirely, not a one-sided gap). Click **Add** next to a row to jump straight to the form for that person, or click the row itself to review their day's records first. Or use the search box above (which still includes inactive/deactivated employees, so you can add a movement for someone who has since left).
+
+Once an employee is selected, their movements for that day appear in a table. Below it, an **Add Missing ENTRY**/**Add Missing EXIT**/**Add Missing Record** button appears only when something is actually missing for that day — labeled for whichever one it is, or generic when both are missing; if the day already has both an ENTRY and an EXIT, no button shows at all, since there's nothing left to add. You'll be asked for the time and an optional **reason** (made optional 2026-10-26, by request) — whatever reason you do add is stored in the audit log alongside the addition (fixed 2026-10-23 — this previously only landed on the record itself, not the Audit Log screen).
 
 ## Audit log
 

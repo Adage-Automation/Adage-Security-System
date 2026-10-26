@@ -57,4 +57,4 @@ If you tap EMAIL DETAILS again for a record you already sent, you'll be asked to
 
 - You can see **total working hours** on the day view (first ENTRY to last EXIT), but not a breakdown of individual in/out gaps or a daily timesheet roll-up.
 - You can't trigger an automatic daily email — every send is a deliberate action.
-- You can't edit a movement record directly from this screen — record corrections are handled by an authorized user through the correction flow (see [user-guide-admin.md](./user-guide-admin.md#correcting-a-movement-record)).
+- You can't edit a movement record directly from this screen. A genuinely wrong record can no longer be edited by anyone, by design — only a movement that's actually missing (no ENTRY, no EXIT, or neither, for that day) can be added, by Security or Admin, via **Missing Movements** (see [user-guide-admin.md](./user-guide-admin.md#missing-movements-securityadmin)).

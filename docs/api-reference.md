@@ -32,7 +32,7 @@ Body: `{ token: string, newPassword: string }` (`newPassword` min 8 characters).
 | Method | Path | Permission | Notes |
 |---|---|---|---|
 | GET | `/employees/search?q=` | `VIEW_DASHBOARD` | Active employees only, top 10 matches, name/code/email/car number, case-insensitive. Backs both the guard's ENTRY/EXIT selector and the Dashboard's employee filter — every role that reaches either already holds `VIEW_DASHBOARD`. A blank/omitted `q` returns the first 10 active employees alphabetically (a "browse" list) rather than an empty array — the frontend fetches this on focus, before any typing, so the dropdown isn't empty until something's typed. See `docs/decisions.md`. |
-| GET | `/employees/search-all?q=` | `CORRECT_RECORDS` | Includes inactive employees — for the admin correction flow; searches name/code/email/car number. Same blank-query browse-list behavior as `/employees/search` above. |
+| GET | `/employees/search-all?q=` | `CORRECT_RECORDS` | Includes inactive employees — for the Missing Movements page (Security/Admin); searches name/code/email/car number. Same blank-query browse-list behavior as `/employees/search` above. |
 | GET | `/employees/teams` | `VIEW_DASHBOARD` | Returns the fixed `TEAMS` list (`backend/src/common/constants/teams.ts`) as a plain `string[]` — backs the Add/Edit Employee "Team" dropdown and the Insights team filter. `VIEW_DASHBOARD`, not `MANAGE_EMPLOYEES` — this is just a static list of team names, not sensitive employee data, and the Insights filter (`VIEW_REPORTS`) doesn't hold `MANAGE_EMPLOYEES`. |
 | GET | `/employees/offline-cache` | `VIEW_DASHBOARD` | Full active roster (id/name/code/email/car number only, no take limit) — backs the Security app's offline search fallback (`frontend/src/offline/employeeCache.ts`). The frontend fetches this on load and every 5 minutes while online and caches it in `localStorage`, since `/employees/search` above is `NetworkOnly` in the service worker and unreachable while genuinely offline. See `docs/decisions.md`. |
 | GET | `/employees?skip=&take=&q=` | `MANAGE_EMPLOYEES` | Admin management list. `q` (optional) filters name/code/email/car number, case-insensitive. Returns `{ rows: Employee[], total: number }` — `total` reflects the filtered count, so the frontend can page/search the full roster rather than being capped at one page. |
@@ -58,6 +58,7 @@ Body: `{ token: string, newPassword: string }` (`newPassword` min 8 characters).
 | POST | `/movements` | `RECORD_ENTRY` \| `RECORD_EXIT` | See below |
 | GET | `/movements?date=&employeeId=&movementType=` | `VIEW_DASHBOARD` | All filters optional |
 | GET | `/movements/employee/:id?date=` | `VIEW_EMPLOYEE_HISTORY` | One employee's movements for one date |
+| GET | `/movements/missing-summary?from=&to=` | `CORRECT_RECORDS` | Everyone missing an ENTRY or EXIT in the range (see below) |
 | POST | `/movements/missing` | `CORRECT_RECORDS` | Adds a movement that was never recorded at all (see below) |
 
 ### `POST /movements` — creating a movement
@@ -79,13 +80,25 @@ or, if the employee's last movement is the same type and `confirmed` was not `tr
 `lastMovementAt` lets the client's confirmation prompt show *when* the last movement happened, not just its type — added in the 2026-09-22 UX audit.
 The client must show a confirmation prompt and resubmit with `confirmed: true` to actually create the record. **The timestamp and recording user are always server-derived for a live tap — never send them in the body.** The one bounded exception is `clientMovementAt` on an offline-queue sync, above. `MovementRecord.recordedOffline` reflects whether that exception actually applied to a given record.
 
+`MovementRecord.correctedByUserId` (and the `correctedBy`/`correctionReason` that go with it) is set only when a record came from `POST /movements/missing` instead of a real-time tap here — every list endpoint that includes `recordedBy` (`/movements`, `/movements/employee/:id`) now also includes `correctedBy`, so the frontend can flag it (see `AddedBadge`, 2026-10-26).
+
 The "read last movement, then write" check above is wrapped in a Postgres advisory lock (`pg_advisory_xact_lock`) scoped to `employeeId`, so two requests for the *same* employee arriving at nearly the same instant (two guards on two different devices) are serialized rather than racing each other into two undetected duplicates — a different employee's request is never blocked by this. See [decisions.md](./decisions.md#offline-sync-preserve-the-real-tap-time-within-bounds).
+
+### `GET /movements/missing-summary`
+
+Returns every (date, employee) pair with exactly one of {ENTRY, EXIT} recorded (non-superseded) for that calendar day, across the inclusive `from`/`to` range — the "who actually needs something added" list the Missing Movements page leads with. `from === to` for the page's plain single-date view; a full attendance cycle (`from`/`to` from `attendanceMonthRange()`) for its Attendance Month view — one endpoint, one evaluated-per-day rule, either way:
+```json
+[{ "date": "2026-10-05", "employeeId": 1, "employeeName": "Asha Rao", "employeeCode": "EMP001", "team": "Production", "status": "missingExit" }]
+```
+`status` is `missingExit` (has an ENTRY, no EXIT, that day) or `missingEntry` (the reverse); someone with neither or both on a given day isn't included for that day at all — evaluated independently per calendar day, so being complete on one day never covers a gap on another in the same range. Deliberately scoped to `CORRECT_RECORDS`, not `VIEW_REPORTS` — Insights' `/insights/daily-duration` computes something similar but needs the broader, HR/Admin-only reports permission; this one exists specifically so Security (who holds `CORRECT_RECORDS` but not `VIEW_REPORTS`) can use this page without reaching into Insights. Presence-only, matching `addMissingRecord`'s own rule exactly (not Insights' stricter day-completeness check, which also cares about movement ordering).
 
 ### `POST /movements/missing`
 
-Body (`AddMissingRecordDto`): `{ movementType, employeeId, movementAt (ISO string), correctionReason }`. Adds a brand-new record for a movement the employee is genuinely missing that day.
+Body (`AddMissingRecordDto`): `{ movementType, employeeId, movementAt (ISO string), correctionReason? }`. Adds a brand-new record for a movement the employee is genuinely missing that day. `correctionReason` is optional (made so 2026-10-26, by request) — still stored, and still what shows in the Audit Log and the Insights "corrected" drill-down, whenever one is given; omitted or blank just stores `null`, same as how both of those already render an absent reason.
 
-**There is no endpoint to edit an existing record.** `POST /movements/:id/correct` and `MovementsService.correctMovement` were removed entirely 2026-10-23 — a record that already has a real recorded time can never be changed, by request. The server enforces this itself (not just the frontend): `addMissingRecord` rejects with a 400 if a non-superseded record of that exact `movementType` already exists for that employee on that calendar day (app-timezone), so a stale client or a direct API call can't add a redundant/conflicting one either. `isSuperseded`/`correctionOfId` remain on `MovementRecord` only for rows created before this change. See [decisions.md](./decisions.md#record-correction-append-only-not-soft-edit).
+**There is no endpoint to edit an existing record.** `POST /movements/:id/correct` and `MovementsService.correctMovement` were removed entirely 2026-10-23 — a record that already has a real recorded time can never be changed, by request. The server enforces this itself (not just the frontend): `addMissingRecord` rejects with a 400 if a non-superseded record of that exact `movementType` already exists for that employee on that calendar day (app-timezone), so a stale client or a direct API call can't add a redundant/conflicting one either. The check and the insert are wrapped in the same per-employee `pg_advisory_xact_lock` `POST /movements` uses, closing the same class of race (a guard's live tap landing between the check and the write). `isSuperseded`/`correctionOfId` remain on `MovementRecord` only for rows created before this change. See [decisions.md](./decisions.md#record-correction-append-only-not-soft-edit).
+
+**`CORRECT_RECORDS`** (both endpoints above, plus `GET /employees/search-all`) is held by Security and Admin as of 2026-10-26 — not HR. Safe to extend to Security specifically because this page can never touch a record that already has a real value, only add one that's missing.
 
 
 ## Dashboard

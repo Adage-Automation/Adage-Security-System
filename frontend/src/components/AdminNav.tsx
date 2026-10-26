@@ -50,7 +50,7 @@ export function AdminNav() {
       {hasPermission('CORRECT_RECORDS') && (
         <NavLink to="/corrections">
           <IconEdit />
-          Corrections
+          Missing Movements
         </NavLink>
       )}
       {hasPermission('MANAGE_SETTINGS') && (

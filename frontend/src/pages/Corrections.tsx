@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { Employee, MovementRecord, MovementType } from '../types';
-import { IconEdit, IconPlus, IconInbox, IconX, IconCheckCircle } from '../components/icons';
+import { IconEdit, IconPlus, IconInbox, IconX, IconCheckCircle, IconChevronRight } from '../components/icons';
 import { AdminNav } from '../components/AdminNav';
 import { TableSkeleton } from '../components/TableSkeleton';
 import { OfflineBadge } from '../components/OfflineBadge';
-import { todayIso, formatTime, localDateFromIso } from '../utils/date';
+import { AddedBadge } from '../components/AddedBadge';
+import { todayIso, isoDaysAgo, attendanceMonthRange, formatTime, localDateFromIso } from '../utils/date';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 
 function initials(name: string): string {
@@ -23,7 +24,8 @@ interface EditState {
   reason: string;
 }
 
-interface MissingTodayRow {
+interface MissingRow {
+  date: string;
   employeeId: number;
   employeeName: string;
   employeeCode: string;
@@ -32,7 +34,19 @@ interface MissingTodayRow {
 }
 
 export function Corrections() {
-  const [date, setDate] = useState(todayIso());
+  // Defaults to YESTERDAY, not today: while someone's shift is still in
+  // progress, "missing EXIT" is just "hasn't left yet," not a real gap —
+  // checking today would bury the genuine misses under everyone still
+  // on-site. Yesterday is a settled day, so every one-sided result there
+  // is an actual thing to fix. Changed 2026-10-26, by request.
+  const [date, setDate] = useState(isoDaysAgo(1));
+  // null = plain single-date view (the `date` field above); a number =
+  // Attendance Month view, that many cycles from the current one (0 =
+  // this cycle, -1 = previous, +1 = next) — same offset convention as
+  // Insights' own Attendance Month preset. Picking a date directly always
+  // switches this back to null. Added 2026-10-26, by request, replacing
+  // the Today/Yesterday quick buttons.
+  const [attendanceMonthOffset, setAttendanceMonthOffset] = useState<number | null>(null);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Employee[]>([]);
   const [selected, setSelected] = useState<Employee | null>(null);
@@ -59,56 +73,88 @@ export function Corrections() {
   // below. Found in the 2026-10 audit.
   const recordsSeqRef = useRef(0);
 
-  // Who's missing an ENTRY or EXIT on the selected date, so an admin isn't
-  // stuck searching employees one at a time to find who actually needs a
-  // correction. Reuses Insights' existing per-day status classification
-  // (same `buildEmployeeDayAggs`/isDayComplete pipeline that backs the
-  // Daily Roster modal) rather than duplicating that logic here — `rows`
-  // there already excludes anyone with zero movements that day (shown
-  // separately there as `noMovement`, deliberately not called "absent",
-  // since it just as easily means leave/holiday/remote work as a missed
-  // tap) — exactly the "tapped once, not twice" population this list
-  // should show, not everyone with no data at all. Added 2026-10-23, by
-  // request.
-  const [missingToday, setMissingToday] = useState<MissingTodayRow[]>([]);
-  const [missingTodayLoading, setMissingTodayLoading] = useState(true);
-  const missingTodaySeqRef = useRef(0);
+  // The date (or whole attendance cycle) actually being queried — same
+  // single day repeated as both ends for the plain date view, so the
+  // backend only ever needs one code path (`missingInRange`) regardless
+  // of which view is active.
+  const missingRange = useMemo(() => {
+    if (attendanceMonthOffset !== null) {
+      const r = attendanceMonthRange(attendanceMonthOffset);
+      return { from: r.from, to: r.to, label: r.label };
+    }
+    return { from: date, to: date, label: date };
+  }, [date, attendanceMonthOffset]);
+
+  // Who's missing an ENTRY or EXIT in the selected date/cycle, so nobody's
+  // stuck searching employees one at a time to find who actually needs
+  // something added. `GET /movements/missing-summary` is scoped to
+  // CORRECT_RECORDS specifically (not Insights' VIEW_REPORTS) — this page
+  // is now open to Security too (2026-10-26, by request), who hold the
+  // former but deliberately not the latter. Added 2026-10-23, by request;
+  // widened from a single date to a range (for Attendance Month) the same
+  // day.
+  const [missingRows, setMissingRows] = useState<MissingRow[]>([]);
+  const [missingLoading, setMissingLoading] = useState(true);
+  const missingSeqRef = useRef(0);
   // Disables the row being selected (not every row — see the matching
   // Set-based guard in Users.tsx) while its full Employee record loads,
   // and surfaces a failure without silently doing nothing.
   const [selectingId, setSelectingId] = useState<number | null>(null);
 
-  function loadMissingToday() {
-    setMissingTodayLoading(true);
-    const seq = ++missingTodaySeqRef.current;
+  function loadMissing() {
+    setMissingLoading(true);
+    const seq = ++missingSeqRef.current;
     api
-      .get<{ rows: Array<{ employeeId: number; employeeName: string; employeeCode: string; team: string | null; status: 'complete' | 'missingExit' | 'missingEntry' }> }>(
-        `/insights/daily-duration?date=${date}`,
-      )
+      .get<MissingRow[]>(`/movements/missing-summary?from=${missingRange.from}&to=${missingRange.to}`)
       .then((res) => {
-        if (seq !== missingTodaySeqRef.current) return;
-        setMissingToday(
-          res.rows
-            .filter((r): r is MissingTodayRow => r.status !== 'complete')
-            .sort((a, b) => a.employeeName.localeCompare(b.employeeName)),
-        );
+        if (seq === missingSeqRef.current) setMissingRows(res);
       })
       .catch(() => {
-        if (seq === missingTodaySeqRef.current) setMissingToday([]);
+        if (seq === missingSeqRef.current) setMissingRows([]);
       })
       .finally(() => {
-        if (seq === missingTodaySeqRef.current) setMissingTodayLoading(false);
+        if (seq === missingSeqRef.current) setMissingLoading(false);
       });
   }
 
-  useEffect(loadMissingToday, [date]);
+  useEffect(loadMissing, [missingRange.from, missingRange.to]);
 
-  function selectFromMissingList(employeeId: number) {
-    setSelectingId(employeeId);
+  // In Attendance Month view a row's own date can be any day in the
+  // cycle, not whatever the page's single `date` field happens to hold —
+  // syncing it here is what makes loadRecords (below) and submitEdit both
+  // operate on the right day once an employee is selected from a
+  // multi-day list, with no separate "which date is this edit for" state
+  // needed. Harmless in plain date-view too, since `row.date` there is
+  // just `date` already. Added 2026-10-26, by request, alongside
+  // Attendance Month.
+  function selectFromMissingList(row: MissingRow) {
+    setSelectingId(row.employeeId);
     setError(null);
+    setDate(row.date);
     api
-      .get<Employee>(`/employees/${employeeId}`)
+      .get<Employee>(`/employees/${row.employeeId}`)
       .then((emp) => setSelected(emp))
+      .catch((err: any) => setError(err?.message ?? 'Failed to load this employee. Please try again.'))
+      .finally(() => setSelectingId(null));
+  }
+
+  // One tap straight to the "Add Missing" form for a row already known to
+  // be missing exactly one type — skips the "select, wait for their table
+  // to load, then find the Add button below it" detour for the common
+  // case where there's nothing to actually review first. Clicking the
+  // rest of the row still goes through selectFromMissingList to review
+  // their day before adding, for anyone who wants that. Added 2026-10-26,
+  // by request.
+  function quickAdd(row: MissingRow) {
+    setSelectingId(row.employeeId);
+    setError(null);
+    setDate(row.date);
+    api
+      .get<Employee>(`/employees/${row.employeeId}`)
+      .then((emp) => {
+        setSelected(emp);
+        setEdit({ movementType: row.status === 'missingExit' ? 'EXIT' : 'ENTRY', time: '09:00', reason: '' });
+      })
       .catch((err: any) => setError(err?.message ?? 'Failed to load this employee. Please try again.'))
       .finally(() => setSelectingId(null));
   }
@@ -194,10 +240,6 @@ export function Corrections() {
 
   async function submitEdit() {
     if (!edit || !selected) return;
-    if (!edit.reason.trim()) {
-      setError('A reason is required — it is recorded in the audit log.');
-      return;
-    }
     // A cleared native date input sends "" — new Date("") is an Invalid
     // Date, which used to throw a raw "Invalid time value" RangeError
     // from .toISOString() below instead of a friendly message (found in
@@ -227,7 +269,7 @@ export function Corrections() {
         employeeId: selected.id,
         movementType: edit.movementType,
         movementAt: movementAt.toISOString(),
-        correctionReason: edit.reason.trim(),
+        correctionReason: edit.reason.trim() || undefined,
       });
       setSuccessMsg('Missing record added successfully.');
       setEdit(null);
@@ -236,7 +278,7 @@ export function Corrections() {
       // movement" list below until the date happened to change again —
       // stale the moment the gap it's listing was just filled. Found in
       // the 2026-10-23 dual-perspective review.
-      loadMissingToday();
+      loadMissing();
       setTimeout(() => setSuccessMsg(null), 3000);
     } catch (err: any) {
       setError(err?.message ?? 'Failed to save. Please try again.');
@@ -251,7 +293,7 @@ export function Corrections() {
 
       <div className="page-heading">
         <IconEdit />
-        Correct Records
+        Missing Movements
       </div>
 
       {successMsg && (
@@ -265,7 +307,45 @@ export function Corrections() {
         <div className="field">
           <label>
             Date
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            <div className="date-quick-row">
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => {
+                  setDate(e.target.value);
+                  setAttendanceMonthOffset(null);
+                }}
+                max={todayIso()}
+              />
+              <button
+                type="button"
+                className={`quick-date-btn ${attendanceMonthOffset !== null ? 'active' : ''}`}
+                title={attendanceMonthOffset !== null ? missingRange.label : undefined}
+                onClick={() => setAttendanceMonthOffset(attendanceMonthOffset ?? 0)}
+              >
+                Attendance Month
+              </button>
+              {attendanceMonthOffset !== null && (
+                <>
+                  <button
+                    type="button"
+                    className="quick-date-btn"
+                    aria-label="Previous attendance cycle"
+                    onClick={() => setAttendanceMonthOffset(attendanceMonthOffset - 1)}
+                  >
+                    <IconChevronRight style={{ transform: 'rotate(180deg)', width: 14, height: 14 }} />
+                  </button>
+                  <button
+                    type="button"
+                    className="quick-date-btn"
+                    aria-label="Next attendance cycle"
+                    onClick={() => setAttendanceMonthOffset(attendanceMonthOffset + 1)}
+                  >
+                    <IconChevronRight style={{ width: 14, height: 14 }} />
+                  </button>
+                </>
+              )}
+            </div>
           </label>
         </div>
         <div className="field" style={{ position: 'relative' }}>
@@ -351,6 +431,7 @@ export function Corrections() {
                   <td>
                     {formatTime(r.movementAt)}
                     {r.recordedOffline && <OfflineBadge />}
+                    <AddedBadge record={r} />
                   </td>
                   <td><span className={`movement-badge ${r.movementType}`}>{r.movementType}</span></td>
                   <td>{r.recordedBy?.name}</td>
@@ -367,6 +448,7 @@ export function Corrections() {
                   <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
                     {formatTime(r.movementAt)}
                     {r.recordedOffline && <OfflineBadge />}
+                    <AddedBadge record={r} />
                   </div>
                   {r.recordedBy?.name && (
                     <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Recorded by: {r.recordedBy.name}</div>
@@ -408,33 +490,49 @@ export function Corrections() {
       {!selected && (
         <>
           <div className="date-heading" style={{ marginTop: 20, justifyContent: 'flex-start', textAlign: 'left' }}>
-            Missing a movement on {date}
+            {attendanceMonthOffset !== null ? `Missing a movement in ${missingRange.label}` : `Missing a movement on ${date}`}
           </div>
-          {error && <div className="error-text" style={{ marginBottom: 8 }}>{error}</div>}
-          {missingTodayLoading && <TableSkeleton columns={3} />}
-          {!missingTodayLoading && missingToday.length === 0 && (
-            <div className="empty-state">
-              <IconCheckCircle />
-              <div className="empty-title">Nothing missing on this date</div>
-              <div className="empty-hint">Everyone who tapped on {date} has both an ENTRY and an EXIT recorded. Search above to review someone's history directly.</div>
+          {missingRange.from <= todayIso() && todayIso() <= missingRange.to && (
+            // Someone still on-site genuinely hasn't tapped EXIT yet — that's
+            // not a missed movement, just a shift still in progress. This
+            // list can't tell the two apart, so it flags the ambiguity
+            // rather than implying everyone below forgot something. Applies
+            // just as much to Attendance Month when the cycle reaches
+            // today as it does to the plain Today view.
+            <div className="empty-hint" style={{ marginBottom: 12 }}>
+              Today's entries in this list may include people simply still on-site, not yet missing anything.
             </div>
           )}
-          {!missingTodayLoading && missingToday.length > 0 && (
+          {error && <div className="error-text" style={{ marginBottom: 8 }}>{error}</div>}
+          {missingLoading && <TableSkeleton columns={attendanceMonthOffset !== null ? 5 : 4} />}
+          {!missingLoading && missingRows.length === 0 && (
+            <div className="empty-state">
+              <IconCheckCircle />
+              <div className="empty-title">Nothing missing</div>
+              <div className="empty-hint">
+                Everyone who tapped {attendanceMonthOffset !== null ? `during ${missingRange.label}` : `on ${date}`} has both an ENTRY and an EXIT recorded. Search above to review someone's history directly.
+              </div>
+            </div>
+          )}
+          {!missingLoading && missingRows.length > 0 && (
             <table className="records-table">
               <thead>
                 <tr>
+                  {attendanceMonthOffset !== null && <th>Date</th>}
                   <th>Employee</th>
                   <th>Team</th>
                   <th>Missing</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
-                {missingToday.map((row) => (
+                {missingRows.map((row) => (
                   <tr
-                    key={row.employeeId}
-                    onClick={() => (selectingId ? undefined : selectFromMissingList(row.employeeId))}
+                    key={`${row.date}|${row.employeeId}`}
+                    onClick={() => (selectingId ? undefined : selectFromMissingList(row))}
                     style={{ cursor: selectingId ? 'default' : 'pointer', opacity: selectingId === row.employeeId ? 0.6 : 1 }}
                   >
+                    {attendanceMonthOffset !== null && <td>{row.date}</td>}
                     <td>
                       {row.employeeName} <span style={{ color: 'var(--text-muted)' }}>({row.employeeCode})</span>
                     </td>
@@ -443,10 +541,66 @@ export function Corrections() {
                       {/* Same red/"Missing Exit"/"Missing Entry" convention as Insights' own Daily Roster modal for this exact status field. */}
                       <span style={{ color: '#c0392b', fontWeight: 600 }}>{row.status === 'missingExit' ? 'Missing Exit' : 'Missing Entry'}</span>
                     </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="table-action-btn"
+                        disabled={!!selectingId}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          quickAdd(row);
+                        }}
+                      >
+                        Add
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          )}
+
+          {/* .records-table is hidden below 640px in favor of this card
+              layout (global.css) — without it, this list would silently
+              show zero rows on a phone, the exact bug class the 2026-09-25
+              mobile audit found and fixed across every other table in the
+              app (see roadmap.md). Security, who this page now also
+              serves, is the role most likely to be on a phone here. */}
+          {!missingLoading && missingRows.length > 0 && (
+            <div className="record-cards">
+              {missingRows.map((row) => (
+                <div
+                  className="record-card"
+                  key={`${row.date}|${row.employeeId}`}
+                  onClick={() => (selectingId ? undefined : selectFromMissingList(row))}
+                  style={{ opacity: selectingId === row.employeeId ? 0.6 : 1 }}
+                >
+                  <div>
+                    <div>
+                      {row.employeeName} <span style={{ color: 'var(--text-muted)' }}>({row.employeeCode})</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
+                      {attendanceMonthOffset !== null ? `${row.date} · ` : ''}
+                      {row.team ?? 'Unassigned'}
+                    </div>
+                    <div style={{ marginTop: 4 }}>
+                      <span style={{ color: '#c0392b', fontWeight: 600 }}>{row.status === 'missingExit' ? 'Missing Exit' : 'Missing Entry'}</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="table-action-btn"
+                    disabled={!!selectingId}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      quickAdd(row);
+                    }}
+                  >
+                    Add
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
         </>
       )}
@@ -466,13 +620,18 @@ export function Corrections() {
               <div className="field">
                 <label>
                   Movement Type
-                  {missingTypes.length === 1 ? (
+                  {missingTypes.length !== 2 ? (
                     // Only one type is actually missing — nothing to choose,
                     // and offering the already-recorded type here would let
                     // someone add a second, redundant one instead of fixing
                     // the real gap. The backend rejects it either way, but
                     // this keeps the form from offering a choice that can't
-                    // succeed.
+                    // succeed. `!== 2` (not `=== 1`) so quickAdd's already-
+                    // correct, pre-set type still shows right away even in
+                    // the brief instant before this employee's own records
+                    // (and therefore missingTypes) have finished loading —
+                    // otherwise this would flash as a dropdown with no
+                    // options for a moment.
                     <input value={edit.movementType} disabled />
                   ) : (
                     <select value={edit.movementType} onChange={(e) => setEdit({ ...edit, movementType: e.target.value as MovementType })}>
@@ -493,7 +652,7 @@ export function Corrections() {
               </div>
               <div className="field">
                 <label>
-                  Reason (required, kept in audit log)
+                  Reason (optional — kept in the audit log if you add one)
                   <input value={edit.reason} onChange={(e) => setEdit({ ...edit, reason: e.target.value })} placeholder="e.g. Guard forgot to tap out" />
                 </label>
               </div>

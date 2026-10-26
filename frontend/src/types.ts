@@ -30,6 +30,11 @@ export interface MovementRecord {
   recordedOffline?: boolean;
   employee?: { id: number; employeeName: string; employeeCode: string };
   recordedBy?: { id: number; name: string };
+  // Set only when this record was backfilled via Missing Movements
+  // (addMissingRecord), never for a real-time guard tap — see AddedBadge.
+  correctedByUserId?: number | null;
+  correctedBy?: { id: number; name: string } | null;
+  correctionReason?: string | null;
 }
 
 export interface CreateMovementResponse {
