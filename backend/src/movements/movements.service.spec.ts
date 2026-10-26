@@ -235,6 +235,10 @@ describe('MovementsService.addMissingRecord', () => {
     expect(auditLog.record).toHaveBeenCalledWith(
       expect.objectContaining({ userId: 9, action: 'MISSING_MOVEMENT_ADDED', entityType: 'MovementRecord', entityId: 12, newValue: record }),
     );
+    // Same deterministic-tiebreak requirement as missingInRange — the
+    // duplicate-check below reads dayRecords[0]/dayRecords[last] to decide
+    // what's missing.
+    expect(prisma.movementRecord.findMany).toHaveBeenCalledWith(expect.objectContaining({ orderBy: [{ movementAt: 'asc' }, { id: 'asc' }] }));
   });
 
   it('adds a missing record with no reason at all — optional, not required, since 2026-10-26', async () => {
@@ -266,7 +270,7 @@ describe('MovementsService.addMissingRecord', () => {
     expect(auditLog.record).not.toHaveBeenCalled();
   });
 
-  it('rejects adding a second EXIT once entries and exits are already balanced — count-based, not just presence', async () => {
+  it('rejects adding a second EXIT once the day is already closed out (ends on EXIT) — order-based, not just presence', async () => {
     const { service, prisma, auditLog } = makeService();
     prisma.employee.findUnique.mockResolvedValue({ id: 7 });
     prisma.movementRecord.findMany.mockResolvedValue([{ movementType: 'ENTRY' }, { movementType: 'EXIT' }]);
@@ -289,6 +293,23 @@ describe('MovementsService.addMissingRecord', () => {
       service.addMissingRecord({ employeeId: 7, movementType: 'EXIT', movementAt: '2026-09-10T08:00:00.000Z' } as any, 9),
     ).resolves.toBe(record);
     expect(auditLog.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'MISSING_MOVEMENT_ADDED', entityId: 14 }));
+  });
+
+  it('rejects adding another EXIT for a duplicate-ENTRY day (entry, entry, exit) — a repeated tap is noise, not a second open session', async () => {
+    // Real production case (2026-10-26): two ENTRY taps at the same
+    // minute (offline-sync duplicate + live tap, or a genuine double-tap)
+    // followed by one real EXIT. A raw entry/exit count would read this
+    // as "2 entries, 1 exit" and wrongly think a second EXIT is missing —
+    // the day is actually fully closed out.
+    const { service, prisma, auditLog } = makeService();
+    prisma.employee.findUnique.mockResolvedValue({ id: 7 });
+    prisma.movementRecord.findMany.mockResolvedValue([{ movementType: 'ENTRY' }, { movementType: 'ENTRY' }, { movementType: 'EXIT' }]);
+
+    await expect(
+      service.addMissingRecord({ employeeId: 7, movementType: 'EXIT', movementAt: '2026-09-10T08:00:00.000Z' } as any, 9),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.movementRecord.create).not.toHaveBeenCalled();
+    expect(auditLog.record).not.toHaveBeenCalled();
   });
 
   it('serializes the duplicate-type check and the insert under a per-employee advisory lock, so a concurrent live tap cannot land in between and recreate the duplicate the check is meant to prevent', async () => {
@@ -327,10 +348,14 @@ describe('MovementsService.addMissingRecord', () => {
 describe('MovementsService.missingInRange', () => {
   // Backs the Missing Movements page's own list — scoped to
   // CORRECT_RECORDS so Security (who has that but not VIEW_REPORTS) can
-  // use it without reaching into Insights. Counts ENTRY vs EXIT PER
-  // CALENDAR DAY (not just presence — a 2026-10-26 fix found the original
-  // presence check missed an entry/exit/entry day), same simple rule
-  // addMissingRecord itself uses (not Insights' stricter isDayComplete).
+  // use it without reaching into Insights. ORDER-AWARE per calendar day
+  // (first/last movement type, not a raw entry/exit count): a presence
+  // check missed an entry/exit/entry day (fixed 2026-10-26), and a count
+  // comparison then wrongly flagged a duplicate-tap day — two ENTRYs at
+  // the same minute followed by one real EXIT — as still missing an EXIT
+  // (fixed later the same day, see the "duplicate-ENTRY day" test below).
+  // Same rule addMissingRecord itself uses, and the same first/last
+  // movement type idea Insights' isMissingExit/isDayComplete already used.
   // Added 2026-10-26, by request; widened from a single `date` to a
   // `from`/`to` range the same day so the page's Attendance Month view
   // can list gaps across a whole cycle.
@@ -352,6 +377,12 @@ describe('MovementsService.missingInRange', () => {
       { date: '2026-10-01', employeeId: 1, employeeName: 'Alice', employeeCode: 'E1', team: 'Testing', status: 'missingExit' },
       { date: '2026-10-01', employeeId: 2, employeeName: 'Bob', employeeCode: 'E2', team: null, status: 'missingEntry' },
     ]);
+    // `id` must be a secondary sort key alongside movementAt — without it,
+    // Postgres doesn't guarantee a stable order for two different
+    // movementTypes sharing the exact same timestamp (2026-10-26 fix), and
+    // the whole first/last-movement classification above would be
+    // order-dependent on nothing.
+    expect(prisma.movementRecord.findMany).toHaveBeenCalledWith(expect.objectContaining({ orderBy: [{ movementAt: 'asc' }, { id: 'asc' }] }));
   });
 
   it('returns an empty list when nobody is missing a movement in range', async () => {
@@ -376,7 +407,7 @@ describe('MovementsService.missingInRange', () => {
     expect(result).toEqual([{ date: '2026-10-01', employeeId: 1, employeeName: 'Alice', employeeCode: 'E1', team: 'Testing', status: 'missingExit' }]);
   });
 
-  it('flags a count mismatch even when both types are present — entry, exit, entry still owes a final exit', async () => {
+  it('flags a trailing unmatched ENTRY even when both types are present — entry, exit, entry still owes a final exit', async () => {
     const { service, prisma } = makeService();
     prisma.movementRecord.findMany.mockResolvedValue([
       { employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-01T04:00:00.000Z'), employee: { employeeName: 'Alice', employeeCode: 'E1', team: 'Testing' } },
@@ -387,6 +418,46 @@ describe('MovementsService.missingInRange', () => {
     const result = await service.missingInRange('2026-10-01', '2026-10-01');
 
     expect(result).toEqual([{ date: '2026-10-01', employeeId: 1, employeeName: 'Alice', employeeCode: 'E1', team: 'Testing', status: 'missingExit' }]);
+  });
+
+  it('does NOT flag a duplicate-ENTRY day (entry, entry, exit) — a repeated tap at the same minute is noise, not a second open session', async () => {
+    // Real production record (2026-10-26, Abhijit Chatterjee, 2026-10-06):
+    // ENTRY 10:26am (offline sync), ENTRY 10:26am (duplicate — same
+    // minute), EXIT 9:51pm. A raw entry/exit count reads this as "2
+    // entries, 1 exit" and wrongly flags missingExit, even though the day
+    // is genuinely complete — there was only ever one real session.
+    const { service, prisma } = makeService();
+    prisma.movementRecord.findMany.mockResolvedValue([
+      { employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-06T04:56:00.000Z'), employee: { employeeName: 'Abhijit Chatterjee', employeeCode: 'E1', team: 'Management' } },
+      { employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-06T04:56:00.000Z'), employee: { employeeName: 'Abhijit Chatterjee', employeeCode: 'E1', team: 'Management' } },
+      { employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-06T16:21:00.000Z'), employee: { employeeName: 'Abhijit Chatterjee', employeeCode: 'E1', team: 'Management' } },
+    ]);
+
+    await expect(service.missingInRange('2026-10-06', '2026-10-06')).resolves.toEqual([]);
+  });
+
+  it('does NOT flag a duplicate-EXIT day (entry, exit, exit) — symmetric case, a repeated exit tap is noise too', async () => {
+    const { service, prisma } = makeService();
+    prisma.movementRecord.findMany.mockResolvedValue([
+      { employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-06T04:00:00.000Z'), employee: { employeeName: 'Alice', employeeCode: 'E1', team: 'Testing' } },
+      { employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-06T10:00:00.000Z'), employee: { employeeName: 'Alice', employeeCode: 'E1', team: 'Testing' } },
+      { employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-06T10:00:00.000Z'), employee: { employeeName: 'Alice', employeeCode: 'E1', team: 'Testing' } },
+    ]);
+
+    await expect(service.missingInRange('2026-10-06', '2026-10-06')).resolves.toEqual([]);
+  });
+
+  it('flags missingEntry for an orphan leading EXIT (exit, entry, exit) — starts unexplained, but ends closed so not also missingExit', async () => {
+    const { service, prisma } = makeService();
+    prisma.movementRecord.findMany.mockResolvedValue([
+      { employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-06T02:00:00.000Z'), employee: { employeeName: 'Bob', employeeCode: 'E2', team: null } },
+      { employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-06T04:00:00.000Z'), employee: { employeeName: 'Bob', employeeCode: 'E2', team: null } },
+      { employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-06T10:00:00.000Z'), employee: { employeeName: 'Bob', employeeCode: 'E2', team: null } },
+    ]);
+
+    const result = await service.missingInRange('2026-10-06', '2026-10-06');
+
+    expect(result).toEqual([{ date: '2026-10-06', employeeId: 1, employeeName: 'Bob', employeeCode: 'E2', team: null, status: 'missingEntry' }]);
   });
 
   it('end to end: after addMissingRecord fills the gap, a fresh missingInRange call no longer lists that employee/day', async () => {
@@ -416,5 +487,71 @@ describe('MovementsService.missingInRange', () => {
     ]);
     const after = await service.missingInRange('2026-10-01', '2026-10-01');
     expect(after).toEqual([]);
+  });
+
+  describe('excluding a still-in-progress "today"', () => {
+    const originalEnv = process.env.APP_TIMEZONE;
+
+    afterEach(() => {
+      process.env.APP_TIMEZONE = originalEnv;
+      jest.useRealTimers();
+    });
+
+    it('does not flag missingExit for TODAY — the employee may simply still be on-site, shift not over yet', async () => {
+      process.env.APP_TIMEZONE = 'Asia/Kolkata';
+      jest.useFakeTimers().setSystemTime(new Date('2026-10-26T10:00:00.000Z')); // ~15:30 IST, 2026-10-26
+
+      const { service, prisma } = makeService();
+      prisma.movementRecord.findMany.mockResolvedValue([
+        { employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-26T04:00:00.000Z'), employee: { employeeName: 'Alice', employeeCode: 'E1', team: 'Testing' } },
+      ]);
+
+      await expect(service.missingInRange('2026-10-26', '2026-10-26')).resolves.toEqual([]);
+    });
+
+    it('still flags missingExit for YESTERDAY — that day is settled, so an open session there is a genuine gap', async () => {
+      process.env.APP_TIMEZONE = 'Asia/Kolkata';
+      jest.useFakeTimers().setSystemTime(new Date('2026-10-26T10:00:00.000Z'));
+
+      const { service, prisma } = makeService();
+      prisma.movementRecord.findMany.mockResolvedValue([
+        { employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-25T04:00:00.000Z'), employee: { employeeName: 'Alice', employeeCode: 'E1', team: 'Testing' } },
+      ]);
+
+      await expect(service.missingInRange('2026-10-25', '2026-10-25')).resolves.toEqual([
+        { date: '2026-10-25', employeeId: 1, employeeName: 'Alice', employeeCode: 'E1', team: 'Testing', status: 'missingExit' },
+      ]);
+    });
+
+    it('still flags missingEntry for TODAY — an orphan exit with no matching entry is a real anomaly regardless of the time of day', async () => {
+      process.env.APP_TIMEZONE = 'Asia/Kolkata';
+      jest.useFakeTimers().setSystemTime(new Date('2026-10-26T10:00:00.000Z'));
+
+      const { service, prisma } = makeService();
+      prisma.movementRecord.findMany.mockResolvedValue([
+        { employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-26T04:00:00.000Z'), employee: { employeeName: 'Bob', employeeCode: 'E2', team: null } },
+      ]);
+
+      await expect(service.missingInRange('2026-10-26', '2026-10-26')).resolves.toEqual([
+        { date: '2026-10-26', employeeId: 1, employeeName: 'Bob', employeeCode: 'E2', team: null, status: 'missingEntry' },
+      ]);
+    });
+
+    it('in an Attendance Month range spanning today, excludes only today\'s missingExit while keeping earlier days in the same range', async () => {
+      process.env.APP_TIMEZONE = 'Asia/Kolkata';
+      jest.useFakeTimers().setSystemTime(new Date('2026-10-26T10:00:00.000Z'));
+
+      const { service, prisma } = makeService();
+      prisma.movementRecord.findMany.mockResolvedValue([
+        // Settled earlier day — still flagged.
+        { employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-20T04:00:00.000Z'), employee: { employeeName: 'Alice', employeeCode: 'E1', team: 'Testing' } },
+        // Today — excluded, shift may still be in progress.
+        { employeeId: 2, movementType: 'ENTRY', movementAt: new Date('2026-10-26T04:00:00.000Z'), employee: { employeeName: 'Carol', employeeCode: 'E3', team: 'Testing' } },
+      ]);
+
+      const result = await service.missingInRange('2026-10-01', '2026-10-26');
+
+      expect(result).toEqual([{ date: '2026-10-20', employeeId: 1, employeeName: 'Alice', employeeCode: 'E1', team: 'Testing', status: 'missingExit' }]);
+    });
   });
 });

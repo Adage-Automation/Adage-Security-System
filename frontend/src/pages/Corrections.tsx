@@ -184,16 +184,30 @@ export function Corrections() {
   // employee/date) can be filled in. `null` while records are still
   // loading so the add-missing button doesn't flash into existence for a
   // split second based on the previous employee/date's (stale) records.
-  // Counts, not just presence — an entry/exit/entry day has both types but
-  // still owes a final exit (count mismatch), which a simple present-types
-  // Set would have missed entirely (mirrors the same fix in
-  // MovementsService.missingInRange).
+  // Order-aware, not a raw entry/exit count (mirrors the same fix in
+  // MovementsService.missingInRange) — a count comparison flagged a real
+  // duplicate-tap day (two ENTRYs at the same minute, then one genuine
+  // EXIT) as still missing an EXIT, even though the day is actually
+  // complete. Only the first and last record of the day (already
+  // chronologically ordered — see listByEmployeeAndDate) matter: ending on
+  // ENTRY means a session is still open; starting on EXIT without also
+  // ending open means an orphan EXIT has no matching ENTRY.
+  //
+  // A "missing EXIT" for TODAY specifically is suppressed — the employee
+  // may simply still be on-site, shift not over yet, same reasoning as
+  // missingInRange's own exclusion (2026-10-26, by request) — so searching
+  // for someone directly can't offer an add the list itself wouldn't have
+  // surfaced either. A genuinely zero-record day is left alone regardless
+  // of date (matches addMissingRecord, which still allows either type
+  // first on an empty day no matter what day it is).
   const missingTypes = useMemo<MovementType[]>(() => {
     if (recordsLoading) return [];
-    const entryCount = records.filter((r) => r.movementType === 'ENTRY').length;
-    const exitCount = records.filter((r) => r.movementType === 'EXIT').length;
-    if (entryCount === exitCount) return entryCount === 0 ? (['ENTRY', 'EXIT'] as MovementType[]) : [];
-    return entryCount > exitCount ? (['EXIT'] as MovementType[]) : (['ENTRY'] as MovementType[]);
+    if (records.length === 0) return ['ENTRY', 'EXIT'];
+    const missingExit = records[records.length - 1].movementType === 'ENTRY' && date !== todayIso();
+    const missingEntry = !missingExit && records[0].movementType === 'EXIT';
+    if (missingExit) return ['EXIT'];
+    if (missingEntry) return ['ENTRY'];
+    return [];
   }, [records, recordsLoading]);
 
   useFocusTrap(!!edit, modalRef, modalCloseRef, () => {
@@ -499,14 +513,18 @@ export function Corrections() {
             {attendanceMonthOffset !== null ? `Missing a movement in ${missingRange.label}` : `Missing a movement on ${date}`}
           </div>
           {missingRange.from <= todayIso() && todayIso() <= missingRange.to && (
-            // Someone still on-site genuinely hasn't tapped EXIT yet — that's
-            // not a missed movement, just a shift still in progress. This
-            // list can't tell the two apart, so it flags the ambiguity
-            // rather than implying everyone below forgot something. Applies
-            // just as much to Attendance Month when the cycle reaches
-            // today as it does to the plain Today view.
+            // Someone still on-site simply hasn't tapped EXIT yet — that's
+            // not a missed movement, just a shift still in progress, so the
+            // backend excludes a "missing EXIT" for today specifically until
+            // the day is actually over (missingInRange). An orphan EXIT with
+            // no matching ENTRY is a genuine anomaly either way, so that can
+            // still show up for today. Applies just as much to Attendance
+            // Month when the cycle reaches today as it does to the plain
+            // Today view. Backend behavior changed 2026-10-26, by request —
+            // this used to just be a caveat banner, now it's an actual
+            // exclusion; the banner now explains the exclusion instead.
             <div className="empty-hint" style={{ marginBottom: 12 }}>
-              Today's entries in this list may include people simply still on-site, not yet missing anything.
+              Today's shift is still in progress — people who simply haven't exited yet won't show up here until the day is over. Only genuine anomalies (like an exit with no recorded entry) appear for today.
             </div>
           )}
           {error && <div className="error-text" style={{ marginBottom: 8 }}>{error}</div>}

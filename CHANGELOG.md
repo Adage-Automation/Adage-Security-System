@@ -1,5 +1,43 @@
 # Changelog
 
+## 2026-10-26 (cont. 12) — Today's missing EXIT is now excluded outright, not just caveated
+
+Direct request: "until a particular day is over, we are not showing in the missing movements page those days records as missing exit." Today's shift being still in progress was previously only a warning banner next to a list that still included today's open sessions as `missingExit`, button and all — someone simply still on-site looked identical to a genuinely forgotten EXIT.
+
+- `MovementsService.missingInRange` now drops any `missingExit` bucket dated today (`todayInAppTimezone()`) from its result entirely.
+- `Corrections.tsx`'s `missingTypes` gating mirrors this so the "Add EXIT" button doesn't appear for today even when searching for someone directly.
+- `missingEntry` is unaffected — an orphan EXIT with no matching ENTRY is a genuine anomaly regardless of time of day.
+- Banner copy updated to describe the actual exclusion instead of just a caveat.
+- 4 new backend tests (`describe('excluding a still-in-progress "today"', ...)`) using `jest.useFakeTimers()` to pin "today": excludes today's missingExit, still flags yesterday's, still flags today's missingEntry, and correctly partial-excludes within an Attendance Month range spanning today.
+- Docs updated: `api-reference.md`, `user-guide-admin.md`, `user-guide-security.md`, `decisions.md`.
+
+Backend: 19/19 suites, 195/195 tests pass (+4). Frontend: 6/6 suites, 22/22 tests pass; both typechecks clean.
+
+## 2026-10-26 (cont. 11) — Proactive fix: a tied timestamp could make the order-aware rule non-deterministic
+
+Asked for a general "check for any other issues" pass after the order-aware fix above. Found a latent (not yet triggered, confirmed against all of production) gap in that same fix: the new first/last-movement classification only means anything if `movementAt` ordering is stable, but Postgres doesn't guarantee a consistent order for two rows sharing the exact same timestamp unless a secondary sort key is given. Not just theoretical — Add Missing Record's modal defaults its time field to `09:00`, so two separately-added records for the same employee/day could easily land on the exact same minute if nobody changes the default.
+
+- Added `id: 'asc'` as a secondary `orderBy` key (after `movementAt: 'asc'`) to `MovementsService.missingInRange`, `addMissingRecord`'s duplicate-check query, and `listByEmployeeAndDate` (the last one because `Corrections.tsx`'s frontend `missingTypes` reads its result's first/last record directly).
+- Found and fixed the identical latent issue in `InsightsService.fetchMovements`, the sibling implementation `buildEmployeeDayAggs`'s `firstEntry`/`lastExit`/`lastMovementType` depends on — same root cause, same fix, for consistency across both features that do this kind of first/last-movement classification.
+- Verified via a one-off read-only script against all 7,816 production rows: zero exact-timestamp ties exist between two *different* movement types today — this was a preventive fix for a real but not-yet-triggered risk, not a currently-visible bug. Script deleted after use.
+- Added `orderBy`-shape assertions to an existing `missingInRange` test and an existing `addMissingRecord` test — a mocked-Prisma test can't otherwise catch a missing tiebreak, since the mock doesn't enforce real ordering semantics either way.
+
+Backend: 19/19 suites, 191/191 tests pass (unchanged — new assertions added to existing tests, not new test cases). Frontend: 6/6 suites, 22/22 tests pass; both typechecks clean.
+
+## 2026-10-26 (cont. 10) — The count-based fix was itself wrong; switched to order-aware (first/last movement type)
+
+Direct report, with a screenshot: Abhijit Chatterjee, 2026-10-06 — ENTRY 10:26am (offline), ENTRY 10:26am (duplicate, same minute), EXIT 9:51pm (already added) — was still showing an "Add Missing EXIT" button. User: "we don't have a missing exit as the entry was twice." Correct — this is a duplicate ENTRY tap (offline-sync overlap or a double-tap), not a second real session; the single EXIT already covers the one real session that day.
+
+- **Root cause**: the count-based fix from earlier today (`entryCount`/`exitCount` comparison) reads this exact pattern as "2 entries, 1 exit" and wrongly flags `missingExit`, even though the day is genuinely complete.
+- **Fix**: `MovementsService.missingInRange`, `addMissingRecord`'s duplicate-check, and `Corrections.tsx`'s `missingTypes` all switched again — from counts to **order-aware**: only the day's chronological first and last movement type decide anything. Ending on ENTRY → missingExit (a session is still open). Not ending open but starting on EXIT → missingEntry (an orphan exit). A repeated tap of either type is noise and never creates a false gap on its own. This is effectively the same rule Insights' `isMissingExit`/`isDayComplete` already used — now applied consistently across Missing Movements too.
+- Still correctly catches the original entry/exit/entry report (ends on ENTRY → still flagged).
+- Added `orderBy: { movementAt: 'asc' }` to both the `missingInRange` query and `addMissingRecord`'s duplicate-check query — required for first/last tracking to mean anything; wasn't needed under the count-based version.
+- New/updated backend tests: duplicate-ENTRY day (the exact reported case) → not flagged; symmetric duplicate-EXIT day → not flagged; orphan leading EXIT → `missingEntry`; original entry/exit/entry case → still `missingExit`. 25/25 tests in this file now (was 21).
+- **Re-verified against all 7,816 production `movement_records` rows** (not just Oct 6) with a one-off read-only script: 3,406 employee-days total. The count-based rule would have flagged 555; the order-aware rule correctly excludes 119 of those as duplicate-tap false positives (Abhijit Chatterjee's case confirmed directly, plus 118 others across Sept 28–Oct 26), flagging 463 genuine gaps. Script deleted after use.
+- Updated every doc that described the count-based rule (`api-reference.md`, `user-guide-admin.md`, `user-guide-security.md`, `developer-guide.md`) to describe order-awareness instead; `decisions.md` now has the full three-iteration history (presence → counts → order-aware) in one place.
+
+Backend: 19/19 suites, 191/191 tests pass (+4). Frontend: 6/6 suites, 22/22 tests pass; typecheck clean.
+
 ## 2026-10-26 (cont. 9) — Verified against real Oct 6 production data, and a reminder the count-based fix isn't deployed yet
 
 Direct request to check whether the Missing Movements list for Oct 6 is showing only genuinely-missing people. Rather than trust the code review alone, ran a one-off **read-only** script (by explicit permission, no writes) against the live production database, independently re-computing the exact `entryCount`/`exitCount` rule for every employee with a movement on 2026-10-06 (IST).

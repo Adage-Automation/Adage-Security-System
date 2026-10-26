@@ -405,7 +405,13 @@ export class InsightsService {
         employee: { select: { team: true, employeeName: true, employeeCode: true } },
         recordedBy: { select: { id: true, name: true, username: true } },
       },
-      orderBy: { movementAt: 'asc' },
+      // `id` as a secondary key — buildEmployeeDayAggs below reads this
+      // result's first/last movement per employee-day to decide
+      // firstEntry/lastExit/lastMovementType, so two different
+      // movementTypes sharing the exact same movementAt need a
+      // deterministic tiebreak (same reasoning as MovementsService's
+      // missingInRange/addMissingRecord, 2026-10-26).
+      orderBy: [{ movementAt: 'asc' }, { id: 'asc' }],
     });
   }
 
