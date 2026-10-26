@@ -184,10 +184,16 @@ export function Corrections() {
   // employee/date) can be filled in. `null` while records are still
   // loading so the add-missing button doesn't flash into existence for a
   // split second based on the previous employee/date's (stale) records.
+  // Counts, not just presence — an entry/exit/entry day has both types but
+  // still owes a final exit (count mismatch), which a simple present-types
+  // Set would have missed entirely (mirrors the same fix in
+  // MovementsService.missingInRange).
   const missingTypes = useMemo<MovementType[]>(() => {
     if (recordsLoading) return [];
-    const present = new Set(records.map((r) => r.movementType));
-    return (['ENTRY', 'EXIT'] as MovementType[]).filter((t) => !present.has(t));
+    const entryCount = records.filter((r) => r.movementType === 'ENTRY').length;
+    const exitCount = records.filter((r) => r.movementType === 'EXIT').length;
+    if (entryCount === exitCount) return entryCount === 0 ? (['ENTRY', 'EXIT'] as MovementType[]) : [];
+    return entryCount > exitCount ? (['EXIT'] as MovementType[]) : (['ENTRY'] as MovementType[]);
   }, [records, recordsLoading]);
 
   useFocusTrap(!!edit, modalRef, modalCloseRef, () => {

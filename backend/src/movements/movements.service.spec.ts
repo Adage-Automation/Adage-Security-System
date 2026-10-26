@@ -223,7 +223,7 @@ describe('MovementsService.addMissingRecord', () => {
     const { service, prisma, auditLog } = makeService();
     const record = { id: 12, employeeId: 7, movementType: 'ENTRY' };
     prisma.employee.findUnique.mockResolvedValue({ id: 7 });
-    prisma.movementRecord.findFirst.mockResolvedValue(null);
+    prisma.movementRecord.findMany.mockResolvedValue([]);
     prisma.movementRecord.create.mockResolvedValue(record);
 
     await expect(
@@ -241,7 +241,7 @@ describe('MovementsService.addMissingRecord', () => {
     const { service, prisma, auditLog } = makeService();
     const record = { id: 13, employeeId: 7, movementType: 'EXIT', correctionReason: null };
     prisma.employee.findUnique.mockResolvedValue({ id: 7 });
-    prisma.movementRecord.findFirst.mockResolvedValue(null);
+    prisma.movementRecord.findMany.mockResolvedValue([]);
     prisma.movementRecord.create.mockResolvedValue(record);
 
     await expect(
@@ -254,7 +254,7 @@ describe('MovementsService.addMissingRecord', () => {
   it('rejects adding a movement type that is already recorded for this employee that day — nothing missing to add', async () => {
     const { service, prisma, auditLog } = makeService();
     prisma.employee.findUnique.mockResolvedValue({ id: 7 });
-    prisma.movementRecord.findFirst.mockResolvedValue({ id: 5, employeeId: 7, movementType: 'ENTRY' });
+    prisma.movementRecord.findMany.mockResolvedValue([{ movementType: 'ENTRY' }]);
 
     await expect(
       service.addMissingRecord(
@@ -266,10 +266,35 @@ describe('MovementsService.addMissingRecord', () => {
     expect(auditLog.record).not.toHaveBeenCalled();
   });
 
+  it('rejects adding a second EXIT once entries and exits are already balanced — count-based, not just presence', async () => {
+    const { service, prisma, auditLog } = makeService();
+    prisma.employee.findUnique.mockResolvedValue({ id: 7 });
+    prisma.movementRecord.findMany.mockResolvedValue([{ movementType: 'ENTRY' }, { movementType: 'EXIT' }]);
+
+    await expect(
+      service.addMissingRecord({ employeeId: 7, movementType: 'EXIT', movementAt: '2026-09-10T08:00:00.000Z' } as any, 9),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.movementRecord.create).not.toHaveBeenCalled();
+    expect(auditLog.record).not.toHaveBeenCalled();
+  });
+
+  it('allows adding a second EXIT for an entry/exit/entry day — the trailing entry genuinely has no exit yet', async () => {
+    const { service, prisma, auditLog } = makeService();
+    const record = { id: 14, employeeId: 7, movementType: 'EXIT' };
+    prisma.employee.findUnique.mockResolvedValue({ id: 7 });
+    prisma.movementRecord.findMany.mockResolvedValue([{ movementType: 'ENTRY' }, { movementType: 'EXIT' }, { movementType: 'ENTRY' }]);
+    prisma.movementRecord.create.mockResolvedValue(record);
+
+    await expect(
+      service.addMissingRecord({ employeeId: 7, movementType: 'EXIT', movementAt: '2026-09-10T08:00:00.000Z' } as any, 9),
+    ).resolves.toBe(record);
+    expect(auditLog.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'MISSING_MOVEMENT_ADDED', entityId: 14 }));
+  });
+
   it('serializes the duplicate-type check and the insert under a per-employee advisory lock, so a concurrent live tap cannot land in between and recreate the duplicate the check is meant to prevent', async () => {
     const { service, prisma } = makeService();
     prisma.employee.findUnique.mockResolvedValue({ id: 7 });
-    prisma.movementRecord.findFirst.mockResolvedValue(null);
+    prisma.movementRecord.findMany.mockResolvedValue([]);
     prisma.movementRecord.create.mockResolvedValue({ id: 12, employeeId: 7, movementType: 'ENTRY' });
 
     await service.addMissingRecord(
@@ -294,7 +319,7 @@ describe('MovementsService.addMissingRecord', () => {
         9,
       ),
     ).rejects.toBeInstanceOf(NotFoundException);
-    expect(prisma.movementRecord.findFirst).not.toHaveBeenCalled();
+    expect(prisma.movementRecord.findMany).not.toHaveBeenCalled();
     expect(prisma.movementRecord.create).not.toHaveBeenCalled();
   });
 });
@@ -302,11 +327,13 @@ describe('MovementsService.addMissingRecord', () => {
 describe('MovementsService.missingInRange', () => {
   // Backs the Missing Movements page's own list — scoped to
   // CORRECT_RECORDS so Security (who has that but not VIEW_REPORTS) can
-  // use it without reaching into Insights. Presence-only PER CALENDAR
-  // DAY, same simple rule addMissingRecord itself uses (not Insights'
-  // stricter isDayComplete). Added 2026-10-26, by request; widened from a
-  // single `date` to a `from`/`to` range the same day so the page's
-  // Attendance Month view can list gaps across a whole cycle.
+  // use it without reaching into Insights. Counts ENTRY vs EXIT PER
+  // CALENDAR DAY (not just presence — a 2026-10-26 fix found the original
+  // presence check missed an entry/exit/entry day), same simple rule
+  // addMissingRecord itself uses (not Insights' stricter isDayComplete).
+  // Added 2026-10-26, by request; widened from a single `date` to a
+  // `from`/`to` range the same day so the page's Attendance Month view
+  // can list gaps across a whole cycle.
   it('lists only employees with exactly one of ENTRY/EXIT that day, labeled by whichever is missing', async () => {
     const { service, prisma } = makeService();
     prisma.movementRecord.findMany.mockResolvedValue([
@@ -347,5 +374,47 @@ describe('MovementsService.missingInRange', () => {
     const result = await service.missingInRange('2026-10-01', '2026-10-02');
 
     expect(result).toEqual([{ date: '2026-10-01', employeeId: 1, employeeName: 'Alice', employeeCode: 'E1', team: 'Testing', status: 'missingExit' }]);
+  });
+
+  it('flags a count mismatch even when both types are present — entry, exit, entry still owes a final exit', async () => {
+    const { service, prisma } = makeService();
+    prisma.movementRecord.findMany.mockResolvedValue([
+      { employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-01T04:00:00.000Z'), employee: { employeeName: 'Alice', employeeCode: 'E1', team: 'Testing' } },
+      { employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-01T08:00:00.000Z'), employee: { employeeName: 'Alice', employeeCode: 'E1', team: 'Testing' } },
+      { employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-01T09:00:00.000Z'), employee: { employeeName: 'Alice', employeeCode: 'E1', team: 'Testing' } },
+    ]);
+
+    const result = await service.missingInRange('2026-10-01', '2026-10-01');
+
+    expect(result).toEqual([{ date: '2026-10-01', employeeId: 1, employeeName: 'Alice', employeeCode: 'E1', team: 'Testing', status: 'missingExit' }]);
+  });
+
+  it('end to end: after addMissingRecord fills the gap, a fresh missingInRange call no longer lists that employee/day', async () => {
+    const { service, prisma } = makeService();
+
+    // Before the add: Alice has only ENTRY that day -> listed as missingExit.
+    prisma.movementRecord.findMany.mockResolvedValueOnce([
+      { employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-01T04:00:00.000Z'), employee: { employeeName: 'Alice', employeeCode: 'E1', team: 'Testing' } },
+    ]);
+    const before = await service.missingInRange('2026-10-01', '2026-10-01');
+    expect(before).toEqual([{ date: '2026-10-01', employeeId: 1, employeeName: 'Alice', employeeCode: 'E1', team: 'Testing', status: 'missingExit' }]);
+
+    // The add itself: addMissingRecord's own duplicate-check queries the day's
+    // records fresh (same mock, called again) — only the one ENTRY exists,
+    // so adding EXIT is allowed.
+    prisma.employee.findUnique.mockResolvedValue({ id: 1 });
+    prisma.movementRecord.findMany.mockResolvedValueOnce([{ movementType: 'ENTRY' }]);
+    prisma.movementRecord.create.mockResolvedValue({ id: 99, employeeId: 1, movementType: 'EXIT' });
+    await service.addMissingRecord({ employeeId: 1, movementType: 'EXIT', movementAt: '2026-10-01T08:00:00.000Z' } as any, 9);
+
+    // After the add: a fresh missingInRange call re-queries the database (no
+    // caching on this endpoint) and now sees both ENTRY and EXIT for that
+    // employee/day, so the row is gone.
+    prisma.movementRecord.findMany.mockResolvedValueOnce([
+      { employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-01T04:00:00.000Z'), employee: { employeeName: 'Alice', employeeCode: 'E1', team: 'Testing' } },
+      { employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-01T08:00:00.000Z'), employee: { employeeName: 'Alice', employeeCode: 'E1', team: 'Testing' } },
+    ]);
+    const after = await service.missingInRange('2026-10-01', '2026-10-01');
+    expect(after).toEqual([]);
   });
 });

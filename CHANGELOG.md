@@ -1,5 +1,47 @@
 # Changelog
 
+## 2026-10-26 (cont. 9) — Verified against real Oct 6 production data, and a reminder the count-based fix isn't deployed yet
+
+Direct request to check whether the Missing Movements list for Oct 6 is showing only genuinely-missing people. Rather than trust the code review alone, ran a one-off **read-only** script (by explicit permission, no writes) against the live production database, independently re-computing the exact `entryCount`/`exitCount` rule for every employee with a movement on 2026-10-06 (IST).
+
+- **Result: the logic itself is correct.** Of 190 employees with at least one movement that day, 75 had a genuine entry/exit count mismatch and 115 were fully balanced (correctly excluded) — matches the committed rule exactly, no false positives or false negatives found.
+- **Important caveat surfaced by this check**: `git status` showed the count-based fix (this session's "cont. 6"/"cont. 7" work) is still only in the working tree, **not yet committed or deployed**. Of the 75 genuinely-missing employees, roughly 44 (~59%) have *both* an ENTRY and an EXIT recorded that day with mismatched counts (e.g. 2 entries, 1 exit) — exactly the case the old, currently-deployed presence-only logic would silently exclude. Until this is committed and deployed, the live page is undercounting real gaps for any day with this pattern, though never overcounting (the old rule's flagged set was always a subset of the correct one, confirmed by this same data).
+- Deleted the one-off script after use; nothing added to the repo.
+
+Also swept every doc describing the missing-movement rule for the same presence-vs-count staleness this fix needed fixing in code: `api-reference.md` (`/movements/missing-summary` and `/movements/missing` descriptions), `user-guide-admin.md` and `user-guide-security.md` ("tapped once but not twice" / "both an ENTRY and an EXIT already exist" — both described presence, not counts), and `developer-guide.md` ("doesn't exist yet that day" → count-based wording).
+
+Backend: 19/19 suites, 187/187 tests pass (unchanged — no code change this entry, verification + docs only). Frontend: 6/6 suites, 22/22 tests pass; typecheck clean.
+
+## 2026-10-26 (cont. 8) — Confirmed: an added record no longer re-appears in the missing list
+
+Direct request to re-check that adding a missing EXIT/ENTRY makes that employee/day actually disappear from the list, not just that the add succeeds.
+
+- Traced it end to end: `/movements/missing-summary` has no caching layer anywhere in its path (unlike Insights' `getSummary`, which does cache) and `Corrections.tsx` already calls `loadMissing()` right after a successful save (found and fixed in the 2026-10-23 review) — so the very next list fetch re-queries the database fresh and recomputes counts from the now-updated rows.
+- Added an explicit end-to-end backend test (not just two separately-tested functions): seeds an entry-only day → confirms it's listed as `missingExit` → calls `addMissingRecord` to fill the EXIT → confirms a fresh `missingInRange` call on the same data now returns `[]`. This proves the write and the very-next read agree, not just that each function is individually correct.
+
+Backend: 19/19 suites, 187/187 tests pass (+1). Frontend: 6/6 suites, 22/22 tests pass.
+
+## 2026-10-26 (cont. 7) — Re-check found the write path still rejected the exact add the read path now asks for
+
+"Check it all again" re-check of the previous entry's fix surfaced a real bug it introduced: `addMissingRecord`'s own duplicate-check still blocked on *any existing record of that type*, not on count. So for an entry/exit/entry day — now correctly flagged `missingExit` by `missingInRange` and offered by the modal — actually submitting the add would have hit "An EXIT is already recorded for this employee on this day — nothing missing to add", rejecting the one add the list just told the caller to make.
+
+- **`MovementsService.addMissingRecord`**: duplicate-check switched from a single `findFirst` (any record of this exact type) to a per-day `entryCount`/`exitCount` comparison — rejects only when this type's count has already caught up to (or passed) the other type's count. A day with zero records of either type stays wide open (either type can be added first, unchanged from before).
+- Caught the one subtlety this introduced before it shipped: `entryCount === 0 && exitCount === 0` must NOT reject (that's the normal "nothing recorded yet" case) — an unguarded `>=` comparison would have wrongly blocked the very first add on any empty day. Fixed with an explicit `entryCount > 0 || exitCount > 0` guard before the count comparison.
+- Updated/added backend tests: the two existing duplicate-check tests now mock the new `findMany` call; added one for "second EXIT is genuinely missing on an entry/exit/entry day → allowed" and one for "entries and exits already balanced → rejected even though it's not literally a duplicate type."
+- Also fixed a stale comment on `missingInRange` that still described presence-only matching and claimed it was already consistent with `addMissingRecord` — it wasn't, until this fix.
+
+Backend: 19/19 suites, 186/186 tests pass (+2 from the previous entry). Frontend: 6/6 suites, 22/22 tests pass; typecheck clean.
+
+## 2026-10-26 (cont. 6) — Missing-movement detection now counts, not just checks presence
+
+Direct request: an employee with entry, exit, entry (2 entries, 1 exit) still owes a final exit, and both the missing-summary list and the per-employee modal were missing this — they only checked "does ENTRY exist and does EXIT exist," so a day with both types present looked fully covered even with a real gap.
+
+- **`MovementsService.missingInRange`**: switched from `hasEntry`/`hasExit` booleans to `entryCount`/`exitCount`, flagging a day when the counts differ (missing EXIT when entries > exits, missing ENTRY when exits > entries) rather than when either type is simply absent.
+- **`Corrections.tsx`'s `missingTypes`** (gates the per-employee "Add Missing" button and modal type selector): same fix — counts ENTRY/EXIT for the selected employee+date instead of just checking a presence `Set`, so the button now appears for an entry/exit/entry day instead of wrongly showing "nothing to add."
+- New backend test: entry, exit, entry on one day now correctly reports `missingExit`. No new frontend test added, consistent with this file's existing test coverage (no test file exists for `Corrections.tsx` elsewhere in this arc either).
+
+Backend: 19/19 suites, 184/184 tests pass. Frontend: 6/6 suites, 22/22 tests pass; typecheck clean.
+
 ## 2026-10-26 (cont. 5) — Doc sweep: a broken cross-reference and two stale schema descriptions
 
 Requested full re-check, docs this time swept across the *entire* `docs/` tree rather than just the files already known to be touched — found three real issues outside today's usual set:

@@ -191,12 +191,15 @@ export class MovementsService {
   // added 2026-10-26, by request, so this list can't quietly need a
   // permission Security was never meant to have.
   //
-  // Presence-only PER CALENDAR DAY, same simple rule the frontend's own
-  // "which type is missing" check already uses (not Insights' stricter
-  // isDayComplete, which also cares about movement ordering) — someone
-  // with ANY ENTRY and ANY EXIT on a given day, in any order, isn't
-  // missing anything for that day, matching exactly what
-  // addMissingRecord above would and wouldn't allow adding.
+  // Counts ENTRY vs EXIT PER CALENDAR DAY, same simple rule the frontend's
+  // own "which type is missing" check and addMissingRecord's duplicate
+  // check below both use (not Insights' stricter isDayComplete, which
+  // also cares about movement ordering) — a count mismatch (e.g. 2
+  // entries, 1 exit from an entry/exit/entry day) is flagged even though
+  // both types are present, since all three of these call sites must
+  // agree on what "missing" means or the list can tell someone to add a
+  // record the write path then rejects. Switched from presence-only,
+  // 2026-10-26, by request.
   //
   // Takes a range (not just one date) so the page's Attendance Month view
   // can show every gap across the whole 26th-25th cycle in one list, not
@@ -218,7 +221,7 @@ export class MovementsService {
 
     const byDayAndEmployee = new Map<
       string,
-      { date: string; employeeId: number; employeeName: string; employeeCode: string; team: string | null; hasEntry: boolean; hasExit: boolean }
+      { date: string; employeeId: number; employeeName: string; employeeCode: string; team: string | null; entryCount: number; exitCount: number }
     >();
     for (const m of movements) {
       if (!m.employee) continue;
@@ -230,23 +233,26 @@ export class MovementsService {
         employeeName: m.employee.employeeName,
         employeeCode: m.employee.employeeCode,
         team: m.employee.team,
-        hasEntry: false,
-        hasExit: false,
+        entryCount: 0,
+        exitCount: 0,
       };
-      if (m.movementType === 'ENTRY') bucket.hasEntry = true;
-      else bucket.hasExit = true;
+      if (m.movementType === 'ENTRY') bucket.entryCount++;
+      else bucket.exitCount++;
       byDayAndEmployee.set(key, bucket);
     }
 
+    // Counts, not just presence — an entry/exit/entry day has both types but
+    // still owes a final exit (count mismatch), which a simple hasEntry/hasExit
+    // boolean would have missed entirely.
     return [...byDayAndEmployee.values()]
-      .filter((b) => b.hasEntry !== b.hasExit)
+      .filter((b) => b.entryCount !== b.exitCount)
       .map((b) => ({
         date: b.date,
         employeeId: b.employeeId,
         employeeName: b.employeeName,
         employeeCode: b.employeeCode,
         team: b.team,
-        status: (b.hasEntry ? 'missingExit' : 'missingEntry') as 'missingExit' | 'missingEntry',
+        status: (b.entryCount > b.exitCount ? 'missingExit' : 'missingEntry') as 'missingExit' | 'missingEntry',
       }))
       .sort((a, b) => (a.date === b.date ? a.employeeName.localeCompare(b.employeeName) : a.date.localeCompare(b.date)));
   }
@@ -349,10 +355,13 @@ export class MovementsService {
 
     // The authoritative enforcement of "only a true gap can be filled" —
     // never rely on the frontend alone to only offer the missing type(s).
-    // A non-superseded record of this exact type already existing for
-    // this employee on this calendar day means there's nothing missing to
-    // add; this isn't a rare edge case either, since the UI is expected to
-    // hide the option entirely once it's no longer missing.
+    // Counts, not mere presence (2026-10-26 fix, matching missingInRange
+    // below): an entry/exit/entry day genuinely is missing a second EXIT,
+    // so blocking on "any EXIT already exists" would have wrongly rejected
+    // the exact add the Missing Movements list told the caller to make.
+    // Only reject when this type's count is already >= the other type's
+    // count for the day — i.e. adding one more would create a surplus
+    // rather than fill a real gap.
     //
     // Wrapped in the same per-employee advisory lock createMovement uses
     // (2026-09-22 audit) — without it, a guard's live tap for this exact
@@ -364,10 +373,23 @@ export class MovementsService {
     const record = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${dto.employeeId})`;
 
-      const existing = await tx.movementRecord.findFirst({
-        where: { employeeId: dto.employeeId, movementType: dto.movementType, isSuperseded: false, movementAt: { gte: start, lt: end } },
+      const dayRecords = await tx.movementRecord.findMany({
+        where: { employeeId: dto.employeeId, isSuperseded: false, movementAt: { gte: start, lt: end } },
+        select: { movementType: true },
       });
-      if (existing) {
+      const entryCount = dayRecords.filter((r) => r.movementType === 'ENTRY').length;
+      const exitCount = dayRecords.length - entryCount;
+      // A day with zero records of either type is wide open — both are
+      // missing, so either can be added first. Once there's at least one
+      // record, "already covered" is whichever type's count has caught up
+      // to (or passed) the other.
+      const alreadyCovered =
+        entryCount > 0 || exitCount > 0
+          ? dto.movementType === 'EXIT'
+            ? exitCount >= entryCount
+            : entryCount >= exitCount
+          : false;
+      if (alreadyCovered) {
         throw new BadRequestException(`An ${dto.movementType} is already recorded for this employee on ${calendarDate} — nothing missing to add.`);
       }
 
