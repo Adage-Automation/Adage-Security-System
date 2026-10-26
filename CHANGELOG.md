@@ -1,5 +1,72 @@
 # Changelog
 
+## 2026-10-26 (cont. 17) — A misaligned row, and the employee-cycle view no longer bouncing you back out
+
+- **Alignment bug, reported with a screenshot.** The Date field's cycle-range text (swapped in for the date input in cont. 16's two-dates fix) sat visibly higher than the "Exit Attendance Month" button and prev/next arrows beside it — `.date-quick-row` had no `align-items` set, so the plain text span didn't match the buttons' 36px height and stretch-aligned to the top by default. Added `align-items: center`.
+- **The employee-cycle view (cont. 15) was bouncing guards back out to the full list on every add.** Tapping "Add" on one of an employee's several missing days inside their own Attendance Month cycle view triggered the same `backToList()` the main list's quick-Add uses — clearing `selected` and losing the employee-scoped view, even though they likely had more of that same person's days left to fix. `editOriginRef` gained a third value, `'employeeCycle'` (alongside `'list'` and `'review'`); `quickAdd` now takes a `fromEmployeeCycleView` flag so `renderMissingPills` can tag which case it's called from. On that origin, `submitEdit` now does neither `backToList()` nor `loadRecords()` — it stays on the same employee, and the `loadMissing()` refresh that already ran shrinks their remaining pills in place via `employeeCycleMissingRows`'s own filter.
+- Leftover "save"/"saving" wording from the Save→Add rename (cont. 16) cleaned up in the two validation error messages and the generic submit-failure message — all now say "add"/"adding" consistently with the button itself.
+
+Docs updated: `user-guide-admin.md`, `user-guide-security.md`.
+
+Backend: 19/19 suites, 195/195 tests pass (unchanged — no backend changes this entry). Frontend: 6/6 suites, 22/22 tests pass (unchanged — UI-only change, no new test cases); typecheck clean.
+
+## 2026-10-26 (cont. 16) — Four more small-but-real UX fixes on a final re-check
+
+Direct request for anything else to improve, plus fixing the "two dates at once" issue flagged along the way.
+
+- **Two dates shown at once, fixed.** With Attendance Month active, the single date input kept sitting there showing one unrelated day (e.g. "2026-10-25") right next to the cycle's own range text (e.g. "26 Sep – 25 Oct 2026") — two different dates on screen for one filter, since the pinned date has no effect in that mode at all. Now the date input is replaced by the cycle label while Attendance Month is active, instead of showing both.
+- **"No matches found" added to the employee search.** Typing a name/code that matches nobody used to just leave the dropdown blank — no way to tell a typo from a slow network from a genuinely broken search. Added a `searchLoading` flag (mirrors the `recordsLoading`/`missingLoading` pattern already used elsewhere on this page) so the message only shows once a search has actually completed with zero results.
+- **Search placeholder simplified.** "Search employee (including inactive)..." → "Search by name or ID..." — the "including inactive" detail is still true, just doesn't need to be said to use it (the `aria-label` for screen readers keeps the fuller description).
+- **"Save" renamed to "Add."** Every other label on this page already says "Add" (Add Missing Exit, Add Missing Record) — "Save" was the one inconsistent word in the flow.
+
+Docs updated: `user-guide-admin.md`, `user-guide-security.md`.
+
+Frontend: 6/6 suites, 22/22 tests pass (unchanged — UI-only change, no new test cases); typecheck clean. No backend changes this entry.
+
+## 2026-10-26 (cont. 15) — Searching an employee during Attendance Month now shows their whole cycle, not one pinned date
+
+Direct report: searching for an employee while Attendance Month was active still only showed one single day's records table — whichever day happened to be left sitting in the page's single `date` field, meaningless in a multi-day cycle view since nothing on screen said which day that even was.
+
+- Added `employeeCycleMissingRows` (`Corrections.tsx`) — when an employee is selected while `attendanceMonthOffset !== null`, filters the cycle's already-fetched missing list down to just that employee, instead of querying one arbitrary day's full record table.
+- Renders the same per-day `renderMissingPills` buttons the main list uses (one button per missing day, e.g. "Add Missing Exit"), scoped to that one employee, under a "Missing movements for {name} in {cycle}" heading — or a clear "has both an ENTRY and an EXIT recorded for every day" empty state if they have no gaps that cycle.
+- The plain single-date view is unaffected — searching there still shows that one day's actual record table (Time/Movement/Recorded By), which is still the right view for a single day.
+
+Docs updated: `user-guide-admin.md`, `user-guide-security.md`.
+
+Frontend: 6/6 suites, 22/22 tests pass (unchanged — UI-only change, no new test cases); typecheck clean. No backend changes this entry.
+
+## 2026-10-26 (cont. 14) — Simplify for guards: one action per pill, a real toggle, a visible date while reviewing
+
+Direct request to re-check the whole flow with "keep it simple for security guards" as the explicit bar, plus specifically re-verify the search box and both filters (Date, Attendance Month).
+
+- **One tap, one action.** Each missing-list entry used to be a chip where tapping most of it opened a "review" screen while only a small nested button inside it actually added the fix — easy to miss-tap on a phone and land somewhere unexpected. Collapsed into a single `<button>` per entry (now using the app's existing 36px-min touch-target `.table-action-btn` style) labeled plainly, e.g. "Add Missing Exit" — tap it, it adds the fix, nothing else. Reviewing a day first is still possible, just via the search box instead of from the list. Removed the now-unused `selectFromMissingList`.
+- **Attendance Month is now an actual toggle.** It already looked like one (pressed/"active" styling) but tapping it again while active did nothing useful — just reset to the current cycle. Now tapping it again (relabeled **Exit Attendance Month**) goes back to the plain daily view.
+- **The active cycle's date range is now always visible**, not just a hover `title` on the button — which is simply invisible on a phone, since there's no hover on touch. Shown as plain text under the date field instead.
+- **A missing heading, found while re-checking search.** Once an employee was selected (via search, or quick-Add before it auto-returns), nothing on screen said which date their records table was actually for — easy to mistake for their whole history rather than one specific day. Added a "Records on {date}" heading above the table.
+- Added `title="Previous cycle"` / `"Next cycle"` to the prev/next arrow buttons (previously only had an `aria-label`, invisible to a sighted mouse user hovering to check what they do).
+
+Docs updated: `user-guide-admin.md`, `user-guide-security.md`.
+
+Frontend: 6/6 suites, 22/22 tests pass (unchanged — UI-only change, no new test cases); typecheck clean. No backend changes this entry.
+
+## 2026-10-26 (cont. 13) — Missing Movements UX pass: grouped by employee, no lost place, faster for a guard working the whole list
+
+Direct request to look at the page's UX end to end, for both the security guard using it and the developer maintaining it.
+
+- **Grouped by employee, not just by date.** `groupedMissingRows` (`Corrections.tsx`) now buckets the flat `(date, employee)` rows from the backend by employee, so someone missing 5 days across an Attendance Month cycle shows as one row with 5 clickable day-pills together, instead of 5 rows scattered across the list by date. Applies uniformly (the plain single-date view just gets a group of size 1), which also meant the table/card rendering collapsed from 4 near-duplicate blocks down to 2, sharing one `renderMissingPills` helper for the pill markup — a maintainability win alongside the UX one.
+- **No more losing your place.** Selecting someone off the list now records the page's scroll position (`listScrollRef`); going back (the X on the employee chip) restores it instead of jumping to the top — real friction on a long Attendance Month list.
+- **Auto-return to the list after a one-tap Add.** The quick-Add button on the list previously left you stranded on that one employee's page after Save (or Cancel) — you had to manually tap back out before fixing the next person, a real per-record tax on exactly the flow meant to speed this up. Tracked via `editOriginRef` ('list' vs 'review', a ref since nothing needs to re-render off it): quickAdd's Save/Cancel/Escape now return straight to the list (at the preserved scroll position); deliberately reviewing a day first (`openMissing`) still leaves you there afterward.
+- **Time field auto-focused on modal open.** It's the one field almost every add actually needs changed (always starts at the 09:00 placeholder) — saves the extra tap into the field. Swapped `useFocusTrap`'s initial-focus target from the Cancel button to the time input.
+- **Sticky column headers** on the missing-list table (`.sticky-head-scroll` in `global.css`, scoped to this list only — not every `.records-table` in the app) via a capped-height internally-scrolling wrapper, so a long Attendance Month list keeps "Employee / Team / Missing" visible instead of scrolling them away with row 1.
+
+Docs updated: `user-guide-admin.md`, `user-guide-security.md`.
+
+Frontend: 6/6 suites, 22/22 tests pass (unchanged — UI-only change, no new test cases); typecheck clean. No backend changes this entry.
+
+**Follow-up, same day — a re-read for plain understandability caught two things from the pass above:**
+- The single-date view's pill was repeating the exact date already shown in the page's own heading ("Missing a movement on {date}") — read as confusing clutter, like it might be a different date. `renderMissingPills` now takes a `showDate` flag; only Attendance Month (which actually mixes several dates per employee) shows it.
+- `TableSkeleton columns={attendanceMonthOffset !== null ? 5 : 4}` was left over from before the table collapsed to 3 columns in the grouping refactor — a stale, slightly-wrong-width loading skeleton, not a functional bug (the real table always renders 3 columns regardless of view). Fixed to `columns={3}`.
+
 ## 2026-10-26 (cont. 12) — Today's missing EXIT is now excluded outright, not just caveated
 
 Direct request: "until a particular day is over, we are not showing in the missing movements page those days records as missing exit." Today's shift being still in progress was previously only a warning banner next to a list that still included today's open sessions as `missingExit`, button and all — someone simply still on-site looked identical to a genuinely forgotten EXIT.

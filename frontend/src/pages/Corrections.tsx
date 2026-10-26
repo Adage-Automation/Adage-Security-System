@@ -66,6 +66,11 @@ export function Corrections() {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const searchBoxRef = useRef<HTMLDivElement>(null);
   const modalCloseRef = useRef<HTMLButtonElement>(null);
+  // Time is the one field almost every add actually needs changed (it
+  // always starts at the "09:00" placeholder) — focusing it on open saves
+  // a guard the extra tap into the field before they can start typing.
+  // Added 2026-10-26, by request.
+  const timeInputRef = useRef<HTMLInputElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
   // Guards against a slower response for an earlier-selected employee/date
   // landing after a faster one for whatever's selected now, overwriting
@@ -100,6 +105,60 @@ export function Corrections() {
   // Set-based guard in Users.tsx) while its full Employee record loads,
   // and surfaces a failure without silently doing nothing.
   const [selectingId, setSelectingId] = useState<number | null>(null);
+  // Where the page was scrolled to in the missing-list view right before
+  // selecting an employee out of it — restored when coming back (clicking
+  // the X on the employee chip) so working through a long Attendance Month
+  // list doesn't keep bouncing back to the top. Added 2026-10-26, by request.
+  const listScrollRef = useRef(0);
+  // Which path opened the current `edit` modal — 'list' (quickAdd, straight
+  // off the missing-list) vs 'review' (openMissing, from someone's own day
+  // after a direct search) vs 'employeeCycle' (quickAdd from inside one
+  // employee's own Attendance Month pills, below). A guard working through
+  // a whole shift's worth of gaps via the main list wants to land back on
+  // it after each Add, not get stranded on the one employee they just
+  // fixed; someone reviewing one employee's whole cycle wants to stay on
+  // THAT employee's remaining days instead, not get bounced out to the
+  // full list; someone who deliberately chose to review a single day
+  // wants to see the result there. A ref, not state — nothing needs to
+  // re-render off it. Added 2026-10-26, by request.
+  const editOriginRef = useRef<'list' | 'review' | 'employeeCycle'>('review');
+
+  function backToList() {
+    setSelected(null);
+    requestAnimationFrame(() => window.scrollTo(0, listScrollRef.current));
+  }
+
+  // Groups the flat (date, employee) rows by employee — so someone missing
+  // 5 days in an Attendance Month cycle shows as one employee with 5
+  // day-pills, instead of 5 separate rows scattered across the list by
+  // date. Grouping always (not just in Attendance Month view) means the
+  // plain single-date view — where this is a no-op, one pill per group —
+  // can share the exact same render instead of needing its own near-
+  // identical copy. Added 2026-10-26, by request.
+  const groupedMissingRows = useMemo(() => {
+    const map = new Map<number, { employeeName: string; employeeCode: string; team: string | null; rows: MissingRow[] }>();
+    for (const row of missingRows) {
+      const g = map.get(row.employeeId);
+      if (g) g.rows.push(row);
+      else map.set(row.employeeId, { employeeName: row.employeeName, employeeCode: row.employeeCode, team: row.team, rows: [row] });
+    }
+    return [...map.values()];
+  }, [missingRows]);
+
+  // Searching for a specific employee while Attendance Month is active
+  // used to still only show their single pinned `date` field's one day of
+  // records — meaningless in a multi-day cycle, since nothing says which
+  // day that pinned value even is. Filtering the cycle's own missing list
+  // (already fetched for the whole range) down to just this employee
+  // gives their every missing day in the cycle instead, the same pill
+  // shape the full list uses. Only applies in Attendance Month view — the
+  // plain single-date view still shows that one day's actual records
+  // table, which is the more useful view for a single day. Added
+  // 2026-10-26, by request.
+  const employeeCycleMissingRows = useMemo(() => {
+    if (!selected || attendanceMonthOffset === null) return null;
+    return missingRows.filter((r) => r.employeeId === selected.id);
+  }, [selected, attendanceMonthOffset, missingRows]);
 
   function loadMissing() {
     setMissingLoading(true);
@@ -119,33 +178,31 @@ export function Corrections() {
 
   useEffect(loadMissing, [missingRange.from, missingRange.to]);
 
-  // In Attendance Month view a row's own date can be any day in the
-  // cycle, not whatever the page's single `date` field happens to hold —
-  // syncing it here is what makes loadRecords (below) and submitEdit both
-  // operate on the right day once an employee is selected from a
-  // multi-day list, with no separate "which date is this edit for" state
-  // needed. Harmless in plain date-view too, since `row.date` there is
-  // just `date` already. Added 2026-10-26, by request, alongside
-  // Attendance Month.
-  function selectFromMissingList(row: MissingRow) {
-    setSelectingId(row.employeeId);
-    setError(null);
-    setDate(row.date);
-    api
-      .get<Employee>(`/employees/${row.employeeId}`)
-      .then((emp) => setSelected(emp))
-      .catch((err: any) => setError(err?.message ?? 'Failed to load this employee. Please try again.'))
-      .finally(() => setSelectingId(null));
-  }
-
   // One tap straight to the "Add Missing" form for a row already known to
   // be missing exactly one type — skips the "select, wait for their table
-  // to load, then find the Add button below it" detour for the common
-  // case where there's nothing to actually review first. Clicking the
-  // rest of the row still goes through selectFromMissingList to review
-  // their day before adding, for anyone who wants that. Added 2026-10-26,
-  // by request.
-  function quickAdd(row: MissingRow) {
+  // to load, then find the Add button below it" detour entirely. Each
+  // pill in the missing list is now a single button that only does this —
+  // no separate "tap elsewhere on the pill to review the day first"
+  // behavior, which used to live on the pill's own click handler
+  // alongside this. That dual-purpose click (most of the pill = review,
+  // a small nested button inside it = add) was easy to miss-tap on a
+  // phone, landing on an unfamiliar review screen instead of just fixing
+  // the gap — removed 2026-10-26, by request, for a guard who just wants
+  // to tap and fix. Reviewing someone's day first is still possible, just
+  // via the search box above instead of from the list.
+  //
+  // `fromEmployeeCycleView`: true when this pill came from one employee's
+  // own Attendance Month cycle view (employeeCycleMissingRows) rather than
+  // the full list — already fetched one employee at the time, so re-
+  // fetching it here is a harmless no-op, but the origin tag matters:
+  // submitEdit uses it to decide whether to bounce back to the full list
+  // (wrong here — would lose the employee-scoped view mid-way through
+  // fixing their several missing days) or just stay put and let the
+  // (already-happening) loadMissing() refresh shrink their remaining
+  // pills in place. Added 2026-10-26, by request.
+  function quickAdd(row: MissingRow, fromEmployeeCycleView = false) {
+    listScrollRef.current = window.scrollY;
+    editOriginRef.current = fromEmployeeCycleView ? 'employeeCycle' : 'list';
     setSelectingId(row.employeeId);
     setError(null);
     setDate(row.date);
@@ -210,8 +267,10 @@ export function Corrections() {
     return [];
   }, [records, recordsLoading]);
 
-  useFocusTrap(!!edit, modalRef, modalCloseRef, () => {
-    if (!saving) setEdit(null);
+  useFocusTrap(!!edit, modalRef, timeInputRef, () => {
+    if (saving) return;
+    setEdit(null);
+    if (editOriginRef.current === 'list') backToList();
   });
 
   // search-all includes inactive/deactivated employees — corrections must
@@ -223,9 +282,15 @@ export function Corrections() {
   // faster response for a newer one, flashing stale results. Found in the
   // 2026-09-25 audit.
   const searchSeqRef = useRef(0);
+  // Distinguishes "still waiting on this search" from "search came back
+  // with nothing" — without it there's no way to tell a guard a typo'd
+  // name genuinely has no matches instead of leaving the dropdown blank
+  // with no feedback either way. Added 2026-10-26, by request.
+  const [searchLoading, setSearchLoading] = useState(false);
 
   const fetchResults = useCallback((q: string) => {
     const seq = ++searchSeqRef.current;
+    setSearchLoading(true);
     api
       .get<Employee[]>(`/employees/search-all?q=${encodeURIComponent(q)}`)
       .then((res) => {
@@ -233,6 +298,9 @@ export function Corrections() {
       })
       .catch(() => {
         if (seq === searchSeqRef.current) setResults([]);
+      })
+      .finally(() => {
+        if (seq === searchSeqRef.current) setSearchLoading(false);
       });
   }, []);
 
@@ -252,8 +320,45 @@ export function Corrections() {
     return () => document.removeEventListener('mousedown', closeIfOutside);
   }, [dropdownOpen]);
 
+  // Shared between the table and card layouts below, so the pill markup
+  // exists in exactly one place instead of two near-identical copies. In
+  // the plain single-date view a group always has exactly one pill, which
+  // just reads as "the day" with its status next to it — `showDate` is
+  // false there, since the date is already the page's own heading right
+  // above ("Missing a movement on {date}") and repeating it on every pill
+  // read as confusing clutter, as if it might be a different date.
+  // Attendance Month mixes several dates per employee, so there it's
+  // shown. Added 2026-10-26, by request.
+  //
+  // Each pill is a single <button> with one job: tap it, it adds the
+  // fix — no separate click zone for anything else, so there's nothing to
+  // miss-tap on a phone. Simplified from an earlier version with a nested
+  // "Add" button inside a pill that did something else (review) when
+  // tapped anywhere else on it. Removed 2026-10-26, by request, for
+  // simplicity.
+  function renderMissingPills(rows: MissingRow[], showDate: boolean, fromEmployeeCycleView = false) {
+    return (
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {rows.map((row) => (
+          <button
+            key={`${row.date}|${row.status}`}
+            type="button"
+            className="table-action-btn"
+            disabled={!!selectingId}
+            onClick={() => quickAdd(row, fromEmployeeCycleView)}
+            style={{ opacity: selectingId === row.employeeId ? 0.6 : 1 }}
+          >
+            {showDate && `${row.date} · `}
+            Add Missing <span style={{ color: '#c0392b' }}>{row.status === 'missingExit' ? 'Exit' : 'Entry'}</span>
+          </button>
+        ))}
+      </div>
+    );
+  }
+
   function openMissing() {
     if (missingTypes.length === 0) return;
+    editOriginRef.current = 'review';
     setEdit({ movementType: missingTypes[0], time: '09:00', reason: '' });
     setError(null);
   }
@@ -267,7 +372,7 @@ export function Corrections() {
     // avoids a separate timezone bug — see its own comment.
     const movementAt = date ? localDateFromIso(date) : new Date(NaN);
     if (!date || Number.isNaN(movementAt.getTime())) {
-      setError('Please select a valid date above before saving.');
+      setError('Please select a valid date above before adding.');
       return;
     }
     // A cleared native time input sends "" — Number("") on the split parts
@@ -276,7 +381,7 @@ export function Corrections() {
     // below instead of a friendly message. Found in the 2026-09-21 audit.
     const [hours, minutes] = edit.time.split(':').map(Number);
     if (!edit.time || Number.isNaN(hours) || Number.isNaN(minutes)) {
-      setError('Please enter a valid time above before saving.');
+      setError('Please enter a valid time above before adding.');
       return;
     }
 
@@ -293,15 +398,31 @@ export function Corrections() {
       });
       setSuccessMsg('Missing record added successfully.');
       setEdit(null);
-      loadRecords();
       // Otherwise this employee would keep showing in the "missing a
       // movement" list below until the date happened to change again —
       // stale the moment the gap it's listing was just filled. Found in
       // the 2026-10-23 dual-perspective review.
       loadMissing();
+      if (editOriginRef.current === 'list') {
+        // Added straight off the full list (quickAdd) — back to the list
+        // itself rather than leaving the guard stranded on the one person
+        // they just fixed, since the whole point of that button is working
+        // through several people in a row. loadRecords() would be wasted
+        // here, selected is about to go back to null anyway.
+        backToList();
+      } else if (editOriginRef.current === 'review') {
+        loadRecords();
+      }
+      // 'employeeCycle': added from inside one employee's own cycle pills —
+      // deliberately does neither. Staying selected keeps that employee's
+      // scoped view up, and the loadMissing() above already shrinks their
+      // remaining pills in place (employeeCycleMissingRows re-filters off
+      // missingRows automatically) — bouncing out to the full list here
+      // would undo the whole point of searching for just this one person.
+      // loadRecords() would also be wasted, same reasoning as 'list'.
       setTimeout(() => setSuccessMsg(null), 3000);
     } catch (err: any) {
-      setError(err?.message ?? 'Failed to save. Please try again.');
+      setError(err?.message ?? 'Failed to add. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -328,22 +449,39 @@ export function Corrections() {
           <label>
             Date
             <div className="date-quick-row">
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => {
-                  setDate(e.target.value);
-                  setAttendanceMonthOffset(null);
-                }}
-                max={todayIso()}
-              />
+              {/* The single date input and the Attendance Month cycle are
+                  two different, mutually exclusive ways of picking a
+                  range — showing the date input's own single day (e.g.
+                  "2026-10-25") at the same time as the cycle's range text
+                  below it (e.g. "26 Sep – 25 Oct 2026") looked like two
+                  conflicting dates for one filter, since the pinned date
+                  has no effect at all while Attendance Month is active.
+                  Swapped for the cycle label instead of stacking both.
+                  Found 2026-10-26, by request. */}
+              {attendanceMonthOffset === null ? (
+                <input
+                  type="date"
+                  value={date}
+                  onChange={(e) => {
+                    setDate(e.target.value);
+                    setAttendanceMonthOffset(null);
+                  }}
+                  max={todayIso()}
+                />
+              ) : (
+                <span style={{ fontSize: 14, fontWeight: 600 }}>{missingRange.label}</span>
+              )}
               <button
                 type="button"
                 className={`quick-date-btn ${attendanceMonthOffset !== null ? 'active' : ''}`}
-                title={attendanceMonthOffset !== null ? missingRange.label : undefined}
-                onClick={() => setAttendanceMonthOffset(attendanceMonthOffset ?? 0)}
+                // A true toggle now — tapping it again while active exits
+                // back to the plain Date field, matching the pressed-look
+                // "active" styling it already had (which implied a toggle
+                // without actually being one before). Found 2026-10-26,
+                // by request.
+                onClick={() => setAttendanceMonthOffset(attendanceMonthOffset !== null ? null : 0)}
               >
-                Attendance Month
+                {attendanceMonthOffset !== null ? 'Exit Attendance Month' : 'Attendance Month'}
               </button>
               {attendanceMonthOffset !== null && (
                 <>
@@ -351,6 +489,7 @@ export function Corrections() {
                     type="button"
                     className="quick-date-btn"
                     aria-label="Previous attendance cycle"
+                    title="Previous cycle"
                     onClick={() => setAttendanceMonthOffset(attendanceMonthOffset - 1)}
                   >
                     <IconChevronRight style={{ transform: 'rotate(180deg)', width: 14, height: 14 }} />
@@ -359,6 +498,7 @@ export function Corrections() {
                     type="button"
                     className="quick-date-btn"
                     aria-label="Next attendance cycle"
+                    title="Next cycle"
                     onClick={() => setAttendanceMonthOffset(attendanceMonthOffset + 1)}
                   >
                     <IconChevronRight style={{ width: 14, height: 14 }} />
@@ -377,7 +517,7 @@ export function Corrections() {
                 {selected.carNumber ? ` · ${selected.carNumber}` : ''}
                 {!selected.isActive ? ' (inactive)' : ''}
               </span>
-              <button type="button" onClick={() => setSelected(null)} aria-label="Clear employee">
+              <button type="button" onClick={backToList} aria-label="Clear employee">
                 <IconX />
               </button>
             </div>
@@ -385,7 +525,7 @@ export function Corrections() {
             <div style={{ position: 'relative' }} ref={searchBoxRef}>
               <input
                 aria-label="Search employees including inactive employees"
-                placeholder="Search employee (including inactive)..."
+                placeholder="Search by name or ID..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onFocus={() => {
@@ -398,6 +538,11 @@ export function Corrections() {
                 <button type="button" className="search-clear-btn" onClick={() => setQuery('')} aria-label="Clear search">
                   <IconX />
                 </button>
+              )}
+              {dropdownOpen && !searchLoading && query.trim() !== '' && results.length === 0 && (
+                <div className="search-results">
+                  <div style={{ padding: '10px 14px', color: 'var(--text-muted)', fontSize: 13 }}>No matches found.</div>
+                </div>
               )}
               {dropdownOpen && results.length > 0 && (
                 <div className="search-results">
@@ -431,9 +576,45 @@ export function Corrections() {
         </div>
       </div>
 
-      {selected && recordsLoading && records.length === 0 && <TableSkeleton columns={3} />}
+      {/* Attendance Month + a directly-searched employee: their every
+          missing day across the whole cycle, not one arbitrary pinned
+          date. */}
+      {selected && employeeCycleMissingRows && (
+        <>
+          <div className="date-heading" style={{ marginTop: 20, justifyContent: 'flex-start', textAlign: 'left' }}>
+            Missing movements for {selected.employeeName} in {missingRange.label}
+          </div>
+          {employeeCycleMissingRows.length === 0 ? (
+            <div className="empty-state">
+              <IconCheckCircle />
+              <div className="empty-title">Nothing missing</div>
+              <div className="empty-hint">
+                {selected.employeeName} has both an ENTRY and an EXIT recorded for every day in {missingRange.label}.
+              </div>
+            </div>
+          ) : (
+            renderMissingPills(employeeCycleMissingRows, true, true)
+          )}
+        </>
+      )}
 
-      {selected && (
+      {/* Once an employee is selected (via search or quick-Add) nothing on
+          screen said which date their records table below was actually
+          for — the Date field is a small input easy to miss, and the only
+          other place the date showed up was inside the Add-record modal's
+          own "Time (on {date})" label. A guard searching someone up
+          directly could easily assume this was their whole history, not
+          one specific day. Added 2026-10-26, by request. Doesn't apply
+          when employeeCycleMissingRows is showing instead (above). */}
+      {selected && !employeeCycleMissingRows && (
+        <div className="date-heading" style={{ marginTop: 20, justifyContent: 'flex-start', textAlign: 'left' }}>
+          Records on {date}
+        </div>
+      )}
+
+      {selected && !employeeCycleMissingRows && recordsLoading && records.length === 0 && <TableSkeleton columns={3} />}
+
+      {selected && !employeeCycleMissingRows && (
         <>
           {records.length > 0 && (
           <>
@@ -528,7 +709,7 @@ export function Corrections() {
             </div>
           )}
           {error && <div className="error-text" style={{ marginBottom: 8 }}>{error}</div>}
-          {missingLoading && <TableSkeleton columns={attendanceMonthOffset !== null ? 5 : 4} />}
+          {missingLoading && <TableSkeleton columns={3} />}
           {!missingLoading && missingRows.length === 0 && (
             <div className="empty-state">
               <IconCheckCircle />
@@ -538,50 +719,35 @@ export function Corrections() {
               </div>
             </div>
           )}
-          {!missingLoading && missingRows.length > 0 && (
-            <table className="records-table">
-              <thead>
-                <tr>
-                  {attendanceMonthOffset !== null && <th>Date</th>}
-                  <th>Employee</th>
-                  <th>Team</th>
-                  <th>Missing</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {missingRows.map((row) => (
-                  <tr
-                    key={`${row.date}|${row.employeeId}`}
-                    onClick={() => (selectingId ? undefined : selectFromMissingList(row))}
-                    style={{ cursor: selectingId ? 'default' : 'pointer', opacity: selectingId === row.employeeId ? 0.6 : 1 }}
-                  >
-                    {attendanceMonthOffset !== null && <td>{row.date}</td>}
-                    <td>
-                      {row.employeeName} <span style={{ color: 'var(--text-muted)' }}>({row.employeeCode})</span>
-                    </td>
-                    <td>{row.team ?? 'Unassigned'}</td>
-                    <td>
-                      {/* Same red/"Missing Exit"/"Missing Entry" convention as Insights' own Daily Roster modal for this exact status field. */}
-                      <span style={{ color: '#c0392b', fontWeight: 600 }}>{row.status === 'missingExit' ? 'Missing Exit' : 'Missing Entry'}</span>
-                    </td>
-                    <td>
-                      <button
-                        type="button"
-                        className="table-action-btn"
-                        disabled={!!selectingId}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          quickAdd(row);
-                        }}
-                      >
-                        Add
-                      </button>
-                    </td>
+          {/* One row per employee, every missing day of theirs together as
+              a pill (renderMissingPills) — in the plain single-date view
+              that's just one pill, the same shape Attendance Month gets
+              for each of its several. Wrapped in .sticky-head-scroll so a
+              long Attendance Month list keeps its column headers visible
+              while scrolling instead of scrolling them away with row 1. */}
+          {!missingLoading && groupedMissingRows.length > 0 && (
+            <div className="sticky-head-scroll">
+              <table className="records-table">
+                <thead>
+                  <tr>
+                    <th>Employee</th>
+                    <th>Team</th>
+                    <th>Missing</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {groupedMissingRows.map((g) => (
+                    <tr key={g.employeeCode}>
+                      <td>
+                        {g.employeeName} <span style={{ color: 'var(--text-muted)' }}>({g.employeeCode})</span>
+                      </td>
+                      <td>{g.team ?? 'Unassigned'}</td>
+                      <td>{renderMissingPills(g.rows, attendanceMonthOffset !== null)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
 
           {/* .records-table is hidden below 640px in favor of this card
@@ -590,38 +756,15 @@ export function Corrections() {
               mobile audit found and fixed across every other table in the
               app (see roadmap.md). Security, who this page now also
               serves, is the role most likely to be on a phone here. */}
-          {!missingLoading && missingRows.length > 0 && (
+          {!missingLoading && groupedMissingRows.length > 0 && (
             <div className="record-cards">
-              {missingRows.map((row) => (
-                <div
-                  className="record-card"
-                  key={`${row.date}|${row.employeeId}`}
-                  onClick={() => (selectingId ? undefined : selectFromMissingList(row))}
-                  style={{ opacity: selectingId === row.employeeId ? 0.6 : 1 }}
-                >
+              {groupedMissingRows.map((g) => (
+                <div className="record-card" key={g.employeeCode} style={{ flexDirection: 'column', alignItems: 'stretch' }}>
                   <div>
-                    <div>
-                      {row.employeeName} <span style={{ color: 'var(--text-muted)' }}>({row.employeeCode})</span>
-                    </div>
-                    <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
-                      {attendanceMonthOffset !== null ? `${row.date} · ` : ''}
-                      {row.team ?? 'Unassigned'}
-                    </div>
-                    <div style={{ marginTop: 4 }}>
-                      <span style={{ color: '#c0392b', fontWeight: 600 }}>{row.status === 'missingExit' ? 'Missing Exit' : 'Missing Entry'}</span>
-                    </div>
+                    {g.employeeName} <span style={{ color: 'var(--text-muted)' }}>({g.employeeCode})</span>
                   </div>
-                  <button
-                    type="button"
-                    className="table-action-btn"
-                    disabled={!!selectingId}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      quickAdd(row);
-                    }}
-                  >
-                    Add
-                  </button>
+                  <div style={{ fontSize: 12, color: '#666', marginTop: 4, marginBottom: 8 }}>{g.team ?? 'Unassigned'}</div>
+                  {renderMissingPills(g.rows, attendanceMonthOffset !== null)}
                 </div>
               ))}
             </div>
@@ -671,7 +814,7 @@ export function Corrections() {
               <div className="field">
                 <label>
                   Time (on {date})<span className="required-mark"> *</span>
-                  <input type="time" value={edit.time} onChange={(e) => setEdit({ ...edit, time: e.target.value })} required />
+                  <input ref={timeInputRef} type="time" value={edit.time} onChange={(e) => setEdit({ ...edit, time: e.target.value })} required />
                 </label>
               </div>
               <div className="field">
@@ -682,12 +825,25 @@ export function Corrections() {
               </div>
               {error && <div className="error-text">{error}</div>}
               <div className="modal-actions">
-                <button type="button" ref={modalCloseRef} className="cancel-btn" onClick={() => setEdit(null)} disabled={saving}>
+                <button
+                  type="button"
+                  ref={modalCloseRef}
+                  className="cancel-btn"
+                  onClick={() => {
+                    setEdit(null);
+                    if (editOriginRef.current === 'list') backToList();
+                  }}
+                  disabled={saving}
+                >
                   Cancel
                 </button>
+                {/* "Save" renamed to "Add" — every other label on this page
+                    already says "Add" (Add Missing Exit, Add Missing
+                    Record); "Save" was the one inconsistent word. Found
+                    2026-10-26, by request. */}
                 <button type="submit" className="confirm-btn" disabled={saving}>
                   {saving && <span className="spinner" />}
-                  {saving ? 'Saving…' : 'Save'}
+                  {saving ? 'Adding…' : 'Add'}
                 </button>
               </div>
             </form>

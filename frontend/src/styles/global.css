@@ -926,6 +926,7 @@ svg {
 .date-quick-row {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
 }
 
@@ -1154,6 +1155,25 @@ table.records-table th {
   text-transform: uppercase;
   letter-spacing: 0.4px;
   color: var(--text-muted);
+}
+
+/* Scoped sticky-header wrapper for a long list's own table (not every
+   .records-table in the app) — Missing Movements' Attendance Month view
+   can run to dozens of rows; scrolling inside a capped-height box with a
+   pinned header keeps the column labels visible instead of scrolling
+   them away with row 1. `background` on the th is already set above, so
+   it stays opaque under the rows scrolling beneath it. Added 2026-10-26,
+   by request. */
+.sticky-head-scroll {
+  max-height: 70vh;
+  overflow-y: auto;
+  border-radius: var(--radius-md);
+}
+
+.sticky-head-scroll table.records-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
 .movement-badge {
