@@ -110,9 +110,15 @@ Selecting an employee from a multi-day Attendance Month row syncs the page's sin
 
 ## Inactive employees remain selectable for corrections
 
-**Decision**: a deactivated employee is excluded from the normal Security ENTRY/EXIT search (`/employees/search`), but still selectable via `/employees/search-all`, used only by the admin correction flow.
+**Decision**: a deactivated employee is excluded from the normal Security ENTRY/EXIT search (`/employees/search`), but still selectable via `/employees/search-all`.
 
 **Why**: someone who has since left the company may still have a movement record that needs fixing. Excluding them entirely from correction would make historical data permanently uneditable once an employee is deactivated. Decided 2026-09-03.
+
+**Widened to HR's Dashboard/Insights employee lookup, 2026-10-27.** `/employees/search-all` was originally used only by the admin correction flow (`CORRECT_RECORDS`-gated). A role-flow audit found HR had no way to locate a deactivated/former employee anywhere — not on the Dashboard, not on Insights — even though HR holds `SEND_EMAIL`/`DOWNLOAD_REPORT`/`VIEW_REPORTS` for exactly the "a dispute surfaces after someone's left" case. The endpoint's gate was changed from `CORRECT_RECORDS` to `VIEW_EMPLOYEE_HISTORY`, and `Dashboard.tsx`/`Insights.tsx`'s employee-picker fetches switched from `/employees/search` to `/employees/search-all` (results now marked "· inactive" when applicable, so an active and a former employee with similar names stay distinguishable). `SecurityHome.tsx`'s own ENTRY/EXIT recording search is untouched — still `/employees/search`, active-only, since you can't record a movement for someone no longer employed.
+
+**No production reconciliation needed for this one** (unlike the `CORRECT_RECORDS` grant above, which did need a one-off manual DB write) — `VIEW_EMPLOYEE_HISTORY` has been part of `DEFAULT_ROLE_PERMISSIONS` for all three roles (SECURITY/HR/ADMIN) since the original 2026-09-04 RBAC rollout below, and that rollout's own live `role_permissions` reconciliation already granted it to all three at the time. Confirmed by reading that rollout's history before making this change, specifically to avoid repeating the "constant changed, prod DB didn't" trap the `CORRECT_RECORDS` note above warns about.
+
+**Side effect worth knowing about**: the blank-query "browse list" (focus the empty search box, see the first 10 alphabetically) on Dashboard/Insights can now include inactive employees in that first-10, where it previously only showed active ones. Not a bug — just means a company with a lot of former employees whose names sort early alphabetically could see fewer *active* names in that initial unfiltered glance. Typing narrows it the same as always.
 
 ## RBAC narrowed from v1-flat (2026-09-04)
 

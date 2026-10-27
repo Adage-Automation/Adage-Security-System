@@ -236,18 +236,23 @@ export function Dashboard() {
   // other units disappear from the dropdown. Only needed while a
   // filter is active: with none active, fetchRecords' own request is
   // already unfiltered and populates the options itself (see above).
+  const recordedByOptionsSeqRef = useRef(0);
   useEffect(() => {
     if (!selectedEmployee && !movementType && !recordedByUserId) return;
+    const seq = ++recordedByOptionsSeqRef.current;
     api
       .get<MovementRecord[]>(`/movements?date=${date}`)
       .then((res) => {
+        if (seq !== recordedByOptionsSeqRef.current) return;
         const byId = new Map<number, string>();
         for (const r of res) {
           if (r.recordedBy) byId.set(r.recordedBy.id, r.recordedBy.name);
         }
         setRecordedByOptions([...byId.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)));
       })
-      .catch(() => setRecordedByOptions([]));
+      .catch(() => {
+        if (seq === recordedByOptionsSeqRef.current) setRecordedByOptions([]);
+      });
   }, [date, selectedEmployee, movementType, recordedByUserId]);
 
   useEffect(() => {
@@ -287,8 +292,11 @@ export function Dashboard() {
 
   const fetchEmployeeResults = useCallback((q: string) => {
     const seq = ++employeeSearchSeqRef.current;
+    // search-all (not search) — HR needs to find a former/deactivated
+    // employee here too, e.g. a dispute over a leave application that
+    // surfaces after they've left. Found missing in the 2026-10-27 audit.
     api
-      .get<Employee[]>(`/employees/search?q=${encodeURIComponent(q)}`)
+      .get<Employee[]>(`/employees/search-all?q=${encodeURIComponent(q)}`)
       .then((res) => {
         if (seq === employeeSearchSeqRef.current) setEmployeeResults(res);
       })
@@ -396,15 +404,8 @@ export function Dashboard() {
                 {summaryModalConfig[summaryModal].rows.map((r) => (
                   <div
                     key={r.id}
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      gap: 8,
-                      padding: '8px 10px',
-                      borderRadius: 8,
-                      background: '#f4f7f6',
-                    }}
+                    className="list-row"
+                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}
                   >
                     <div style={{ minWidth: 0, flex: 1 }}>
                       <EmployeeLink employeeId={r.employeeId} employeeName={r.employee?.employeeName ?? ''} date={date} />
@@ -454,6 +455,7 @@ export function Dashboard() {
               <span>
                 {selectedEmployee.employeeName}
                 {selectedEmployee.carNumber ? ` · ${selectedEmployee.carNumber}` : ''}
+                {!selectedEmployee.isActive ? ' · inactive' : ''}
               </span>
               <button type="button" onClick={() => setSelectedEmployee(null)} aria-label="Clear employee filter">
                 <IconX />
@@ -490,7 +492,10 @@ export function Dashboard() {
                       }}
                     >
                       <span className="result-text">
-                        <div className="result-name">{emp.employeeName}</div>
+                        <div className="result-name">
+                          {emp.employeeName}
+                          {!emp.isActive && <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}> · inactive</span>}
+                        </div>
                         <div className="result-meta">{emp.employeeCode}</div>
                         {emp.carNumber && <div className="result-meta">Car: {emp.carNumber}</div>}
                       </span>

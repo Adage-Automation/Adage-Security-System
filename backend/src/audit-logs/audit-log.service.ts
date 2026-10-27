@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
+import ExcelJS from 'exceljs';
 import { PrismaService } from '../prisma/prisma.service';
 import { dayRange } from '../common/utils/day-range';
+import { styleHeaderRow, workbookToBuffer } from '../common/utils/excel';
 
 interface RecordAuditLogInput {
   userId?: number | null;
@@ -112,7 +114,9 @@ export class AuditLogService {
   // across the fields an admin would actually be looking for something
   // by: the action name, the entity type, the performing user's name, and
   // IP address. Always newest-first — no separate "sort" option needed.
-  async list(params: { entityType?: string; entityId?: number; userId?: number; from?: string; to?: string; q?: string; take?: number; skip?: number }) {
+  // Shared by list() and exportToExcel() below — was duplicated inline in
+  // list() only, before export needed the exact same filter set.
+  private buildWhere(params: { entityType?: string; entityId?: number; userId?: number; from?: string; to?: string; q?: string }) {
     const where: any = {
       entityType: params.entityType,
       entityId: params.entityId,
@@ -132,8 +136,12 @@ export class AuditLogService {
         { user: { name: { contains: q, mode: 'insensitive' as const } } },
       ];
     }
+    return where;
+  }
+
+  async list(params: { entityType?: string; entityId?: number; userId?: number; from?: string; to?: string; q?: string; take?: number; skip?: number }) {
     return this.prisma.auditLog.findMany({
-      where,
+      where: this.buildWhere(params),
       orderBy: { createdAt: 'desc' },
       // Capped regardless of what the caller asks for — an ADMIN session
       // could otherwise pass an arbitrarily large `take` and force one huge
@@ -142,5 +150,44 @@ export class AuditLogService {
       skip: params.skip ?? 0,
       include: { user: { select: { id: true, name: true } } },
     });
+  }
+
+  // An admin investigating an incident had no way to pull matching rows
+  // out of the app at all — every other table (Employees, Insights) has an
+  // Export to Excel, this was the one left without it. Found in the
+  // 2026-10-27 admin role-flow audit. Same filters as list() (whatever's
+  // currently on screen), uncapped by the UI's own 50-row page size but
+  // still bounded — an unbounded export is its own resource-exhaustion
+  // risk on a long-lived production log.
+  async exportToExcel(params: { entityType?: string; entityId?: number; userId?: number; from?: string; to?: string; q?: string }): Promise<Buffer> {
+    const rows = await this.prisma.auditLog.findMany({
+      where: this.buildWhere(params),
+      orderBy: { createdAt: 'desc' },
+      take: 5000,
+      include: { user: { select: { id: true, name: true } } },
+    });
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Audit Log');
+    sheet.columns = [
+      { header: 'Time', key: 'time', width: 22 },
+      { header: 'Action', key: 'action', width: 24 },
+      { header: 'Entity', key: 'entity', width: 20 },
+      { header: 'Performed By', key: 'performedBy', width: 24 },
+      { header: 'IP Address', key: 'ipAddress', width: 18 },
+    ];
+    styleHeaderRow(sheet);
+
+    for (const row of rows) {
+      sheet.addRow({
+        time: row.createdAt.toISOString(),
+        action: row.action,
+        entity: row.entityType ? `${row.entityType}${row.entityId ? ` #${row.entityId}` : ''}` : '',
+        performedBy: row.user?.name ?? '',
+        ipAddress: row.ipAddress ?? '',
+      });
+    }
+
+    return workbookToBuffer(workbook);
   }
 }

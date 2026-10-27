@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { Employee, MovementRecord } from '../types';
@@ -64,16 +64,42 @@ export function EmployeeDetails() {
   const [recordsLoading, setRecordsLoading] = useState(true);
   const [emailState, setEmailState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   const [emailError, setEmailError] = useState<string | null>(null);
+  // Discards a response that lands after a newer fetch has already started
+  // — without this, rapidly opening employee A's page and then B's (e.g.
+  // from two different Dashboard drill-down rows) could let A's slower
+  // response land last and overwrite B's data on screen.
+  const fetchSeqRef = useRef(0);
 
   useEffect(() => {
     if (!employeeId) return;
+    const seq = ++fetchSeqRef.current;
     setRecordsLoading(true);
-    api.get<Employee>(`/employees/${employeeId}`).then(setEmployee).catch(() => setEmployee(null));
+    // Whatever was emailed (or failed to email) for the previous
+    // employee/date has no bearing on this one — without resetting these,
+    // the "Details emailed successfully" banner (or a stale "already
+    // emailed, send again?" confirm) could bleed across navigations within
+    // this same mounted page.
+    setEmailState('idle');
+    setEmailError(null);
+    api
+      .get<Employee>(`/employees/${employeeId}`)
+      .then((emp) => {
+        if (seq === fetchSeqRef.current) setEmployee(emp);
+      })
+      .catch(() => {
+        if (seq === fetchSeqRef.current) setEmployee(null);
+      });
     api
       .get<MovementRecord[]>(`/movements/employee/${employeeId}?date=${date}`)
-      .then(setRecords)
-      .catch(() => setRecords([]))
-      .finally(() => setRecordsLoading(false));
+      .then((recs) => {
+        if (seq === fetchSeqRef.current) setRecords(recs);
+      })
+      .catch(() => {
+        if (seq === fetchSeqRef.current) setRecords([]);
+      })
+      .finally(() => {
+        if (seq === fetchSeqRef.current) setRecordsLoading(false);
+      });
   }, [employeeId, date]);
 
   const dateLabel = new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }).format(new Date(date));

@@ -1,5 +1,44 @@
 # Changelog
 
+## 2026-10-27 — Full click-handler/crash audit, a design pass, and three HR/Admin gaps closed
+
+A comprehensive audit of every clickable action across every page (10 parallel reviews: 4 functional, 3 design, 3 role-flow — Admin/HR/Security), followed by fixing everything found worth fixing immediately.
+
+**Functional bug fixes (crashes/races/stuck states):**
+- `Settings.tsx` — the form stayed editable after a failed load, so an admin could save blind values over settings they'd never actually seen. Now hidden entirely until the load succeeds (or Retry does).
+- `Corrections.tsx` `submitEdit` — missing re-entrancy guard; pressing Enter in the Time/Reason field bypassed the Add button's `disabled` state and could double-submit.
+- `Corrections.tsx` employee-cycle view — not gated on `missingLoading`, so the Attendance Month prev/next arrows could briefly show stale/wrong-cycle pills or a false "Nothing missing" before the refetch landed. Now shows a skeleton during the refetch instead.
+- `Employees.tsx` edit modal — Escape bypassed the in-flight-save guard the Cancel button already had; closing mid-save could swallow an eventual error, and (worse) opening a second employee's modal while the first save was still resolving let that first save's own success handler force-close the second, unrelated modal. Both fixed: Escape now blocked while saving, and the save's own close is now scoped to "still showing the employee I was saving."
+- `EmployeeDetails.tsx` — added the sequence/race guard every other fetch in the app already has (rapidly opening two different employees' pages could let the slower response land last and show the wrong employee's data); also resets `emailState`/`emailError` on navigation, so an "already emailed" banner/confirm no longer bleeds from one employee to the next within the same mounted page.
+- `Dashboard.tsx` — added the same missing sequence guard on the "Recorded By" dropdown fetch (the one fetch on this page that didn't have it).
+- `ChartCanvas.tsx` (Insights) — chart `onClick` handlers close over whatever filter values were active when the Chart.js instance was last created; since the instance only recreates when the chart's *data* changes (not `options`), a filter change that happens to produce byte-identical data left the old handler bound, silently drilling into the wrong filter. Fixed once, at the shared wrapper, by always forwarding through a ref to the latest config instead of every chart config in Insights.tsx individually.
+- `Insights.tsx` — the three "Export to Excel" buttons (Team Breakdown, Daily Duration, drill-down) shared one `exportingKey` string; starting a second export while the first was still running let whichever one finished first clear the guard for *both*. Switched to a `Set<string>` of independently-tracked in-flight keys.
+
+**Design pass** (auth pages, SecurityHome, Corrections, Employees, Settings, Users, AuditLog, Insights): promoted auth-page errors from bare `.error-text` to the same `.status-banner.error` treatment used everywhere else; gave Corrections' "Add Missing" pills a distinct amber accent (they're the core action of that page) and fixed a stray hardcoded hex; added a shared `.list-row` class replacing three duplicated inline styles; bolded Settings' "Unsaved changes" indicator; marked Users' Disable action as destructive; added Users' Add-User-form emphasis and a warning icon on the Reset Password modal; split Settings' long field labels into a separate hint line; dropped IP Address from AuditLog's mobile card view; added a sticky header to the Employees roster table; gave Insights' Department Comparison section a distinct "heavy" card treatment and dimmed its two live charts during a filter-triggered refetch instead of silently showing stale data. (SecurityHome's Dashboard button was also tried as a smaller/muted link per the same design pass, then reverted back to its original prominent style by explicit request — it needs to stay easily noticeable.)
+
+**HR/Admin gaps closed:**
+- HR (and Security/Admin) can now find a deactivated/former employee via Dashboard and Insights — `/employees/search-all` was Admin/Security-only (`CORRECT_RECORDS`); re-gated to `VIEW_EMPLOYEE_HISTORY`, which all three roles already hold in production (no DB reconciliation needed — see `docs/decisions.md`). Results are marked "· inactive" to stay distinguishable from active employees with similar names.
+- Admin self-role-change now confirms first, mirroring the existing self-disable confirm — previously an admin could silently demote their own account out of Users/Settings/Audit Log access.
+- Settings' Timezone field now validates against real IANA zone names (feature-detected via `Intl.supportedValuesOf`, degrades gracefully on an older browser) and confirms before saving, since it affects every movement timestamp going forward.
+- Audit Log gained an Export to Excel (filtered, newest-first, capped at 5,000 rows), matching every other table in the app.
+
+**Bugs found and fixed while building the above:**
+- The new AuditLog Export button's icon rendered at browser-default size (huge) — `.table-action-btn` has no SVG sizing rule, so every other icon-in-button usage in the app sizes its icon inline; this one was missed. Fixed to match convention.
+- AuditLog's filter row went through three follow-up passes after first landing: a From/To grouping wrapper inherited `.filters-bar > div { flex: 1; min-width: 180px }` and clipped the To field (fixed, then the grouping box itself was dropped — five plain fields read cleaner than four plus one boxed pair); the row was also over-wide for six items on a laptop screen (each field given a page-scoped `min-width` override, without touching the shared `.filters-bar` default used by five other pages); and `.table-action-btn`'s own height (~36px) turned out shorter than a `.field` input's (~46px), so the Clear/Export buttons' *top* edge sat visibly below the inputs' even after bottom-aligning them — fixed with an explicit `minHeight: 46` match.
+- `docs/user-guide-admin.md`'s Insights section listed several charts (Daily Entries/Exits/Present, Attendance Rate, Missing Movements Trend, Unit Activity) that are actually commented out of the live page (hidden 2026-10-13, predating this session) — corrected to describe what's actually shown.
+
+**Docs updated**: `user-guide-admin.md`, `user-guide-hr.md`, `user-guide-security.md` (a wrong-person tap has no undo anywhere in the app — tell Admin/HR, don't try to balance it out yourself), `decisions.md`.
+
+Backend: 19/19 suites, 195/195 tests pass; typecheck clean. Frontend: 6/6 suites, 22/22 tests pass; typecheck clean. `frontend/tsconfig.json` gained `ES2022.Intl` to its `lib` array (type-only — needed for `Intl.supportedValuesOf`, runtime behavior unaffected).
+
+## 2026-10-26 (cont. 18) — Team is now actually required when adding an employee
+
+The Add Employee form's Team dropdown has had a required-mark and `required` attribute for a while, but the backend's `CreateEmployeeDto.team` was still `@IsOptional()` — so the field only looked mandatory; a request made directly against the API (or any future frontend bug bypassing the HTML validation) could still create an employee with no team. Removed `@IsOptional()` from `CreateEmployeeDto.team`, making it a true server-side requirement; `UpdateEmployeeDto.team` is unchanged (still optional — an existing employee can stay "Not set"). The bulk-import path (`employees.service.ts`) calls `create()` directly with its own Team validation (a blank cell is allowed, just skipped per-row) rather than going through this DTO, so `create()`'s parameter type was loosened independently (`Omit<CreateEmployeeDto, 'team'> & { team?: string }`) to keep that path working without weakening the HTTP endpoint's validation.
+
+No doc changes needed — `user-guide-admin.md` already described Team as required when adding.
+
+Backend: 19/19 suites, 195/195 tests pass; typecheck clean. Frontend: 6/6 suites, 22/22 tests pass; typecheck clean.
+
 ## 2026-10-26 (cont. 17) — A misaligned row, and the employee-cycle view no longer bouncing you back out
 
 - **Alignment bug, reported with a screenshot.** The Date field's cycle-range text (swapped in for the date input in cont. 16's two-dates fix) sat visibly higher than the "Exit Attendance Month" button and prev/next arrows beside it — `.date-quick-row` had no `align-items` set, so the plain text span didn't match the buttons' 36px height and stretch-aligned to the top by default. Added `align-items: center`.

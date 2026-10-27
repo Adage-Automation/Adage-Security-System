@@ -1303,6 +1303,47 @@ table.records-table th {
   background: var(--brand-tint);
 }
 
+/* "Add Missing Entry/Exit" pills on the Missing Movements page — the core
+   action of that whole page, previously visually identical to every other
+   generic .table-action-btn (Edit, Reset Password, etc.) elsewhere in the
+   app, with nothing pulling the eye to "there is a gap, tap here" at a
+   glance. Found in the 2026-10-27 design audit. */
+.missing-pill {
+  border-color: #f0dca3;
+  background: var(--pending-tint);
+}
+
+.missing-pill:hover {
+  border-color: var(--pending-amber);
+  background: #fdf0c7;
+}
+
+/* A subtle destructive-leaning tint for an otherwise plain .table-action-btn
+   (e.g. "Disable" on Users) — without this, a destructive-ish action had no
+   visual distinction from a neutral Edit/Reset button beside it, easy to
+   tap by accident on a touch screen. Found in the 2026-10-27 design audit. */
+.table-action-btn.destructive {
+  border-color: #f4bfcd;
+  color: var(--exit-red);
+}
+
+.table-action-btn.destructive:hover {
+  border-color: var(--exit-red);
+  background: var(--exit-tint);
+}
+
+/* A single shared row treatment for a scrollable list inside a modal
+   (Dashboard's summary drill-down, Employees' bulk-import skipped-rows
+   list) — previously each modal re-typed the same inline styles
+   (padding/radius/background) ad hoc, so a future tweak needed editing in
+   more than one place for what's visually the same UI moment. Found in the
+   2026-10-27 design audit. */
+.list-row {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #f4f7f6;
+}
+
 .section-card {
   background: var(--card-bg);
   border-radius: var(--radius-md);
@@ -1310,6 +1351,24 @@ table.records-table th {
   border: 1px solid var(--border);
   box-shadow: var(--shadow-sm);
   margin-bottom: 20px;
+}
+
+/* Same brand-accent top border .selected-employee-card already uses, for a
+   .section-card that's the primary task on its page (e.g. Users' "Add
+   User" form) sitting among other same-weight cards below it with nothing
+   to signal which one matters most. Found in the 2026-10-27 design audit. */
+.section-card.primary {
+  border-top: 3px solid var(--brand);
+}
+
+/* A visually distinct "heavier" tier for a collapsible section that holds
+   several full-width charts (e.g. Insights' Department Comparison) — among
+   several same-weight always-on sections, nothing signaled this one was a
+   different kind of thing (expand-to-reveal, not glance-and-go). Found in
+   the 2026-10-27 design audit. */
+.section-card.heavy {
+  border-left: 3px solid var(--brand-light);
+  background: linear-gradient(180deg, var(--brand-tint) 0%, var(--card-bg) 90px);
 }
 
 .section-card h3 {

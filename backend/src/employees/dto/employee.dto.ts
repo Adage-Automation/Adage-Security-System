@@ -18,10 +18,11 @@ export class CreateEmployeeDto {
   @IsString()
   carNumber?: string;
 
-  // Fixed list (TEAMS), not free text — see teams.ts for why.
-  @IsOptional()
+  // Fixed list (TEAMS), not free text — see teams.ts for why. Required on
+  // create (unlike UpdateEmployeeDto.team below) — every new employee must
+  // be assigned a team up front.
   @IsIn(TEAMS)
-  team?: string;
+  team: string;
 }
 
 export class UpdateEmployeeDto {

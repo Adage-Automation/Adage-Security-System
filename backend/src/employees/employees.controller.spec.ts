@@ -53,7 +53,7 @@ describe('EmployeesController', () => {
     employeesService.searchIncludingInactive.mockResolvedValue(rows);
 
     await expect(controller.searchAll('inactive')).resolves.toEqual(rows);
-    expect(employeesService.searchIncludingInactive).toHaveBeenCalledWith('inactive');
+    expect(employeesService.searchIncludingInactive).toHaveBeenCalledWith('inactive', undefined);
   });
 
   it('finds all employees with parsed pagination inputs', async () => {

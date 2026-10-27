@@ -1,7 +1,7 @@
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from 'react';
 import { api, redirectOnSessionExpired } from '../api/client';
 import { Employee } from '../types';
-import { IconUsers, IconSearch, IconInbox, IconX, IconCheckCircle, IconDownload, IconUpload, IconPlus } from '../components/icons';
+import { IconUsers, IconSearch, IconInbox, IconX, IconCheckCircle, IconDownload, IconUpload, IconPlus, IconAlertTriangle } from '../components/icons';
 import { AdminNav } from '../components/AdminNav';
 import { TableSkeleton } from '../components/TableSkeleton';
 import { BackToTop } from '../components/BackToTop';
@@ -84,6 +84,11 @@ export function Employees() {
   // page after Cancel, confusingly unrelated to anything the user was now
   // looking at. Found in the 2026-10-05 Employees-page audit.
   function closeEditModal() {
+    // Guard against Escape/overlay-dismiss while a save is in flight — the
+    // Cancel button already disables on editSaving, but Escape doesn't go
+    // through that button, so without this a save in flight could still be
+    // closed early, swallowing its eventual error or success silently.
+    if (editSaving) return;
     setEditing(null);
     setError(null);
   }
@@ -207,7 +212,7 @@ export function Employees() {
         employeeName: form.employeeName.trim(),
         email: form.email.trim() || undefined,
         carNumber: form.carNumber.trim() || undefined,
-        team: form.team || undefined,
+        team: form.team,
       });
       setForm({ employeeCode: '', employeeName: '', email: '', carNumber: '', team: '' });
       // The list resets to page 1 (sorted by name) below — with 200+
@@ -272,10 +277,11 @@ export function Employees() {
   async function saveEdit(e: FormEvent) {
     e.preventDefault();
     if (!editing || editSaving) return;
+    const editingId = editing.id;
     setError(null);
     setEditSaving(true);
     try {
-      const updated = await api.put<Employee>(`/employees/${editing.id}`, {
+      const updated = await api.put<Employee>(`/employees/${editingId}`, {
         employeeName: editForm.employeeName.trim(),
         // null (not undefined) when blank — the backend needs to tell
         // "clear this field" apart from "field not sent," and `undefined`
@@ -288,7 +294,12 @@ export function Employees() {
       // Same reasoning as toggleActive above — patch this one row instead
       // of reloading from page 1 and losing "Load More" progress.
       setEmployees((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
-      setEditing(null);
+      // Only close if the modal is still showing the employee this save was
+      // for — closeEditModal's editSaving guard above blocks closing mid-save,
+      // but if a second Edit is opened for someone else immediately after
+      // this request resolves, `editing` has already moved on and this
+      // save's own completion must not force that unrelated modal shut.
+      setEditing((current) => (current?.id === editingId ? null : current));
     } catch (err: any) {
       setError(err?.message ?? 'Failed to update employee.');
     } finally {
@@ -491,6 +502,11 @@ export function Employees() {
 
       {employees.length > 0 && (
         <>
+          {/* Same .sticky-head-scroll wrapper Corrections' long list already
+              uses — this roster can run 200+ rows with no pagination gate
+              reached yet on this page, and the column headers used to
+              scroll away with row 1. Found in the 2026-10-27 design audit. */}
+          <div className="sticky-head-scroll">
           <table className="records-table">
             <thead>
               <tr>
@@ -528,6 +544,7 @@ export function Employees() {
               ))}
             </tbody>
           </table>
+          </div>
 
           <div className="record-cards">
             {sortRows(employees, sort).map((emp) => (
@@ -667,11 +684,16 @@ export function Employees() {
                 {importResult.results
                   .filter((r) => r.status === 'skipped')
                   .map((r) => (
-                    <div key={r.row} style={{ padding: '8px 10px', borderRadius: 8, background: '#f4f7f6' }}>
-                      <div style={{ fontWeight: 600 }}>
-                        Row {r.row}: {r.employeeCode || '(blank)'} {r.employeeName && `· ${r.employeeName}`}
+                    <div key={r.row} className="list-row" style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                      <span style={{ color: 'var(--pending-amber)', flexShrink: 0, marginTop: 2 }}>
+                        <IconAlertTriangle />
+                      </span>
+                      <div>
+                        <div style={{ fontWeight: 600 }}>
+                          Row {r.row}: {r.employeeCode || '(blank)'} {r.employeeName && `· ${r.employeeName}`}
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600 }}>{r.reason}</div>
                       </div>
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{r.reason}</div>
                     </div>
                   ))}
               </div>

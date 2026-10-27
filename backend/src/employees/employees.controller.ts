@@ -40,11 +40,16 @@ export class EmployeesController {
     return this.employeesService.getTeams();
   }
 
-  // Includes inactive employees — for admin correction flows only (§39/§42).
+  // Includes inactive employees — admin correction flows (§39/§42), and
+  // HR's Dashboard/Insights employee lookup for a former employee (2026-10-27
+  // audit fix). Gated on VIEW_EMPLOYEE_HISTORY, which SECURITY/HR/ADMIN all
+  // hold, rather than CORRECT_RECORDS (Security/Admin only) — this is just a
+  // lookup, same data class as the single-employee GET /employees/:id below
+  // which is already gated the same way.
   @Get('search-all')
-  @RequirePermissions('CORRECT_RECORDS')
-  searchAll(@Query('q') q: string) {
-    return this.employeesService.searchIncludingInactive(q);
+  @RequirePermissions('VIEW_EMPLOYEE_HISTORY')
+  searchAll(@Query('q') q: string, @Query('team') team?: string) {
+    return this.employeesService.searchIncludingInactive(q, team);
   }
 
   // Full active roster for the Security app's offline search fallback —

@@ -1,8 +1,10 @@
 import { CSSProperties, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
-import { IconHistory, IconInbox } from '../components/icons';
+import { IconHistory, IconInbox, IconDownload, IconXCircle } from '../components/icons';
 import { AdminNav } from '../components/AdminNav';
 import { TableSkeleton } from '../components/TableSkeleton';
+import { downloadFile } from '../utils/downloadFile';
+import { todayIso } from '../utils/date';
 
 interface AuditLogRow {
   id: number;
@@ -53,6 +55,8 @@ export function AuditLog() {
   const [skip, setSkip] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   // Guards against a filter reset racing a "Load More" page fetch — same
   // monotonic-sequence pattern used elsewhere in the app (Dashboard,
   // employee search). Without it, a stale page response landing after a
@@ -110,6 +114,29 @@ export function AuditLog() {
     setQ('');
   }
 
+  // The only major table in the app without an Export, before this — an
+  // admin investigating an incident had no way to pull matching rows out
+  // for a compliance/HR record short of screenshotting. Found in the
+  // 2026-10-27 admin role-flow audit. Exports whatever's currently filtered
+  // on screen, same params as the live list() call above.
+  async function handleExport() {
+    setExporting(true);
+    setExportError(null);
+    try {
+      const params = new URLSearchParams();
+      if (entityType) params.set('entityType', entityType);
+      if (userId) params.set('userId', userId);
+      if (from) params.set('from', from);
+      if (to) params.set('to', to);
+      if (q.trim()) params.set('q', q.trim());
+      await downloadFile(`/api/audit-logs/export?${params.toString()}`, `audit-log-${todayIso()}.xlsx`);
+    } catch (err: any) {
+      setExportError(err?.message ?? 'Failed to export audit log.');
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div className="page-wide">
       <AdminNav />
@@ -119,8 +146,23 @@ export function AuditLog() {
         Audit Log
       </div>
 
+      {exportError && (
+        <div className="status-banner error" role="alert">
+          <IconXCircle />
+          {exportError}
+        </div>
+      )}
+
+      {/* minWidth overrides below are scoped to this page's fields, not
+          `.filters-bar` itself (its 180px/260px defaults are shared by five
+          other pages) — this row has six items (five fields + Export) and
+          reads cramped/congested at the global default on a laptop-width
+          screen. From/To were briefly given their own bordered grouping box
+          (2026-10-27 design audit); dropped same day since five plain
+          fields in a row read cleaner than four plain fields plus one
+          boxed pair. */}
       <div className="filters-bar">
-        <div className="field">
+        <div className="field" style={{ minWidth: 130 }}>
           <label>
             Entity Type
             <select value={entityType} onChange={(e) => setEntityType(e.target.value)}>
@@ -131,7 +173,7 @@ export function AuditLog() {
             </select>
           </label>
         </div>
-        <div className="field">
+        <div className="field" style={{ minWidth: 140 }}>
           <label>
             Performed By
             <select value={userId} onChange={(e) => setUserId(e.target.value)}>
@@ -142,19 +184,19 @@ export function AuditLog() {
             </select>
           </label>
         </div>
-        <div className="field">
+        <div className="field" style={{ minWidth: 130 }}>
           <label>
             From
             <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} max={to || undefined} />
           </label>
         </div>
-        <div className="field">
+        <div className="field" style={{ minWidth: 130 }}>
           <label>
             To
             <input type="date" value={to} onChange={(e) => setTo(e.target.value)} min={from || undefined} />
           </label>
         </div>
-        <div className="field">
+        <div className="field" style={{ minWidth: 180 }}>
           <label>
             Search
             <input
@@ -166,11 +208,27 @@ export function AuditLog() {
             />
           </label>
         </div>
+        {/* `.table-action-btn`'s own height (~36px, via its min-height) is
+            shorter than a `.field` input's (~46px, from its larger padding
+            and font-size) — bottom-aligning via alignSelf alone still left
+            a visible top-edge mismatch against the inputs beside it.
+            minHeight below matches the input so the whole button lines up,
+            not just its bottom edge. Found in the 2026-10-27 UI check. */}
         {hasActiveFilters && (
-          <button type="button" className="table-action-btn" style={{ alignSelf: 'flex-end' }} onClick={clearFilters}>
+          <button type="button" className="table-action-btn" style={{ alignSelf: 'flex-end', minHeight: 46 }} onClick={clearFilters}>
             Clear all filters
           </button>
         )}
+        <button
+          type="button"
+          className="table-action-btn"
+          style={{ alignSelf: 'flex-end', minHeight: 46, display: 'flex', alignItems: 'center', gap: 6 }}
+          onClick={handleExport}
+          disabled={exporting || rows.length === 0}
+        >
+          {exporting ? <span className="spinner dark" /> : <IconDownload style={{ width: 16, height: 16 }} />}
+          {exporting ? 'Exporting…' : 'Export to Excel'}
+        </button>
       </div>
 
       {loading && rows.length === 0 && <TableSkeleton columns={5} />}
@@ -217,7 +275,11 @@ export function AuditLog() {
                   {row.entityType ?? '—'}{row.entityId ? ` #${row.entityId}` : ''}
                   {row.user?.name ? ` · ${row.user.name}` : ''}
                 </div>
-                {row.ipAddress && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{row.ipAddress}</div>}
+                {/* IP address omitted here (unlike the desktop table's own
+                    column) — low-value for a mobile glance, and competes
+                    with entity/user info for space. Still in the Excel
+                    export above for a real investigation. Found in the
+                    2026-10-27 design audit. */}
               </div>
             ))}
           </div>

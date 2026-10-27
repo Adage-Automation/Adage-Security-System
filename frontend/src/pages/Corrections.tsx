@@ -343,13 +343,13 @@ export function Corrections() {
           <button
             key={`${row.date}|${row.status}`}
             type="button"
-            className="table-action-btn"
+            className="table-action-btn missing-pill"
             disabled={!!selectingId}
             onClick={() => quickAdd(row, fromEmployeeCycleView)}
             style={{ opacity: selectingId === row.employeeId ? 0.6 : 1 }}
           >
             {showDate && `${row.date} · `}
-            Add Missing <span style={{ color: '#c0392b' }}>{row.status === 'missingExit' ? 'Exit' : 'Entry'}</span>
+            Add Missing <span style={{ color: 'var(--exit-red)' }}>{row.status === 'missingExit' ? 'Exit' : 'Entry'}</span>
           </button>
         ))}
       </div>
@@ -364,7 +364,7 @@ export function Corrections() {
   }
 
   async function submitEdit() {
-    if (!edit || !selected) return;
+    if (!edit || !selected || saving) return;
     // A cleared native date input sends "" — new Date("") is an Invalid
     // Date, which used to throw a raw "Invalid time value" RangeError
     // from .toISOString() below instead of a friendly message (found in
@@ -541,7 +541,7 @@ export function Corrections() {
               )}
               {dropdownOpen && !searchLoading && query.trim() !== '' && results.length === 0 && (
                 <div className="search-results">
-                  <div style={{ padding: '10px 14px', color: 'var(--text-muted)', fontSize: 13 }}>No matches found.</div>
+                  <div className="search-empty">No matches found.</div>
                 </div>
               )}
               {dropdownOpen && results.length > 0 && (
@@ -584,7 +584,9 @@ export function Corrections() {
           <div className="date-heading" style={{ marginTop: 20, justifyContent: 'flex-start', textAlign: 'left' }}>
             Missing movements for {selected.employeeName} in {missingRange.label}
           </div>
-          {employeeCycleMissingRows.length === 0 ? (
+          {missingLoading ? (
+            <TableSkeleton columns={3} />
+          ) : employeeCycleMissingRows.length === 0 ? (
             <div className="empty-state">
               <IconCheckCircle />
               <div className="empty-title">Nothing missing</div>

@@ -25,7 +25,7 @@ If you want the day's total working hours, open **View Employee Day** for that e
 ### Filters
 
 - **Date** — pick any date, past or present, to see records for that day.
-- **Employee** — search and select a specific employee, or leave blank to see everyone.
+- **Employee** — search and select a specific employee, or leave blank to see everyone. Search includes deactivated/former employees too (marked "· inactive" in the results) — useful if a dispute or leave-application question comes up after someone has already left. Added 2026-10-27; previously this search only found currently-active employees, a real gap for exactly that case.
 - **Movement** — filter to just ENTRY, just EXIT, or All.
 
 The records table updates automatically as you change filters. On a phone, the table becomes a stack of cards instead of a scrolling table.

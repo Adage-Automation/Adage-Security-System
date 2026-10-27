@@ -4,6 +4,7 @@ import { useAuth } from '../auth/useAuth';
 import { ApiError } from '../api/client';
 import { PasswordInput } from '../components/PasswordInput';
 import { markJustLoggedIn } from '../components/WelcomeBanner';
+import { IconXCircle } from '../components/icons';
 
 export function Login() {
   const { login } = useAuth();
@@ -78,7 +79,8 @@ export function Login() {
             />
           </div>
           {error && (
-            <div id="login-error" className="error-text" role="alert" aria-live="assertive">
+            <div id="login-error" className="status-banner error" role="alert" aria-live="assertive">
+              <IconXCircle />
               {error}
             </div>
           )}
@@ -87,7 +89,7 @@ export function Login() {
             {submitting ? 'Signing in…' : 'Login'}
           </button>
         </form>
-        <p style={{ textAlign: 'center', marginTop: '16px', fontSize: '14px' }}>
+        <p style={{ textAlign: 'center', marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--border)', fontSize: '14px' }}>
           <Link to="/forgot-password">Forgot password?</Link>
         </p>
       </div>

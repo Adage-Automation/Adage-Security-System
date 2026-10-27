@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { PasswordInput } from '../components/PasswordInput';
+import { IconXCircle, IconCheckCircle } from '../components/icons';
 
 export function ResetPassword() {
   const [params] = useSearchParams();
@@ -12,6 +13,10 @@ export function ResetPassword() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A brief confirmation moment before navigating away — without it, a
+  // successful save jumped straight to the Login page with no feedback on
+  // this page at all, which read as abrupt rather than deliberate.
+  const [saved, setSaved] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -29,7 +34,8 @@ export function ResetPassword() {
     setSubmitting(true);
     try {
       await api.post('/auth/reset-password', { token, newPassword });
-      navigate('/login', { state: { passwordResetSuccess: true } });
+      setSaved(true);
+      setTimeout(() => navigate('/login', { state: { passwordResetSuccess: true } }), 500);
     } catch (err: any) {
       if (err?.status === 429) {
         setError('Too many attempts. Please wait a moment and try again.');
@@ -67,44 +73,53 @@ export function ResetPassword() {
         <img src="/logo.png" alt="Adage" className="login-logo-img" />
         <div className="subtitle">Choose a New Password</div>
 
-        <form onSubmit={handleSubmit}>
-          <div className="field">
-            <label htmlFor="newPassword">New Password</label>
-            <PasswordInput
-              id="newPassword"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              autoComplete="new-password"
-              autoFocus
-              required
-            />
+        {saved ? (
+          <div className="status-banner success" role="status" aria-live="polite">
+            <IconCheckCircle />
+            Password saved — signing you in…
           </div>
-          <div className="field">
-            <label htmlFor="confirmPassword">Confirm New Password</label>
-            <PasswordInput
-              id="confirmPassword"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              autoComplete="new-password"
-              required
-            />
-          </div>
-          {error && (
-            <div className="error-text" role="alert">
-              {error}
-              {error.toLowerCase().includes('expired') || error.toLowerCase().includes('invalid') ? (
-                <>
-                  {' '}
-                  <Link to="/forgot-password">Request a new link</Link>
-                </>
-              ) : null}
+        ) : (
+          <form onSubmit={handleSubmit}>
+            <div className="field">
+              <label htmlFor="newPassword">New Password</label>
+              <PasswordInput
+                id="newPassword"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                autoComplete="new-password"
+                autoFocus
+                required
+              />
             </div>
-          )}
-          <button type="submit" className="primary-button" disabled={submitting}>
-            {submitting && <span className="spinner" />}
-            {submitting ? 'Saving…' : 'Reset Password'}
-          </button>
-        </form>
+            <div className="field">
+              <label htmlFor="confirmPassword">Confirm New Password</label>
+              <PasswordInput
+                id="confirmPassword"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                autoComplete="new-password"
+                required
+              />
+            </div>
+            {error && (
+              <>
+                <div className="status-banner error" role="alert">
+                  <IconXCircle />
+                  {error}
+                </div>
+                {(error.toLowerCase().includes('expired') || error.toLowerCase().includes('invalid')) && (
+                  <p style={{ textAlign: 'center', marginTop: -8, marginBottom: 16 }}>
+                    <Link to="/forgot-password">Request a new link</Link>
+                  </p>
+                )}
+              </>
+            )}
+            <button type="submit" className="primary-button" disabled={submitting}>
+              {submitting && <span className="spinner" />}
+              {submitting ? 'Saving…' : 'Reset Password'}
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );

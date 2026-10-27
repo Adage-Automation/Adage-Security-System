@@ -411,8 +411,11 @@ export function Insights() {
     const seq = ++employeeSearchSeqRef.current;
     const params = new URLSearchParams({ q });
     if (teamFilter) params.set('team', teamFilter);
+    // search-all (not search) — HR should be able to pull up a former
+    // employee's attendance history here too (e.g. for an exit review),
+    // not just currently-active staff. Found missing in the 2026-10-27 audit.
     api
-      .get<Employee[]>(`/employees/search?${params.toString()}`)
+      .get<Employee[]>(`/employees/search-all?${params.toString()}`)
       .then((res) => {
         if (seq === employeeSearchSeqRef.current) setEmployeeResults(res);
       })
@@ -517,9 +520,15 @@ export function Insights() {
   }
 
   // Shared by every "Export to Excel" button below — same binary-download
-  const [exportingKey, setExportingKey] = useState<string | null>(null);
+  // helper. A Set, not a single string: the three buttons (Team Breakdown,
+  // Daily Duration, drill-down) have distinct, fixed keys and can each be
+  // in flight independently — a single shared `exportingKey` string used to
+  // mean starting a second export while the first was still running let
+  // whichever one resolved first clear the flag for *both*, re-enabling a
+  // button that was still genuinely exporting.
+  const [exportingKeys, setExportingKeys] = useState<Set<string>>(new Set());
   async function downloadExcel(key: string, url: string) {
-    setExportingKey(key);
+    setExportingKeys((prev) => new Set(prev).add(key));
     try {
       await downloadFile(url, `${key}-${todayIso()}.xlsx`);
     } catch {
@@ -527,7 +536,11 @@ export function Insights() {
       // is already visible on screen; a failed export isn't worth an
       // error banner, the button simply stops spinning.
     } finally {
-      setExportingKey(null);
+      setExportingKeys((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
     }
   }
 
@@ -1326,6 +1339,7 @@ export function Insights() {
               <div className="filter-chip">
                 <span>
                   {selectedEmployee.employeeName} ({selectedEmployee.employeeCode})
+                  {!selectedEmployee.isActive ? ' · inactive' : ''}
                 </span>
                 <button type="button" onClick={() => setSelectedEmployee(null)} aria-label="Clear employee selection">
                   <IconX />
@@ -1384,7 +1398,10 @@ export function Insights() {
                             }}
                           >
                             <span className="result-text">
-                              <div className="result-name">{emp.employeeName}</div>
+                              <div className="result-name">
+                                {emp.employeeName}
+                                {!emp.isActive && <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}> · inactive</span>}
+                              </div>
                               <div className="result-meta">
                                 {emp.employeeCode}
                                 {emp.team ? ` · ${emp.team}` : ''}
@@ -1736,7 +1753,11 @@ export function Insights() {
                 {attendanceRateConfig && <ChartCanvas config={attendanceRateConfig} />}
               </div>
               */}
-              <div className="section-card">
+              {/* opacity dims during a filter-triggered refetch (loading &&
+                  summary) — the header spinner at the top of the page was
+                  otherwise the only cue that a stale chart on screen wasn't
+                  current yet. Found in the 2026-10-27 design audit. */}
+              <div className="section-card" style={{ opacity: loading && summary ? 0.55 : 1, transition: 'opacity 0.15s ease' }}>
                 <h3>Avg Duration, Short &amp; Long-Duration Days</h3>
                 <ChartHint>On-premises time, entry to exit (see legend). Click a bar to see who.</ChartHint>
                 {avgDurationTrendConfig && <ChartCanvas config={avgDurationTrendConfig} />}
@@ -1751,7 +1772,7 @@ export function Insights() {
                 {missingExitsConfig && <ChartCanvas config={missingExitsConfig} />}
               </div>
               */}
-              <div className="section-card">
+              <div className="section-card" style={{ opacity: loading && summary ? 0.55 : 1, transition: 'opacity 0.15s ease' }}>
                 <h3>Hourly Entry &amp; Exit Distribution</h3>
                 <ChartHint>What time of day movements cluster, across the range. Click a bar for that hour's movements.</ChartHint>
                 {hourlyConfig && <ChartCanvas config={hourlyConfig} />}
@@ -1767,7 +1788,7 @@ export function Insights() {
           )}
 
           {(deptComparisonLoading || deptComparisonError || (deptComparisonBreakdown && deptComparisonBreakdown.length > 0)) && (
-            <div id="dept-comparison" className="section-card" style={{ marginTop: 16 }}>
+            <div id="dept-comparison" className="section-card heavy" style={{ marginTop: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
                 <div>
                   <h3>
@@ -1872,13 +1893,13 @@ export function Insights() {
                 <button
                   type="button"
                   className="table-action-btn"
-                  disabled={exportingKey === 'insights-team-breakdown'}
+                  disabled={exportingKeys.has('insights-team-breakdown')}
                   onClick={() => {
                     const qp = new URLSearchParams({ from, to, ...activeFilters() });
                     downloadExcel('insights-team-breakdown', `/api/insights/export/team-breakdown?${qp.toString()}`);
                   }}
                 >
-                  {exportingKey === 'insights-team-breakdown' ? 'Exporting…' : 'Export to Excel'}
+                  {exportingKeys.has('insights-team-breakdown') ? 'Exporting…' : 'Export to Excel'}
                 </button>
               </div>
               <div className="scroll-hint">Scroll sideways for more columns →</div>
@@ -2166,14 +2187,14 @@ export function Insights() {
                 <button
                   type="button"
                   className="cancel-btn"
-                  disabled={exportingKey === 'insights-daily-duration'}
+                  disabled={exportingKeys.has('insights-daily-duration')}
                   title="Exports the Tapped In list — No Movement Recorded isn't included."
                   onClick={() => {
                     const qp = new URLSearchParams({ date: dailyDurationDate, dayScope, ...(team ? { team } : {}), ...(unitId ? { unitId } : {}) });
                     downloadExcel('insights-daily-duration', `/api/insights/export/daily-duration?${qp.toString()}`);
                   }}
                 >
-                  {exportingKey === 'insights-daily-duration' ? 'Exporting…' : 'Export to Excel'}
+                  {exportingKeys.has('insights-daily-duration') ? 'Exporting…' : 'Export to Excel'}
                 </button>
               )}
               <button ref={dailyDurationCloseRef} type="button" className="cancel-btn" onClick={() => setDailyDurationOpen(false)}>
@@ -2274,13 +2295,13 @@ export function Insights() {
                 <button
                   type="button"
                   className="cancel-btn"
-                  disabled={exportingKey === 'drilldown'}
+                  disabled={exportingKeys.has('drilldown')}
                   onClick={() => {
                     const qp = new URLSearchParams({ metric: drillDown.metric, ...drillDown.params });
                     downloadExcel('drilldown', `/api/insights/export/drill-down?${qp.toString()}`);
                   }}
                 >
-                  {exportingKey === 'drilldown' ? 'Exporting…' : 'Export to Excel'}
+                  {exportingKeys.has('drilldown') ? 'Exporting…' : 'Export to Excel'}
                 </button>
               )}
               <button ref={drillDownCloseRef} type="button" className="cancel-btn" onClick={closeDrillDown}>

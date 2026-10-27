@@ -1,6 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
+import { IconXCircle } from '../components/icons';
 
 export function ForgotPassword() {
   const [email, setEmail] = useState('');
@@ -60,7 +61,8 @@ export function ForgotPassword() {
               />
             </div>
             {error && (
-              <div className="error-text" role="alert">
+              <div className="status-banner error" role="alert">
+                <IconXCircle />
                 {error}
               </div>
             )}

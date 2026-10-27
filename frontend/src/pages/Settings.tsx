@@ -6,6 +6,10 @@ import { AdminNav } from '../components/AdminNav';
 interface Field {
   key: string;
   label: string;
+  // Separate from `label` so a long parenthetical (e.g. "HH:MM, informational
+  // only") doesn't get crammed into the label text itself — found reading
+  // oddly dense/technical on mobile in the 2026-10-27 design audit.
+  hint?: string;
   required: boolean;
   validate?: (value: string) => string | null;
 }
@@ -17,7 +21,25 @@ const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 const FIELDS: Field[] = [
   { key: 'COMPANY_NAME', label: 'Company Name', required: true },
-  { key: 'TIMEZONE', label: 'Timezone', required: true },
+  {
+    key: 'TIMEZONE',
+    label: 'Timezone',
+    required: true,
+    // Intl.supportedValuesOf('timeZone') is the native list of valid IANA
+    // zones — no dependency needed, and it catches a typo (e.g. "Asia/
+    // Kolkota") before it silently changes how every movement timestamp
+    // displays/calculates. A free-text field with no validation at all was
+    // found in the 2026-10-27 admin audit, despite the docs explicitly
+    // calling this a sensitive setting. Feature-detected (Chrome/Edge 97+,
+    // Firefox 93+, Safari 15.4+, Sept 2021) — an admin on an older browser
+    // skips this specific check rather than crashing the whole Save on an
+    // unrelated field; the backend doesn't validate TIMEZONE's value either,
+    // so this is strictly additive, not the only safety net.
+    validate: (v) =>
+      typeof Intl.supportedValuesOf !== 'function' || Intl.supportedValuesOf('timeZone').includes(v.trim())
+        ? null
+        : 'Must be a valid IANA timezone, e.g. Asia/Kolkata',
+  },
   { key: 'EMAIL_SENDER_NAME', label: 'Email Sender Name', required: true },
   // Reference-only window for the Insights hours-shortfall metric — the
   // office uses flexible timing, so these are never used to flag someone
@@ -25,13 +47,15 @@ const FIELDS: Field[] = [
   // compliance check is EXPECTED_DAILY_HOURS. Added 2026-10-05.
   {
     key: 'SHIFT_REFERENCE_START',
-    label: 'Shift Reference Start (HH:MM, informational only)',
+    label: 'Shift Reference Start',
+    hint: 'HH:MM, 24-hour. Informational only — never used to flag anyone as late.',
     required: true,
     validate: (v) => (TIME_RE.test(v.trim()) ? null : 'Use 24-hour HH:MM, e.g. 09:30'),
   },
   {
     key: 'SHIFT_REFERENCE_END',
-    label: 'Shift Reference End (HH:MM, informational only)',
+    label: 'Shift Reference End',
+    hint: 'HH:MM, 24-hour. Informational only — never used to flag anyone as late.',
     required: true,
     validate: (v) => (TIME_RE.test(v.trim()) ? null : 'Use 24-hour HH:MM, e.g. 18:30'),
   },
@@ -118,6 +142,13 @@ export function Settings() {
       setTimeout(() => setConfirmation(null), 2500);
       return;
     }
+    // Timezone affects how every movement timestamp is computed/displayed
+    // going forward — a casual edit here has a much bigger blast radius
+    // than the other fields, so it gets an explicit confirm rather than
+    // saving silently like everything else.
+    if (changed.some((f) => f.key === 'TIMEZONE') && !window.confirm('Changing the Timezone affects how every movement timestamp is computed and displayed from now on. Continue?')) {
+      return;
+    }
 
     setSaving(true);
     // Promise.allSettled, not Promise.all — a mid-batch failure with
@@ -192,7 +223,7 @@ export function Settings() {
         </div>
       )}
 
-      {!loading && (
+      {!loading && !loadError && (
         <form
           className="section-card"
           onSubmit={(e) => {
@@ -205,6 +236,7 @@ export function Settings() {
               <label>
                 {f.label}
                 {f.required && <span className="required-mark"> *</span>}
+                {f.hint && <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 400, marginTop: 2, marginBottom: 6 }}>{f.hint}</div>}
                 <input
                   value={draft[f.key] ?? ''}
                   onChange={(e) => setValue(f.key, e.target.value)}
@@ -220,7 +252,9 @@ export function Settings() {
               {saving && <span className="spinner dark" />}
               {saving ? 'Saving…' : 'Save all changes'}
             </button>
-            {isDirty && !saving && <span className="status-detail">Unsaved changes</span>}
+            {isDirty && !saving && (
+              <span style={{ color: 'var(--pending-amber)', fontWeight: 700, fontSize: 13 }}>● Unsaved changes</span>
+            )}
           </div>
         </form>
       )}

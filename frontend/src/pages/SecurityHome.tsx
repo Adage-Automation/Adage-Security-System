@@ -530,12 +530,21 @@ export function SecurityHome() {
         {currentTime}
       </div>
 
+      {/* Folds the pending-sync count into this banner while offline,
+          rather than showing both — otherwise this persistent banner and
+          the pending-count one below it stacked on top of each other for
+          the entire time a guard was offline with anything queued, the
+          most common case this banner exists for. Found in the 2026-10-27
+          design audit. */}
       {!isEffectivelyOnline && (
         <div className="status-banner pending" role="status" aria-live="polite">
           <IconWifiOff />
-          {isOnline
-            ? 'Server unreachable — you can still search employees from the last saved list. Movements will be saved once connection returns.'
-            : 'Offline mode — you can still search employees from the last saved list. Movements will be saved once connection returns.'}
+          <span>
+            {isOnline ? 'Server unreachable' : 'Offline mode'} — you can still search employees from the last saved list.{' '}
+            {pendingCount > 0
+              ? `${pendingCount} movement${pendingCount === 1 ? '' : 's'} queued, will sync once connection returns.`
+              : 'Movements will be saved once connection returns.'}
+          </span>
         </div>
       )}
 
@@ -558,7 +567,9 @@ export function SecurityHome() {
           ))}
         </div>
       )}
-      {pendingCount > 0 && (
+      {/* Only shown while actually online — covered by the combined offline
+          banner above otherwise (see its comment). */}
+      {isEffectivelyOnline && pendingCount > 0 && (
         <div className="status-banner pending" role="status" aria-live="polite">
           <IconClock />
           Queued: {pendingCount} movement{pendingCount === 1 ? '' : 's'} pending sync — will be sent automatically once connection returns.

@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client';
-import { IconUsers as IconUsersGroup, IconCheckCircle, IconInbox, IconSearch, IconX } from '../components/icons';
+import { IconUsers as IconUsersGroup, IconCheckCircle, IconInbox, IconSearch, IconX, IconAlertTriangle } from '../components/icons';
 import { AdminNav } from '../components/AdminNav';
 import { PasswordInput } from '../components/PasswordInput';
 import { TableSkeleton } from '../components/TableSkeleton';
@@ -160,6 +160,17 @@ export function Users() {
   async function saveEdit(e: FormEvent) {
     e.preventDefault();
     if (!editing) return;
+    // Same self-action confirmation as toggleActive's self-disable guard
+    // above — changing your OWN role away from Admin silently loses you
+    // Users/Settings/Audit Log access with zero warning otherwise, unlike
+    // disabling your own account (which already confirms). Found in the
+    // 2026-10-27 admin role-flow audit.
+    const newRole = roles.find((r) => String(r.id) === editForm.roleId);
+    if (editing.id === currentUser?.id && newRole && newRole.name !== 'ADMIN' && editing.role.name === 'ADMIN') {
+      if (!window.confirm('This is your own account. Changing your role away from Admin will immediately remove your access to Users, Settings, and the Audit Log. Continue?')) {
+        return;
+      }
+    }
     setEditError(null);
     setEditSaving(true);
     try {
@@ -233,7 +244,7 @@ export function Users() {
         User Management
       </div>
 
-      <div className="section-card">
+      <div className="section-card primary">
         <h3>Add User</h3>
         <form onSubmit={handleCreate} style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
           <div className="field" style={{ flex: 1, minWidth: 160, marginBottom: 0 }}>
@@ -342,7 +353,7 @@ export function Users() {
                   <button className="table-action-btn" onClick={() => startResetting(u)} style={{ marginRight: 8 }}>
                     Reset Password
                   </button>
-                  <button className="table-action-btn" onClick={() => toggleActive(u)} disabled={togglingIds.has(u.id)}>
+                  <button className={`table-action-btn ${u.isActive ? 'destructive' : ''}`} onClick={() => toggleActive(u)} disabled={togglingIds.has(u.id)}>
                     {u.isActive ? 'Disable' : 'Enable'}
                   </button>
                 </td>
@@ -373,7 +384,7 @@ export function Users() {
                 <button className="table-action-btn" onClick={() => startResetting(u)} style={{ flex: 1 }}>
                   Reset Password
                 </button>
-                <button className="table-action-btn" onClick={() => toggleActive(u)} style={{ flex: 1 }} disabled={togglingIds.has(u.id)}>
+                <button className={`table-action-btn ${u.isActive ? 'destructive' : ''}`} onClick={() => toggleActive(u)} style={{ flex: 1 }} disabled={togglingIds.has(u.id)}>
                   {u.isActive ? 'Disable' : 'Enable'}
                 </button>
               </div>
@@ -453,7 +464,8 @@ export function Users() {
             <h3 id="reset-password-title" style={{ marginTop: 0, textAlign: 'center' }}>
               Reset Password: {resetting.username}
             </h3>
-            <p style={{ marginTop: 0, color: 'var(--text-muted)', fontSize: 13 }}>
+            <p style={{ marginTop: 0, display: 'flex', alignItems: 'flex-start', gap: 8, color: 'var(--pending-amber)', fontSize: 13 }}>
+              <span style={{ flexShrink: 0 }}><IconAlertTriangle /></span>
               Sets this user's password directly — they are not notified, so share the new password with them yourself.
             </p>
             <form onSubmit={submitReset}>

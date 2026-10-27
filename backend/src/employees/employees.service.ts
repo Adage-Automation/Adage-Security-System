@@ -80,22 +80,31 @@ export class EmployeesService {
     });
   }
 
-  // Used by admin correction flows — includes inactive employees so
-  // historical records can still be fixed after someone has left (§39/§42).
+  // Used by admin correction flows, and by HR's Dashboard/Insights employee
+  // lookup — includes inactive employees so a former employee's record can
+  // still be found/fixed/reported on after they've left (§39/§42; HR gap
+  // found in the 2026-10-27 role-flow audit — HR previously had no way to
+  // locate a deactivated employee anywhere, even though they hold
+  // VIEW_EMPLOYEE_HISTORY/SEND_EMAIL/DOWNLOAD_REPORT for exactly this case).
+  // `team` optional, same reasoning as search() above — Insights' Team
+  // filter must not hide inactive team members from this picker either.
   // Same blank-query browse-list behavior as search() above.
-  async searchIncludingInactive(query: string) {
+  async searchIncludingInactive(query: string, team?: string) {
     const trimmed = query?.trim() ?? '';
     return this.prisma.employee.findMany({
-      where: trimmed
-        ? {
-            OR: [
-              { employeeName: { contains: trimmed, mode: 'insensitive' as const } },
-              { employeeCode: { contains: trimmed, mode: 'insensitive' as const } },
-              { email: { contains: trimmed, mode: 'insensitive' as const } },
-              { carNumber: { contains: trimmed, mode: 'insensitive' as const } },
-            ],
-          }
-        : {},
+      where: {
+        ...(team ? { team } : {}),
+        ...(trimmed
+          ? {
+              OR: [
+                { employeeName: { contains: trimmed, mode: 'insensitive' as const } },
+                { employeeCode: { contains: trimmed, mode: 'insensitive' as const } },
+                { email: { contains: trimmed, mode: 'insensitive' as const } },
+                { carNumber: { contains: trimmed, mode: 'insensitive' as const } },
+              ],
+            }
+          : {}),
+      },
       take: SEARCH_RESULT_LIMIT,
       orderBy: { employeeName: 'asc' },
     });
@@ -352,7 +361,10 @@ export class EmployeesService {
     }
   }
 
-  async create(dto: CreateEmployeeDto, actingUserId: number) {
+  // `team` is required via CreateEmployeeDto for the HTTP endpoint, but the
+  // bulk-import path above validates Team itself (a blank cell is allowed,
+  // just skipped) and calls this directly — so it's optional here.
+  async create(dto: Omit<CreateEmployeeDto, 'team'> & { team?: string }, actingUserId: number) {
     // Untrimmed whitespace (a stray trailing space from a copy-paste, a
     // leading space from autocomplete) would otherwise defeat the
     // case-insensitive duplicate check below — "EMP001" and "EMP001 " look
