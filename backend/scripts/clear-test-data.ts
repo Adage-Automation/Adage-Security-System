@@ -20,11 +20,17 @@ const prisma = new PrismaClient();
 // user actions") so this can never silently start deleting audit history
 // for a future, unrelated action type someone adds later without updating
 // this list.
+// RECORD_CORRECTED and MISSING_RECORD_ADDED (replaced by
+// MISSING_MOVEMENT_ADDED) were dropped when correctMovement was deleted
+// (commit 49) — neither is written by the app any more. Left stale here
+// would have meant every MISSING_MOVEMENT_ADDED row survives a re-run of
+// this script pointing at a movement record that was just deleted, the
+// exact drift this allowlist exists to prevent. Found in the 2026-10-28
+// audit.
 const ACTIONS_TO_CLEAR = [
   'ENTRY_RECORDED',
   'EXIT_RECORDED',
-  'RECORD_CORRECTED',
-  'MISSING_RECORD_ADDED',
+  'MISSING_MOVEMENT_ADDED',
   'EMAIL_SENT',
   'EMAIL_FAILED',
   'REPORT_DOWNLOADED',

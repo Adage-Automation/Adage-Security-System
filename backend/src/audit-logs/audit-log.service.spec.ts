@@ -1,3 +1,4 @@
+import ExcelJS from 'exceljs';
 import { AuditLogService } from './audit-log.service';
 import { dayRange } from '../common/utils/day-range';
 
@@ -147,6 +148,77 @@ describe('AuditLogService', () => {
       const { service, prisma } = makeService();
       await service.list({});
       expect(prisma.auditLog.findMany.mock.calls[0][0].take).toBe(50);
+    });
+  });
+
+  describe('exportToExcel', () => {
+    function makeService() {
+      const prisma = { auditLog: { findMany: jest.fn() } };
+      return { service: new AuditLogService(prisma as any), prisma };
+    }
+
+    async function firstSheetRows(buffer: Buffer) {
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(buffer as any);
+      const sheet = workbook.getWorksheet('Audit Log')!;
+      const rows: string[][] = [];
+      sheet.eachRow((row) => rows.push(row.values as any));
+      return rows;
+    }
+
+    // Was `row.createdAt.toISOString()` — raw UTC, while the same row on
+    // screen renders in the app's timezone (effectively IST). A 2am IST
+    // row exported 5h30m off and on the previous calendar date. Found in
+    // the 2026-10-28 audit.
+    it('renders the Time column in the app timezone, not raw UTC', async () => {
+      process.env.APP_TIMEZONE = 'Asia/Kolkata';
+      const { service, prisma } = makeService();
+      // 2026-10-27T02:00:00+05:30 == 2026-10-26T20:30:00.000Z
+      prisma.auditLog.findMany.mockResolvedValue([
+        { createdAt: new Date('2026-10-26T20:30:00.000Z'), action: 'USER_LOGIN', entityType: null, entityId: null, ipAddress: null, user: null },
+      ]);
+
+      const buffer = await service.exportToExcel({});
+      const rows = await firstSheetRows(buffer);
+
+      expect(rows[1][1]).toContain('27/10/2026');
+      expect(rows[1][1]).not.toContain('2026-10-26');
+    });
+
+    // The cap is deliberate (an unbounded export is its own resource-
+    // exhaustion risk), but nothing told the admin it was hit — an
+    // unfiltered export past this many rows silently handed back only the
+    // newest ones in a file that looked complete. Found in the 2026-10-28
+    // audit.
+    it('appends a visible warning row when the export hits the row cap', async () => {
+      const { service, prisma } = makeService();
+      const rows = Array.from({ length: 5000 }, (_, i) => ({
+        createdAt: new Date('2026-10-26T04:00:00.000Z'),
+        action: 'USER_LOGIN',
+        entityType: null,
+        entityId: null,
+        ipAddress: null,
+        user: null,
+        id: i,
+      }));
+      prisma.auditLog.findMany.mockResolvedValue(rows);
+
+      const buffer = await service.exportToExcel({});
+      const sheetRows = await firstSheetRows(buffer);
+
+      expect(sheetRows.some((r) => r.join(' ').includes('capped at 5000'))).toBe(true);
+    });
+
+    it('does not append a warning row when the export is under the cap', async () => {
+      const { service, prisma } = makeService();
+      prisma.auditLog.findMany.mockResolvedValue([
+        { createdAt: new Date('2026-10-26T04:00:00.000Z'), action: 'USER_LOGIN', entityType: null, entityId: null, ipAddress: null, user: null },
+      ]);
+
+      const buffer = await service.exportToExcel({});
+      const sheetRows = await firstSheetRows(buffer);
+
+      expect(sheetRows.some((r) => r.join(' ').includes('capped'))).toBe(false);
     });
   });
 });

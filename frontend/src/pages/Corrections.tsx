@@ -30,7 +30,10 @@ interface MissingRow {
   employeeName: string;
   employeeCode: string;
   team: string | null;
-  status: 'missingExit' | 'missingEntry';
+  // 'missingBoth' — an orphan EXIT at the start of the day AND a still-
+  // open session at the end are two independent gaps, not one; the
+  // backend used to report only one of them (fixed 2026-10-28).
+  status: 'missingExit' | 'missingEntry' | 'missingBoth';
 }
 
 export function Corrections() {
@@ -200,7 +203,11 @@ export function Corrections() {
   // fixing their several missing days) or just stay put and let the
   // (already-happening) loadMissing() refresh shrink their remaining
   // pills in place. Added 2026-10-26, by request.
-  function quickAdd(row: MissingRow, fromEmployeeCycleView = false) {
+  // `movementType` is now an explicit param rather than derived from
+  // `row.status` — a 'missingBoth' row needs two separate pills (one per
+  // gap), each calling this with its own type; deriving from status alone
+  // couldn't tell them apart.
+  function quickAdd(row: MissingRow, movementType: MovementType, fromEmployeeCycleView = false) {
     listScrollRef.current = window.scrollY;
     editOriginRef.current = fromEmployeeCycleView ? 'employeeCycle' : 'list';
     setSelectingId(row.employeeId);
@@ -210,7 +217,7 @@ export function Corrections() {
       .get<Employee>(`/employees/${row.employeeId}`)
       .then((emp) => {
         setSelected(emp);
-        setEdit({ movementType: row.status === 'missingExit' ? 'EXIT' : 'ENTRY', time: '09:00', reason: '' });
+        setEdit({ movementType, time: '09:00', reason: '' });
       })
       .catch((err: any) => setError(err?.message ?? 'Failed to load this employee. Please try again.'))
       .finally(() => setSelectingId(null));
@@ -260,12 +267,23 @@ export function Corrections() {
   const missingTypes = useMemo<MovementType[]>(() => {
     if (recordsLoading) return [];
     if (records.length === 0) return ['ENTRY', 'EXIT'];
+    // These two are independent, not mutually exclusive — a day can have
+    // both an orphan EXIT at the start and a still-open ENTRY at the end.
+    // Previously `missingEntry` was gated on `!missingExit`, so that case
+    // only ever surfaced one of the two gaps. Mirrors the same fix in
+    // MovementsService.missingInRange. Found in the 2026-10-28 audit.
     const missingExit = records[records.length - 1].movementType === 'ENTRY' && date !== todayIso();
-    const missingEntry = !missingExit && records[0].movementType === 'EXIT';
-    if (missingExit) return ['EXIT'];
-    if (missingEntry) return ['ENTRY'];
-    return [];
-  }, [records, recordsLoading]);
+    const missingEntry = records[0].movementType === 'EXIT';
+    const types: MovementType[] = [];
+    if (missingEntry) types.push('ENTRY');
+    if (missingExit) types.push('EXIT');
+    return types;
+    // `date` is read above (the today-exclusion check) but was missing from
+    // this list — correct only by coincidence, since `records` always
+    // changes whenever `date` does (loadRecords refetches on [selected,
+    // date]). Added explicitly so it stays correct if that coupling ever
+    // breaks. Found in the 2026-10-28 audit.
+  }, [records, recordsLoading, date]);
 
   useFocusTrap(!!edit, modalRef, timeInputRef, () => {
     if (saving) return;
@@ -337,21 +355,29 @@ export function Corrections() {
   // tapped anywhere else on it. Removed 2026-10-26, by request, for
   // simplicity.
   function renderMissingPills(rows: MissingRow[], showDate: boolean, fromEmployeeCycleView = false) {
+    // 'missingBoth' is two independent gaps on the same day (an orphan
+    // EXIT at the start, a still-open ENTRY at the end) — rendered as two
+    // separate pills, each adding its own type, rather than one pill that
+    // could only ever fix half the day. Found in the 2026-10-28 audit.
+    const typesFor = (row: MissingRow): MovementType[] =>
+      row.status === 'missingBoth' ? ['ENTRY', 'EXIT'] : row.status === 'missingExit' ? ['EXIT'] : ['ENTRY'];
     return (
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-        {rows.map((row) => (
-          <button
-            key={`${row.date}|${row.status}`}
-            type="button"
-            className="table-action-btn missing-pill"
-            disabled={!!selectingId}
-            onClick={() => quickAdd(row, fromEmployeeCycleView)}
-            style={{ opacity: selectingId === row.employeeId ? 0.6 : 1 }}
-          >
-            {showDate && `${row.date} · `}
-            Add Missing <span style={{ color: 'var(--exit-red)' }}>{row.status === 'missingExit' ? 'Exit' : 'Entry'}</span>
-          </button>
-        ))}
+        {rows.flatMap((row) =>
+          typesFor(row).map((movementType) => (
+            <button
+              key={`${row.date}|${row.employeeId}|${movementType}`}
+              type="button"
+              className="table-action-btn missing-pill"
+              disabled={!!selectingId}
+              onClick={() => quickAdd(row, movementType, fromEmployeeCycleView)}
+              style={{ opacity: selectingId === row.employeeId ? 0.6 : 1 }}
+            >
+              {showDate && `${row.date} · `}
+              Add Missing <span style={{ color: 'var(--exit-red)' }}>{movementType === 'EXIT' ? 'Exit' : 'Entry'}</span>
+            </button>
+          )),
+        )}
       </div>
     );
   }
@@ -818,6 +844,20 @@ export function Corrections() {
                   Time (on {date})<span className="required-mark"> *</span>
                   <input ref={timeInputRef} type="time" value={edit.time} onChange={(e) => setEdit({ ...edit, time: e.target.value })} required />
                 </label>
+                {/* The backend now rejects a time that wouldn't actually close the
+                    gap (e.g. an EXIT before the day's last record) — surfacing the
+                    boundary here up front instead of making the admin guess after
+                    an error. Found in the 2026-10-28 audit. */}
+                {records.length > 0 &&
+                  (edit.movementType === 'EXIT' ? (
+                    <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
+                      Must be after {formatTime(records[records.length - 1].movementAt)} (the day's last record)
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
+                      Must be before {formatTime(records[0].movementAt)} (the day's first record)
+                    </div>
+                  ))}
               </div>
               <div className="field">
                 <label>

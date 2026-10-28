@@ -1,3 +1,4 @@
+import ExcelJS from 'exceljs';
 import { InsightsService } from './insights.service';
 
 function movement(overrides: Partial<Record<string, any>> = {}) {
@@ -138,6 +139,49 @@ describe('InsightsService.getSummary', () => {
     expect(result.missingExits.count).toBe(1);
     expect(result.hoursShortfall.totalEmployeeDays).toBe(0); // not counted as a complete, judgeable day
     expect(result.avgDurationTrend).toEqual([{ date: '2026-10-01', avgHours: null }]);
+  });
+
+  // Found in the 2026-10-28 audit: `firstEntry` was set to whatever ENTRY
+  // was seen first in time, so EXIT/ENTRY/ENTRY read `firstEntry` as the
+  // LATER entry and `lastMovementType` as 'EXIT', wrongly calling it a
+  // normal complete day using the stale middle exit — the orphan leading
+  // exit was invisible everywhere (not counted missingEntry, not excluded
+  // from completeDays/avgHours).
+  it('does not count EXIT/ENTRY/EXIT as a complete day — the leading EXIT is an orphan with nothing before it', async () => {
+    prisma.movementRecord.findMany.mockImplementation((args: any) => {
+      if (args?.where?.correctedByUserId) return Promise.resolve([]);
+      return Promise.resolve([
+        movement({ movementType: 'EXIT', movementAt: new Date('2026-10-01T02:00:00.000Z') }),
+        movement({ movementType: 'ENTRY', movementAt: new Date('2026-10-01T04:00:00.000Z') }),
+        movement({ movementType: 'EXIT', movementAt: new Date('2026-10-01T10:00:00.000Z') }),
+      ]);
+    });
+
+    const result = await service.getSummary({ from: '2026-10-01', to: '2026-10-01' });
+
+    expect(result.hoursShortfall.totalEmployeeDays).toBe(0); // not counted as a complete, judgeable day
+    expect(result.avgDurationTrend).toEqual([{ date: '2026-10-01', avgHours: null }]);
+    expect(result.exceptions.missingEntries).toBe(1); // the orphan leading exit is now flagged
+  });
+
+  // A day can be missing BOTH (orphan leading exit AND a still-open
+  // trailing entry) — these must count independently, not as an
+  // else-if chain where only one would ever surface.
+  it('counts a day with BOTH an orphan leading exit AND a trailing open entry toward both exception counters', async () => {
+    prisma.movementRecord.findMany.mockImplementation((args: any) => {
+      if (args?.where?.correctedByUserId) return Promise.resolve([]);
+      return Promise.resolve([
+        movement({ movementType: 'EXIT', movementAt: new Date('2026-10-01T02:00:00.000Z') }),
+        movement({ movementType: 'ENTRY', movementAt: new Date('2026-10-01T04:00:00.000Z') }),
+        movement({ movementType: 'EXIT', movementAt: new Date('2026-10-01T10:00:00.000Z') }),
+        movement({ movementType: 'ENTRY', movementAt: new Date('2026-10-01T15:00:00.000Z') }),
+      ]);
+    });
+
+    const result = await service.getSummary({ from: '2026-10-01', to: '2026-10-01' });
+
+    expect(result.exceptions.missingEntries).toBe(1);
+    expect(result.exceptions.missingExits).toBe(1);
   });
 
   it('groups activity by recordedByUserId (unit) and by employee.team', async () => {
@@ -645,6 +689,22 @@ describe('InsightsService.getDrillDown', () => {
     expect(result.rows[0]).toMatchObject({ employeeName: 'No Entry' });
   });
 
+  // Found in the 2026-10-28 audit: the old inline check (`a.lastExit &&
+  // !a.firstEntry`) missed this — a later real entry made `firstEntry`
+  // truthy, hiding the orphan leading exit from this exact drill-down.
+  it('missingEntry: also catches an orphan leading exit even when a later real entry exists that day', async () => {
+    prisma.movementRecord.findMany.mockResolvedValue([
+      movement({ employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-01T02:00:00.000Z'), employee: { team: 'Testing', employeeName: 'Orphan Exit', employeeCode: 'E1' } }),
+      movement({ employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-01T04:00:00.000Z'), employee: { team: 'Testing', employeeName: 'Orphan Exit', employeeCode: 'E1' } }),
+      movement({ employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-01T10:00:00.000Z'), employee: { team: 'Testing', employeeName: 'Orphan Exit', employeeCode: 'E1' } }),
+    ]);
+
+    const result = await service.getDrillDown({ metric: 'missingEntry', date: '2026-10-01' } as any);
+
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({ employeeName: 'Orphan Exit' });
+  });
+
   it('missingExit/missingEntry: with no date, lists every flagged employee-day across the whole from/to range (the Exceptions KPI card has no single day to scope to)', async () => {
     prisma.movementRecord.findMany.mockResolvedValue([
       movement({ employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-01T04:00:00.000Z'), employee: { team: 'Testing', employeeName: 'No Exit Day 1', employeeCode: 'E1' } }),
@@ -805,6 +865,34 @@ describe('InsightsService.getEmployeeDetail', () => {
     expect(result.durationDistribution.every((bucket: any) => bucket.employees.every((e: any) => e.name !== 'Departed Guard'))).toBe(true);
   });
 
+  // Found in the 2026-10-28 audit: durationDistribution used to span only
+  // [minSlot, maxSlot] of the ACTIVE roster's own buckets. An inactive
+  // employee whose average falls outside that range (e.g. left after only
+  // a few short days) got a real employeeDurationBucket but no matching
+  // point in the chart — the frontend highlights by looking for a point
+  // equal to employeeDurationBucket, so nothing lit up even though the
+  // caption always claims a highlighted point exists.
+  it('extends the distribution span to include an inactive employee\'s own bucket, even outside the active roster\'s range', async () => {
+    prisma.employee.findUnique.mockResolvedValue({ id: 1, employeeName: 'Departed Guard', employeeCode: 'EMP001', team: 'Testing', isActive: false });
+    // Active roster's own average is 9h — far from the departed guard's 3h.
+    prisma.employee.findMany.mockResolvedValue([{ id: 2, employeeName: 'Bob' }]);
+    prisma.movementRecord.findMany.mockResolvedValue([
+      movement({ employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-01T04:00:00.000Z') }), // 09:30 IST
+      movement({ employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-01T07:00:00.000Z') }), // 12:30 IST -> 3h
+      movement({ employeeId: 2, movementType: 'ENTRY', movementAt: new Date('2026-10-01T04:30:00.000Z') }), // 10:00 IST
+      movement({ employeeId: 2, movementType: 'EXIT', movementAt: new Date('2026-10-01T13:30:00.000Z') }), // 19:00 IST -> 9h
+    ]);
+
+    const result: any = await service.getEmployeeDetail({ employeeId: '1', from: '2026-10-01', to: '2026-10-01' } as any);
+
+    expect(result.employeeDurationBucket).toBe(3);
+    const matchingPoint = result.durationDistribution.find((bucket: any) => bucket.hours === 3);
+    expect(matchingPoint).toBeDefined();
+    expect(matchingPoint.count).toBe(0); // the departed guard isn't counted into the active comparison population itself
+    // The active employee's own bucket is still in range, at the other end.
+    expect(result.durationDistribution.find((bucket: any) => bucket.hours === 9)?.count).toBe(1);
+  });
+
   // durationDistribution/employeeAvgHours — company-wide comparison, so
   // this one employee's duration can be seen against everyone else's, not
   // just their own trend in isolation. Added 2026-10-13, by request.
@@ -932,6 +1020,36 @@ describe('InsightsService.getDailyDuration', () => {
     expect(result.rows[0]).toMatchObject({ status: 'missingExit', hours: null });
   });
 
+  // Found in the 2026-10-28 audit: an orphan leading exit used to make
+  // `firstEntry` read as the later entry, so EXIT/ENTRY/EXIT showed as a
+  // plain "complete" day with no signal of the orphan exit at all.
+  it('flags EXIT/ENTRY/EXIT as missingEntry, not complete — the leading EXIT is an orphan', async () => {
+    prisma.movementRecord.findMany.mockResolvedValue([
+      movement({ employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-01T02:00:00.000Z'), employee: { team: 'Testing', employeeName: 'Orphan Exit', employeeCode: 'E1' } }),
+      movement({ employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-01T04:00:00.000Z'), employee: { team: 'Testing', employeeName: 'Orphan Exit', employeeCode: 'E1' } }),
+      movement({ employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-01T10:00:00.000Z'), employee: { team: 'Testing', employeeName: 'Orphan Exit', employeeCode: 'E1' } }),
+    ]);
+
+    const result = await service.getDailyDuration({ date: '2026-10-01' } as any);
+
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({ status: 'missingEntry', hours: null });
+  });
+
+  it('flags missingBoth when a day has an orphan leading exit AND a trailing open entry', async () => {
+    prisma.movementRecord.findMany.mockResolvedValue([
+      movement({ employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-01T02:00:00.000Z'), employee: { team: 'Testing', employeeName: 'Both Ends', employeeCode: 'E1' } }),
+      movement({ employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-01T04:00:00.000Z'), employee: { team: 'Testing', employeeName: 'Both Ends', employeeCode: 'E1' } }),
+      movement({ employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-01T10:00:00.000Z'), employee: { team: 'Testing', employeeName: 'Both Ends', employeeCode: 'E1' } }),
+      movement({ employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-01T15:00:00.000Z'), employee: { team: 'Testing', employeeName: 'Both Ends', employeeCode: 'E1' } }),
+    ]);
+
+    const result = await service.getDailyDuration({ date: '2026-10-01' } as any);
+
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({ status: 'missingBoth', hours: null });
+  });
+
   it('sorts by employee name', async () => {
     prisma.movementRecord.findMany.mockResolvedValue([
       movement({ employeeId: 1, employee: { team: 'Testing', employeeName: 'Zara', employeeCode: 'E1' } }),
@@ -1027,6 +1145,34 @@ describe('InsightsService exports', () => {
     // .xlsx files are zip archives — PK magic bytes confirm it's a real
     // xlsx, not an accidentally-empty or malformed buffer.
     expect(buffer.subarray(0, 2).toString()).toBe('PK');
+  });
+
+  // Found in the 2026-10-28 audit: getDrillDown capped at 500 rows with no
+  // indication to the caller when hit — silently returned a partial list
+  // that looked complete, same bug class as the AuditLog export.
+  it('getDrillDown reports truncated:true only when the row cap is actually hit', async () => {
+    prisma.movementRecord.findMany.mockResolvedValue(Array.from({ length: 500 }, (_, i) => movement({ movementType: 'ENTRY', employeeId: i })));
+
+    const capped = await service.getDrillDown({ metric: 'attendance', date: '2026-10-01' } as any);
+    expect(capped.rows).toHaveLength(500);
+    expect((capped as any).truncated).toBe(true);
+
+    prisma.movementRecord.findMany.mockResolvedValue([movement({ movementType: 'ENTRY' })]);
+    const normal = await service.getDrillDown({ metric: 'attendance', date: '2026-10-01' } as any);
+    expect((normal as any).truncated).toBe(false);
+  });
+
+  it('exportDrillDown appends a visible warning row when the drill-down was truncated', async () => {
+    prisma.movementRecord.findMany.mockResolvedValue(Array.from({ length: 500 }, (_, i) => movement({ movementType: 'ENTRY', employeeId: i })));
+
+    const buffer = await service.exportDrillDown({ metric: 'attendance', date: '2026-10-01' } as any);
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as any);
+    const sheet = workbook.worksheets[0];
+    const rows: string[] = [];
+    sheet.eachRow((row) => rows.push((row.values as any).join(' ')));
+    expect(rows.some((r) => r.includes('Showing the first 500 rows'))).toBe(true);
   });
 
   it('exportTeamBreakdown produces a real .xlsx buffer from the same data as the summary', async () => {

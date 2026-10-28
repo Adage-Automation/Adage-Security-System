@@ -343,6 +343,76 @@ describe('MovementsService.addMissingRecord', () => {
     expect(prisma.movementRecord.findMany).not.toHaveBeenCalled();
     expect(prisma.movementRecord.create).not.toHaveBeenCalled();
   });
+
+  // Found in the 2026-10-28 audit: the duplicate-type check above only
+  // confirmed a gap existed, never that the write actually closed it. The
+  // frontend's modal defaults every add to 09:00 regardless of type, which
+  // fails exactly these two cases for a post-09:00 entry or a pre-09:00
+  // orphan exit — the common overnight-shift pattern.
+  it('rejects a missing EXIT whose timestamp is before the day\'s last recorded movement — it would not close the gap', async () => {
+    const { service, prisma } = makeService();
+    prisma.employee.findUnique.mockResolvedValue({ id: 7 });
+    // Day: ENTRY at 09:30. Adding EXIT at the modal's 09:00 default lands
+    // BEFORE it, not after — the session stays open either way.
+    prisma.movementRecord.findMany.mockResolvedValue([{ movementType: 'ENTRY', movementAt: new Date('2026-09-10T09:30:00.000Z') }]);
+
+    await expect(
+      service.addMissingRecord({ employeeId: 7, movementType: 'EXIT', movementAt: '2026-09-10T09:00:00.000Z' } as any, 9),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.movementRecord.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a missing ENTRY whose timestamp is after the day\'s first recorded movement — it would not close the gap', async () => {
+    const { service, prisma } = makeService();
+    prisma.employee.findUnique.mockResolvedValue({ id: 7 });
+    // Day: orphan EXIT at 06:00. Adding ENTRY at the modal's 09:00 default
+    // lands AFTER it, not before — the orphan stays unexplained.
+    prisma.movementRecord.findMany.mockResolvedValue([{ movementType: 'EXIT', movementAt: new Date('2026-09-10T06:00:00.000Z') }]);
+
+    await expect(
+      service.addMissingRecord({ employeeId: 7, movementType: 'ENTRY', movementAt: '2026-09-10T09:00:00.000Z' } as any, 9),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.movementRecord.create).not.toHaveBeenCalled();
+  });
+
+  it('accepts a missing EXIT timestamped after the last recorded movement — actually closes the gap', async () => {
+    const { service, prisma } = makeService();
+    const record = { id: 15, employeeId: 7, movementType: 'EXIT' };
+    prisma.employee.findUnique.mockResolvedValue({ id: 7 });
+    prisma.movementRecord.findMany.mockResolvedValue([{ movementType: 'ENTRY', movementAt: new Date('2026-09-10T09:30:00.000Z') }]);
+    prisma.movementRecord.create.mockResolvedValue(record);
+
+    await expect(
+      service.addMissingRecord({ employeeId: 7, movementType: 'EXIT', movementAt: '2026-09-10T18:00:00.000Z' } as any, 9),
+    ).resolves.toBe(record);
+  });
+
+  // Found in the 2026-10-28 audit: on a day missing BOTH (orphan leading
+  // EXIT and a still-open trailing ENTRY), `missingEntry` used to be gated
+  // on `!missingExit` — since missingExit was true on this exact day
+  // shape, missingEntry computed false and adding the ENTRY that closes
+  // the leading orphan exit was wrongly rejected as "already covered",
+  // even though the missingInRange list (and its UI pill) correctly
+  // offered it.
+  it('accepts a missing ENTRY on a day that is ALSO missing an exit (missingBoth) — the two are independent, not exclusive', async () => {
+    const { service, prisma } = makeService();
+    const record = { id: 16, employeeId: 7, movementType: 'ENTRY' };
+    prisma.employee.findUnique.mockResolvedValue({ id: 7 });
+    // EXIT 02:00 (orphan leading exit), ENTRY 04:00, EXIT 10:00, ENTRY 15:00
+    // (still-open trailing entry) — missing both an ENTRY before 02:00 and
+    // an EXIT after 15:00.
+    prisma.movementRecord.findMany.mockResolvedValue([
+      { movementType: 'EXIT', movementAt: new Date('2026-09-10T02:00:00.000Z') },
+      { movementType: 'ENTRY', movementAt: new Date('2026-09-10T04:00:00.000Z') },
+      { movementType: 'EXIT', movementAt: new Date('2026-09-10T10:00:00.000Z') },
+      { movementType: 'ENTRY', movementAt: new Date('2026-09-10T15:00:00.000Z') },
+    ]);
+    prisma.movementRecord.create.mockResolvedValue(record);
+
+    await expect(
+      service.addMissingRecord({ employeeId: 7, movementType: 'ENTRY', movementAt: '2026-09-10T01:00:00.000Z' } as any, 9),
+    ).resolves.toBe(record);
+  });
 });
 
 describe('MovementsService.missingInRange', () => {
@@ -458,6 +528,24 @@ describe('MovementsService.missingInRange', () => {
     const result = await service.missingInRange('2026-10-06', '2026-10-06');
 
     expect(result).toEqual([{ date: '2026-10-06', employeeId: 1, employeeName: 'Bob', employeeCode: 'E2', team: null, status: 'missingEntry' }]);
+  });
+
+  // Found in the 2026-10-28 audit: missingExit/missingEntry were coded as
+  // mutually exclusive (missingEntry required lastType !== 'ENTRY'), but a
+  // day can have both — an orphan EXIT at the start AND a still-open
+  // ENTRY at the end are two independent gaps, not one. Previously this
+  // day surfaced only as missingExit; fixing just the exit would make it
+  // reappear as missingEntry on the next refresh.
+  it('flags missingBoth for a day with an orphan leading EXIT AND a trailing open ENTRY', async () => {
+    const { service, prisma } = makeService();
+    prisma.movementRecord.findMany.mockResolvedValue([
+      { employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-06T02:00:00.000Z'), employee: { employeeName: 'Bob', employeeCode: 'E2', team: null } },
+      { employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-06T04:00:00.000Z'), employee: { employeeName: 'Bob', employeeCode: 'E2', team: null } },
+    ]);
+
+    const result = await service.missingInRange('2026-10-06', '2026-10-06');
+
+    expect(result).toEqual([{ date: '2026-10-06', employeeId: 1, employeeName: 'Bob', employeeCode: 'E2', team: null, status: 'missingBoth' }]);
   });
 
   it('end to end: after addMissingRecord fills the gap, a fresh missingInRange call no longer lists that employee/day', async () => {

@@ -87,8 +87,16 @@ export function renderMovementReportHtml(data: ReportData): string {
 </html>`;
 }
 
+// No `timeZone` option here used Node's OS-level TZ, not this app's own
+// APP_TIMEZONE env var — the two are unrelated unless the deploy host's OS
+// environment is separately set to match, which nothing enforces (most
+// cloud containers default to UTC). A 9:30 AM IST tap would render as
+// "4:00 AM" on this exact document — the one thing this app exists to
+// produce accurately for employees/HR/security. Found in the 2026-10-28
+// audit (same bug class as the AuditLog export fix earlier the same day).
 function formatTime(date: Date): string {
-  return new Intl.DateTimeFormat('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }).format(date);
+  const timeZone = process.env.APP_TIMEZONE ?? 'Asia/Kolkata';
+  return new Intl.DateTimeFormat('en-IN', { timeZone, hour: '2-digit', minute: '2-digit', hour12: true }).format(date);
 }
 
 function escapeHtml(value: string): string {

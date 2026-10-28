@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-10-28 — Missing Movements data-integrity fixes, timezone fixes, silent-truncation fixes
+
+A second-pass audit (one targeted report, then a broader "check for the same bug patterns elsewhere" sweep) found and fixed several real correctness bugs, mostly in Missing Movements and Insights.
+
+**Missing Movements (Corrections.tsx / movements.service.ts):**
+- `addMissingRecord` never checked that the timestamp being added actually closed the gap — the modal's 09:00 default could land on the wrong side of an existing record (e.g. adding an EXIT at 09:00 for an ENTRY at 09:30 leaves the session open, not closed). Now rejected with a clear message naming the actual boundary time, inside the existing per-employee advisory lock.
+- `missingInRange`/Corrections' `missingTypes` coded `missingExit`/`missingEntry` as mutually exclusive, so a day with both an orphan leading EXIT and a trailing open ENTRY only ever reported one gap — fixing one made the other reappear next refresh. Now reports `missingBoth`; the pill list renders two separate pills (one per gap) and the modal's type dropdown offers both.
+- Found on a follow-up edge-case pass the same day: `addMissingRecord`'s own write-path duplicate-check had the identical `!missingExit &&`-gated bug, missed in the first pass above — so the new "Add Missing Entry" pill on a `missingBoth` day would reach the backend and get wrongly rejected as "already covered," disagreeing with the list it came from. Fixed the same way (independent checks, not gated).
+- Same bug, worse form, in `insights.service.ts`'s day aggregation: `buildEmployeeDayAggs` had no concept of a day's first movement, so EXIT/ENTRY/EXIT read as a normal "complete" day using the later entry — the orphan leading exit was invisible everywhere (not counted, not flagged, hours shown as if nothing were wrong). Added `firstMovementType` tracking and a new `isMissingEntry` check; `isDayComplete` now excludes a day with an orphan leading exit; the summary's exception counters, the `missingEntry` drill-down, and Daily Duration's per-day status (which gained a `missingBoth` value) were all updated to match.
+
+**Timezone (server-rendered output was using the server process's OS clock, not the app's configured `APP_TIMEZONE`):**
+- Audit Log's Export to Excel wrote raw UTC timestamps while the same rows render in IST on screen — a 2am IST row exported 5h30m off and on the previous calendar date. Added `formatDateTimeInAppTimezone`/`formatTimeInAppTimezone` (`day-range.ts`) and used them here and in the new ordering-check error messages above.
+- The movement-detail PNG/PDF report (`report.template.ts`) — the one document this app exists to produce accurately for employees/HR/security — had the identical bug, same fix.
+
+**Silent truncation (a cap existed but nothing told the admin it was hit):**
+- Audit Log's export caps at 5,000 rows; now appends a visible warning row when hit.
+- Insights' drill-down (modal and its Excel export) caps at 500 rows; `getDrillDown` now reports `truncated`, surfaced as a banner in the modal and a warning row in the export.
+
+**Smaller fixes:** `ResetPassword.tsx` said "signing you in…" when no auto sign-in happens (just a manual-login redirect), and its `setTimeout` wasn't cleared on unmount — fixed both. `ChartCanvas.tsx` only wrapped `onClick` through the live-config ref against stale closures; generalized to wrap every callback in `options` (tooltip/scale callbacks had the same latent staleness). `clear-test-data.ts` and `database-schema.md` still named two dead audit action names (`RECORD_CORRECTED`, `MISSING_RECORD_ADDED`, both replaced by `MISSING_MOVEMENT_ADDED` in commit 49) — updated both. A missing `date` dependency in Corrections' `missingTypes` memo (correct only by coincidence) was made explicit. Removed three vestigial `eslint-disable-next-line react-hooks/exhaustive-deps` comments confirmed stale by running eslint directly.
+
+**Docs updated**: `api-reference.md` (drill-down's `truncated` field; the export's row cap was wrongly documented as "uncapped"; added the undocumented `/audit-logs/export` endpoint; `missing-summary`'s `status` values), `decisions.md` (dated follow-up on the missing-movement-detection decision log).
+
+Added 12 new backend tests covering the above (ordering rejection/acceptance, `missingBoth` in both services and at the write path, orphan-leading-exit in Insights, export timezone/truncation, drill-down truncation). Backend: 19/19 suites, 211/211 tests pass; typecheck clean. Frontend: 6/6 suites, 22/22 tests pass; typecheck clean.
+
 ## 2026-10-27 — Full click-handler/crash audit, a design pass, and three HR/Admin gaps closed
 
 A comprehensive audit of every clickable action across every page (10 parallel reviews: 4 functional, 3 design, 3 role-flow — Admin/HR/Security), followed by fixing everything found worth fixing immediately.

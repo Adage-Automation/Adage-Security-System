@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../audit-logs/audit-log.service';
-import { dayRange, dateRangeInclusive, formatDateInAppTimezone, todayInAppTimezone } from '../common/utils/day-range';
+import { dayRange, dateRangeInclusive, formatDateInAppTimezone, formatTimeInAppTimezone, todayInAppTimezone } from '../common/utils/day-range';
 import { CreateMovementDto, AddMissingRecordDto } from './dto/movement.dto';
 
 export interface CreateMovementResult {
@@ -276,15 +276,31 @@ export class MovementsService {
     // shown for today. Added 2026-10-26, by request.
     const today = todayInAppTimezone();
     return [...byDayAndEmployee.values()]
-      .map((b) => ({ ...b, missingExit: b.lastType === 'ENTRY', missingEntry: b.lastType !== 'ENTRY' && b.firstType === 'EXIT' }))
-      .filter((b) => (b.missingExit && b.date !== today) || b.missingEntry)
+      .map((b) => ({
+        ...b,
+        // These two used to be coded as mutually exclusive (missingEntry
+        // required lastType !== 'ENTRY'), but a day can genuinely have
+        // both: an orphan EXIT at the start (firstType === 'EXIT') AND a
+        // still-open session at the end (lastType === 'ENTRY') are two
+        // independent gaps, not one. The old code reported only
+        // missingExit for that shape — fixing the exit made the day
+        // reappear next refresh as missingEntry, two passes for one day
+        // with no indication the first fix was partial. Found in the
+        // 2026-10-28 audit.
+        missingExit: b.lastType === 'ENTRY' && b.date !== today,
+        missingEntry: b.firstType === 'EXIT',
+      }))
+      .filter((b) => b.missingExit || b.missingEntry)
       .map((b) => ({
         date: b.date,
         employeeId: b.employeeId,
         employeeName: b.employeeName,
         employeeCode: b.employeeCode,
         team: b.team,
-        status: (b.missingExit ? 'missingExit' : 'missingEntry') as 'missingExit' | 'missingEntry',
+        status: (b.missingExit && b.missingEntry ? 'missingBoth' : b.missingExit ? 'missingExit' : 'missingEntry') as
+          | 'missingExit'
+          | 'missingEntry'
+          | 'missingBoth',
       }))
       .sort((a, b) => (a.date === b.date ? a.employeeName.localeCompare(b.employeeName) : a.date.localeCompare(b.date)));
   }
@@ -398,10 +414,14 @@ export class MovementsService {
     // genuine EXIT reads as "2 entries, 1 exit" and would have wrongly kept
     // offering/accepting a second EXIT add on an already-complete day).
     // Only the day's first and last movement type matter: a trailing ENTRY
-    // with nothing after it is missing an EXIT; a day that doesn't end open
-    // but started on an EXIT has an orphan EXIT missing its ENTRY. A day
-    // with zero records of either type is wide open — both are missing, so
-    // either can be added first.
+    // with nothing after it is missing an EXIT; a day that started on an
+    // EXIT has an orphan EXIT missing its ENTRY. These two are independent,
+    // not mutually exclusive — a day can be missing both (orphan leading
+    // EXIT AND a still-open trailing ENTRY), so each is checked on its own
+    // rather than one gating the other (fixed 2026-10-28; the gated version
+    // wrongly rejected the fix for one of the two gaps as "already
+    // covered"). A day with zero records of either type is wide open —
+    // both are missing, so either can be added first.
     //
     // Wrapped in the same per-employee advisory lock createMovement uses
     // (2026-09-22 audit) — without it, a guard's live tap for this exact
@@ -415,17 +435,49 @@ export class MovementsService {
 
       const dayRecords = await tx.movementRecord.findMany({
         where: { employeeId: dto.employeeId, isSuperseded: false, movementAt: { gte: start, lt: end } },
-        select: { movementType: true },
+        select: { movementType: true, movementAt: true },
         // `id` tiebreaks two different movementTypes sharing the exact
         // same movementAt deterministically — see the matching comment on
         // missingInRange above for why this isn't just theoretical.
         orderBy: [{ movementAt: 'asc' }, { id: 'asc' }],
       });
+      // Independent, not mutually exclusive — a day can be missing both
+      // (orphan leading EXIT and a still-open trailing ENTRY at once).
+      // This used to gate missingEntry on `!missingExit`, so on exactly
+      // that kind of day, adding the ENTRY that closes the leading orphan
+      // exit was wrongly rejected as "already covered" (missingEntry
+      // computed false because missingExit was true) — the write path
+      // disagreed with the list/UI fix for the identical bug made earlier
+      // the same day. Found in the 2026-10-28 audit, same pass.
       const missingExit = dayRecords.length === 0 || dayRecords[dayRecords.length - 1].movementType === 'ENTRY';
-      const missingEntry = dayRecords.length === 0 || (!missingExit && dayRecords[0].movementType === 'EXIT');
+      const missingEntry = dayRecords.length === 0 || dayRecords[0].movementType === 'EXIT';
       const alreadyCovered = dto.movementType === 'EXIT' ? !missingExit : !missingEntry;
       if (alreadyCovered) {
         throw new BadRequestException(`An ${dto.movementType} is already recorded for this employee on ${calendarDate} — nothing missing to add.`);
+      }
+
+      // The check above only confirmed a gap exists — not that the
+      // timestamp being written actually closes it. A missing EXIT must
+      // land after the day's last record, or the day still reads as
+      // ENTRY-last (still "missing exit") and the real orphan is now
+      // buried under a second record; symmetrically a missing ENTRY must
+      // land before the day's first record. Found in the 2026-10-28 audit:
+      // the frontend's modal defaults every add to 09:00 regardless of
+      // type, which fails exactly this check for a post-09:00 entry or a
+      // pre-09:00 orphan exit (the common overnight-shift case).
+      if (dayRecords.length > 0) {
+        const last = dayRecords[dayRecords.length - 1];
+        const first = dayRecords[0];
+        if (dto.movementType === 'EXIT' && movementAt <= last.movementAt) {
+          throw new BadRequestException(
+            `This EXIT (${formatTimeInAppTimezone(movementAt)}) must be after the day's last recorded movement (${formatTimeInAppTimezone(last.movementAt)}) to actually close the gap.`,
+          );
+        }
+        if (dto.movementType === 'ENTRY' && movementAt >= first.movementAt) {
+          throw new BadRequestException(
+            `This ENTRY (${formatTimeInAppTimezone(movementAt)}) must be before the day's first recorded movement (${formatTimeInAppTimezone(first.movementAt)}) to actually close the gap.`,
+          );
+        }
       }
 
       return tx.movementRecord.create({

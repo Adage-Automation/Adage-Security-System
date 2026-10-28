@@ -1,4 +1,4 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { PasswordInput } from '../components/PasswordInput';
@@ -18,6 +18,15 @@ export function ResetPassword() {
   // this page at all, which read as abrupt rather than deliberate.
   const [saved, setSaved] = useState(false);
 
+  // Uncleared on unmount before this, the queued navigate could fire after
+  // the user had already navigated away within the 500ms window,
+  // overriding wherever they'd gone. Found in the 2026-10-28 audit.
+  useEffect(() => {
+    if (!saved) return;
+    const t = setTimeout(() => navigate('/login', { state: { passwordResetSuccess: true } }), 500);
+    return () => clearTimeout(t);
+  }, [saved, navigate]);
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -35,7 +44,6 @@ export function ResetPassword() {
     try {
       await api.post('/auth/reset-password', { token, newPassword });
       setSaved(true);
-      setTimeout(() => navigate('/login', { state: { passwordResetSuccess: true } }), 500);
     } catch (err: any) {
       if (err?.status === 429) {
         setError('Too many attempts. Please wait a moment and try again.');
@@ -76,7 +84,11 @@ export function ResetPassword() {
         {saved ? (
           <div className="status-banner success" role="status" aria-live="polite">
             <IconCheckCircle />
-            Password saved — signing you in…
+            {/* Was "signing you in…" — no automatic sign-in actually
+                happens, this just redirects to Login where the user still
+                has to enter their new password manually. Found in the
+                2026-10-28 audit. */}
+            Password saved — taking you to the login page…
           </div>
         ) : (
           <form onSubmit={handleSubmit}>

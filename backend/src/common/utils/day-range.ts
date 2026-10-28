@@ -35,6 +35,60 @@ export function formatDateInAppTimezone(date: Date): string {
   return `${lookup.year}-${lookup.month}-${lookup.day}`;
 }
 
+// Same caching rationale as getDateFormatter above, for exports that need
+// the full timestamp (not just the calendar date) rendered in the app's
+// timezone rather than raw UTC. Added 2026-10-28 — the Audit Log export
+// was writing `row.createdAt.toISOString()` directly, so a 2am IST row
+// came out 5h30m off and on the previous calendar date, while the same
+// row on screen renders correctly via toLocaleString('en-IN') (browser-
+// local, effectively IST for this app's users).
+const dateTimeFormatterCache = new Map<string, Intl.DateTimeFormat>();
+function getDateTimeFormatter(timeZone: string): Intl.DateTimeFormat {
+  let formatter = dateTimeFormatterCache.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-IN', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    });
+    dateTimeFormatterCache.set(timeZone, formatter);
+  }
+  return formatter;
+}
+
+export function formatDateTimeInAppTimezone(date: Date): string {
+  const timeZone = process.env.APP_TIMEZONE ?? 'Asia/Kolkata';
+  return getDateTimeFormatter(timeZone).format(date);
+}
+
+// Time-only variant — for messages/labels that show just a clock time,
+// not a full timestamp. Same timezone-correctness reasoning as the two
+// formatters above: `date.toLocaleTimeString('en-IN')` (no `timeZone`
+// option) uses the Node process's OS-level TZ, not this app's own
+// APP_TIMEZONE env var — the two are unrelated unless someone has also
+// set the OS environment's TZ to match, which nothing enforces. Added
+// 2026-10-28, found reviewing the error messages added earlier the same
+// day in movements.service.ts's addMissingRecord ordering check.
+const timeFormatterCache = new Map<string, Intl.DateTimeFormat>();
+function getTimeFormatter(timeZone: string): Intl.DateTimeFormat {
+  let formatter = timeFormatterCache.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-IN', { timeZone, hour: '2-digit', minute: '2-digit', hour12: true });
+    timeFormatterCache.set(timeZone, formatter);
+  }
+  return formatter;
+}
+
+export function formatTimeInAppTimezone(date: Date): string {
+  const timeZone = process.env.APP_TIMEZONE ?? 'Asia/Kolkata';
+  return getTimeFormatter(timeZone).format(date);
+}
+
 export function todayInAppTimezone(): string {
   return formatDateInAppTimezone(new Date());
 }

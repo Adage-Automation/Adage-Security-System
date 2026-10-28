@@ -69,6 +69,8 @@ Pick a date and you'll immediately see **who's missing an ENTRY or EXIT that day
 
 Once an employee is selected, their movements for that day appear in a table. Below it, an **Add Missing ENTRY**/**Add Missing EXIT**/**Add Missing Record** button appears only when something is actually missing for that day — labeled for whichever one it is, or generic when both are missing; if the day is already genuinely closed out (the same first/last-movement logic as the list above, not just "one of each type exists"), no button shows at all, since there's nothing left to add. You'll be asked for the time and an optional **reason** (made optional 2026-10-26, by request) — whatever reason you do add is stored in the audit log alongside the addition (fixed 2026-10-23 — this previously only landed on the record itself, not the Audit Log screen). The form's submit button says **Add** (not "Save") — the one inconsistent word on an otherwise all-"Add" page, fixed 2026-10-26.
 
+**The time has to actually close the gap, not just be the right type** (fixed 2026-10-28) — a missing EXIT has to be after everything already recorded that day, a missing ENTRY has to be before everything already recorded. A hint under the time field shows that boundary before you save; typing something that wouldn't actually fix the day gets rejected with a message stating the exact time it needed instead, rather than quietly adding a record that leaves the day still broken.
+
 Typing a name/code in the search box that matches nobody now says **"No matches found"**, instead of the dropdown just staying blank with no feedback either way.
 
 ## Audit log

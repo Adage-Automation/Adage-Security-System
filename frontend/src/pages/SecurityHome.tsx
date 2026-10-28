@@ -341,7 +341,6 @@ export function SecurityHome() {
   useEffect(() => {
     void refreshPendingCount();
     if (isEffectivelyOnline) void syncPending();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEffectivelyOnline, refreshPendingCount, syncPending]);
 
   // Previously only retried when the browser's online/offline events fired

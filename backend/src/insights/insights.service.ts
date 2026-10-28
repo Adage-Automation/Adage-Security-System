@@ -40,6 +40,15 @@ interface EmpDayAgg {
   // "complete" using the stale lastExit, ignoring the dangling trailing
   // entry. Found in the 2026-10 Insights review.
   lastMovementType?: 'ENTRY' | 'EXIT';
+  // The day's chronologically FIRST movement, of either type — without
+  // this, EXIT/ENTRY/EXIT (an orphan leading exit, then a real session)
+  // had `firstEntry` set to the LATER entry and `lastMovementType` 'EXIT',
+  // so isDayComplete read it as a normal closed-out day and the orphan
+  // exit at the start was invisible everywhere (not counted, not
+  // flagged). Found in the 2026-10-28 audit — same root issue as the
+  // movements.service.ts missingInRange fix the same day, just with no
+  // signal at all here instead of one flag silently winning over another.
+  firstMovementType?: 'ENTRY' | 'EXIT';
 }
 
 // Everything here is a read-only aggregation over movement_records/
@@ -235,16 +244,24 @@ export class InsightsService {
           teamBucket.longDurationDays++;
           longDurationByDate.set(agg.date, (longDurationByDate.get(agg.date) ?? 0) + 1);
         }
-      } else if (this.isMissingExit(agg)) {
-        missingExitCount++;
-        missingExitByDate.set(agg.date, (missingExitByDate.get(agg.date) ?? 0) + 1);
-      } else if (agg.lastExit && !agg.firstEntry) {
-        // An exit recorded with no entry that same calendar day — often a
-        // legitimate overnight shift crossing midnight, not necessarily a
-        // mistake, so this is a count to review, not an accusation (same
-        // framing as missing exits).
-        missingEntryCount++;
-        missingEntryByDate.set(agg.date, (missingEntryByDate.get(agg.date) ?? 0) + 1);
+      } else {
+        // Independent checks, not an else-if chain — a day can be
+        // missing both (orphan leading exit AND a still-open trailing
+        // entry), and an else-if would only ever surface one. Found in
+        // the 2026-10-28 audit, same bug class as the movements.service.ts
+        // missingInRange fix the same day.
+        if (this.isMissingExit(agg)) {
+          missingExitCount++;
+          missingExitByDate.set(agg.date, (missingExitByDate.get(agg.date) ?? 0) + 1);
+        }
+        if (this.isMissingEntry(agg)) {
+          // An exit recorded with no entry actually preceding it — often a
+          // legitimate overnight shift crossing midnight, not necessarily a
+          // mistake, so this is a count to review, not an accusation (same
+          // framing as missing exits).
+          missingEntryCount++;
+          missingEntryByDate.set(agg.date, (missingEntryByDate.get(agg.date) ?? 0) + 1);
+        }
       }
       teamHours.set(team, teamBucket);
     }
@@ -446,6 +463,7 @@ export class InsightsService {
       };
       if (m.movementType === 'ENTRY' && !agg.firstEntry) agg.firstEntry = m.movementAt;
       if (m.movementType === 'EXIT') agg.lastExit = m.movementAt;
+      if (!agg.firstMovementType) agg.firstMovementType = m.movementType;
       agg.lastMovementType = m.movementType;
       empDays.set(key, agg);
     }
@@ -456,9 +474,14 @@ export class InsightsService {
   // its last recorded movement was the exit — not merely "has an entry
   // and an exit somewhere", which would wrongly call ENTRY/EXIT/ENTRY
   // "complete" using the stale middle exit and silently ignore the
-  // trailing unresolved entry.
+  // trailing unresolved entry. `firstMovementType !== 'EXIT'` added
+  // 2026-10-28: without it, EXIT/ENTRY/EXIT (an orphan leading exit
+  // before an otherwise-normal session) also read as complete, using
+  // the later entry as `firstEntry` and hiding the orphan exit entirely.
   private isDayComplete(agg: EmpDayAgg): agg is EmpDayAgg & { firstEntry: Date; lastExit: Date } {
-    return Boolean(agg.firstEntry && agg.lastExit && agg.lastExit > agg.firstEntry && agg.lastMovementType === 'EXIT');
+    return Boolean(
+      agg.firstEntry && agg.lastExit && agg.lastExit > agg.firstEntry && agg.lastMovementType === 'EXIT' && agg.firstMovementType !== 'EXIT',
+    );
   }
 
   // Mirror of isDayComplete: an entry exists but the day didn't end on an
@@ -466,6 +489,20 @@ export class InsightsService {
   // again with nothing after".
   private isMissingExit(agg: EmpDayAgg): boolean {
     return Boolean(agg.firstEntry && agg.lastMovementType === 'ENTRY');
+  }
+
+  // An EXIT exists with no ENTRY actually preceding it — either no entry
+  // at all that day, or the day's chronologically FIRST movement was an
+  // EXIT (a later entry doesn't explain it; it's for a different,
+  // following session). Independent of isMissingExit — a day can be
+  // missing both (EXIT, ENTRY, EXIT, ENTRY: orphan exit at the start AND
+  // a still-open entry at the end), so callers must check both rather
+  // than treating them as mutually exclusive. Replaces the old inline
+  // `agg.lastExit && !agg.firstEntry`, which missed the EXIT/ENTRY/EXIT
+  // case (firstEntry gets set by the later entry). Found in the
+  // 2026-10-28 audit.
+  private isMissingEntry(agg: EmpDayAgg): boolean {
+    return agg.firstMovementType === 'EXIT';
   }
 
   private async getExpectedHours(): Promise<number> {
@@ -506,7 +543,20 @@ export class InsightsService {
   // drill-down can never disagree with the chart that opened it. Capped
   // at MAX_DRILLDOWN_ROWS per the same reasoning as every other list
   // endpoint in the app. Added 2026-10-06.
+  // Thin wrapper so every branch below's `rows.slice(0, MAX_DRILLDOWN_ROWS)`
+  // gets one shared `truncated` flag instead of threading it through each
+  // of the 8 separate return statements individually. `rows.length ===
+  // MAX_DRILLDOWN_ROWS` is a proxy (the rare case of an exact, non-
+  // truncated 500-row result would show a harmless false positive) —
+  // same accepted tradeoff as the AuditLog export's identical check.
+  // Added 2026-10-28: this was silently truncating with no indication
+  // anywhere, in the UI drill-down modal or the Excel export.
   async getDrillDown(query: DrillDownQueryDto) {
+    const result = await this.getDrillDownUncapped(query);
+    return { ...result, truncated: result.rows.length === MAX_DRILLDOWN_ROWS };
+  }
+
+  private async getDrillDownUncapped(query: DrillDownQueryDto) {
     const unitId = query.unitId ? Number(query.unitId) : undefined;
 
     if (query.metric === 'attendance' && !query.date) {
@@ -595,7 +645,7 @@ export class InsightsService {
       const empDays = [...this.buildEmployeeDayAggs(movements).values()];
       const isMissingExit = query.metric === 'missingExit';
       const rows = empDays
-        .filter((a) => (isMissingExit ? this.isMissingExit(a) : a.lastExit && !a.firstEntry))
+        .filter((a) => (isMissingExit ? this.isMissingExit(a) : this.isMissingEntry(a)))
         .map((a) => ({
           employeeId: a.employeeId,
           employeeName: a.employeeName,
@@ -809,14 +859,6 @@ export class InsightsService {
       list.push({ name: namesById.get(empId)!, hours: Math.round(exact * 10) / 10 });
       bucketEmployees.set(quarterHourSlot, list);
     }
-    const slotKeys = [...bucketEmployees.keys()];
-    const minSlot = slotKeys.length > 0 ? Math.min(...slotKeys) : 0;
-    const maxSlot = slotKeys.length > 0 ? Math.max(...slotKeys) : 0;
-    const durationDistribution: Array<{ hours: number; count: number; employees: Array<{ name: string; hours: number }> }> = [];
-    for (let slot = minSlot; slot <= maxSlot; slot++) {
-      const employees = (bucketEmployees.get(slot) ?? []).sort((a, b) => a.name.localeCompare(b.name));
-      durationDistribution.push({ hours: Math.round((slot / 4) * 100) / 100, count: employees.length, employees });
-    }
     // Computed from `empDays` (this employee's own aggregates, already
     // fetched above with no active/inactive filter) rather than read out
     // of hoursByEmployee — that map is deliberately active-only, since
@@ -834,12 +876,29 @@ export class InsightsService {
       employeeHoursCount++;
     }
     const employeeAvgHours = employeeHoursCount > 0 ? Math.round((employeeHoursSum / employeeHoursCount) * 10) / 10 : null;
-    // Which exact durationDistribution bucket this employee landed in —
-    // computed with the identical formula used to build the histogram
-    // above, not re-derived from the already-rounded employeeAvgHours
-    // (1-decimal) on the frontend, which could land on a different
-    // quarter-hour bucket than the real one at a rounding boundary.
-    const employeeDurationBucket = employeeHoursCount > 0 ? Math.round((employeeHoursSum / employeeHoursCount) * 4) / 4 : null;
+    // Which exact quarter-hour slot this employee landed in — same
+    // formula as the histogram's own bucket keys above, not re-derived
+    // from the already-rounded employeeAvgHours (1-decimal) on the
+    // frontend, which could land on a different quarter-hour bucket than
+    // the real one at a rounding boundary.
+    const employeeSlot = employeeHoursCount > 0 ? Math.round((employeeHoursSum / employeeHoursCount) * 4) : null;
+    const employeeDurationBucket = employeeSlot !== null ? employeeSlot / 4 : null;
+
+    const slotKeys = [...bucketEmployees.keys(), ...(employeeSlot !== null ? [employeeSlot] : [])];
+    // Extended to include employeeSlot — this employee can be inactive
+    // (reachable via Team Breakdown's drill-down, which has no isActive
+    // filter) and fall outside the active roster's own min/max bucket
+    // (e.g. someone who left after only a few short days). Previously the
+    // histogram only spanned the active population's range, so the caption
+    // below claimed a highlighted point that the chart never actually
+    // drew. Found in the 2026-10-28 audit.
+    const minSlot = slotKeys.length > 0 ? Math.min(...slotKeys) : 0;
+    const maxSlot = slotKeys.length > 0 ? Math.max(...slotKeys) : 0;
+    const durationDistribution: Array<{ hours: number; count: number; employees: Array<{ name: string; hours: number }> }> = [];
+    for (let slot = minSlot; slot <= maxSlot; slot++) {
+      const employees = (bucketEmployees.get(slot) ?? []).sort((a, b) => a.name.localeCompare(b.name));
+      durationDistribution.push({ hours: Math.round((slot / 4) * 100) / 100, count: employees.length, employees });
+    }
 
     return {
       employee,
@@ -896,13 +955,21 @@ export class InsightsService {
     const rows = empDays
       .map((agg) => {
         const complete = this.isDayComplete(agg);
+        const missingExit = !complete && this.isMissingExit(agg);
+        const missingEntry = !complete && this.isMissingEntry(agg);
+        // 'missingBoth' added 2026-10-28 — an orphan leading exit AND a
+        // still-open trailing entry are independent, not mutually
+        // exclusive (same bug class as Corrections.tsx's missing-movement
+        // pills); this single status column needs a value for both at
+        // once rather than silently picking one.
+        const status = complete ? 'complete' : missingExit && missingEntry ? 'missingBoth' : missingExit ? 'missingExit' : 'missingEntry';
         return {
           employeeId: agg.employeeId,
           employeeName: agg.employeeName,
           employeeCode: agg.employeeCode,
           team: agg.team,
           hours: complete ? Math.round(this.durationHours(agg.firstEntry!, agg.lastExit!) * 10) / 10 : null,
-          status: complete ? ('complete' as const) : this.isMissingExit(agg) ? ('missingExit' as const) : ('missingEntry' as const),
+          status: status as 'complete' | 'missingExit' | 'missingEntry' | 'missingBoth',
         };
       })
       .sort((a, b) => a.employeeName.localeCompare(b.employeeName));
@@ -937,7 +1004,8 @@ export class InsightsService {
     const data: any = await this.getDrillDown(query);
     const columns = this.drillDownColumns(data.metric);
     const rows = data.rows.map((r: any) => this.formatDrillDownRow(data.metric, r));
-    return this.buildExcelBuffer(`${data.metric} drill-down`.slice(0, 31), columns, rows);
+    const warning = data.truncated ? `Showing the first ${MAX_DRILLDOWN_ROWS} rows — narrow the date range or team/unit filter to see the rest.` : undefined;
+    return this.buildExcelBuffer(`${data.metric} drill-down`.slice(0, 31), columns, rows, warning);
   }
 
   async exportTeamBreakdown(query: InsightsQueryDto): Promise<Buffer> {
@@ -967,7 +1035,7 @@ export class InsightsService {
       ...r,
       team: r.team ?? 'Unassigned',
       hours: r.hours ?? '',
-      status: r.status === 'complete' ? 'Complete' : r.status === 'missingExit' ? 'Missing Exit' : 'Missing Entry',
+      status: r.status === 'complete' ? 'Complete' : r.status === 'missingExit' ? 'Missing Exit' : r.status === 'missingBoth' ? 'Missing Both' : 'Missing Entry',
     }));
     return this.buildExcelBuffer('Daily Duration', columns, formatted);
   }
@@ -1055,12 +1123,22 @@ export class InsightsService {
     }
   }
 
-  private async buildExcelBuffer(sheetName: string, columns: Array<{ header: string; key: string; width: number }>, rows: any[]): Promise<Buffer> {
+  private async buildExcelBuffer(sheetName: string, columns: Array<{ header: string; key: string; width: number }>, rows: any[], warning?: string): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet(sheetName);
     sheet.columns = columns;
     styleHeaderRow(sheet);
     for (const row of rows) sheet.addRow(row);
+    if (warning) {
+      sheet.addRow({});
+      const warningRow = sheet.addRow({ [columns[0].key]: warning });
+      // Merged + filled across every column (not just italic text in col 1)
+      // so this reads as a system notice to whoever opens the file rather
+      // than a stray data row. Found in the 2026-10-28 audit.
+      sheet.mergeCells(warningRow.number, 1, warningRow.number, columns.length);
+      warningRow.font = { italic: true, color: { argb: 'FFB45309' } };
+      warningRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+    }
     return workbookToBuffer(workbook);
   }
 

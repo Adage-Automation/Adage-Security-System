@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import ExcelJS from 'exceljs';
 import { PrismaService } from '../prisma/prisma.service';
-import { dayRange } from '../common/utils/day-range';
+import { dayRange, formatDateTimeInAppTimezone } from '../common/utils/day-range';
 import { styleHeaderRow, workbookToBuffer } from '../common/utils/excel';
 
 interface RecordAuditLogInput {
@@ -160,10 +160,11 @@ export class AuditLogService {
   // still bounded — an unbounded export is its own resource-exhaustion
   // risk on a long-lived production log.
   async exportToExcel(params: { entityType?: string; entityId?: number; userId?: number; from?: string; to?: string; q?: string }): Promise<Buffer> {
+    const EXPORT_CAP = 5000;
     const rows = await this.prisma.auditLog.findMany({
       where: this.buildWhere(params),
       orderBy: { createdAt: 'desc' },
-      take: 5000,
+      take: EXPORT_CAP,
       include: { user: { select: { id: true, name: true } } },
     });
 
@@ -180,12 +181,35 @@ export class AuditLogService {
 
     for (const row of rows) {
       sheet.addRow({
-        time: row.createdAt.toISOString(),
+        // Was row.createdAt.toISOString() — raw UTC, while the same row
+        // on screen renders via toLocaleString('en-IN') (browser-local,
+        // effectively IST). A 2am IST row exported 5h30m off and on the
+        // previous calendar date. Found in the 2026-10-28 audit.
+        time: formatDateTimeInAppTimezone(row.createdAt),
         action: row.action,
         entity: row.entityType ? `${row.entityType}${row.entityId ? ` #${row.entityId}` : ''}` : '',
         performedBy: row.user?.name ?? '',
         ipAddress: row.ipAddress ?? '',
       });
+    }
+
+    // The cap above is deliberate (an unbounded export is its own
+    // resource-exhaustion risk), but nothing told the admin it was hit —
+    // an unfiltered export past this many rows silently handed back only
+    // the newest ones in a file that looks complete. Found in the
+    // 2026-10-28 audit.
+    if (rows.length === EXPORT_CAP) {
+      sheet.addRow({ time: '', action: '', entity: '', performedBy: '', ipAddress: '' });
+      const warningRow = sheet.addRow({
+        time: `Export capped at ${EXPORT_CAP} rows — narrow the filters (date range, entity, user) to see older entries.`,
+      });
+      // Merged + filled across every column (not just italic text in col 1)
+      // so this reads as a system notice to whoever opens the file — an
+      // admin, a client, an auditor — rather than a stray data row.
+      // Found in the 2026-10-28 audit.
+      sheet.mergeCells(warningRow.number, 1, warningRow.number, sheet.columns.length);
+      warningRow.font = { italic: true, color: { argb: 'FFB45309' } };
+      warningRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
     }
 
     return workbookToBuffer(workbook);

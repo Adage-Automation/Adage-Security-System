@@ -64,7 +64,9 @@ interface DailyDurationRow {
   employeeCode: string;
   team: string | null;
   hours: number | null;
-  status: 'complete' | 'missingExit' | 'missingEntry';
+  // 'missingBoth' — an orphan leading exit AND a still-open trailing
+  // entry are independent, not mutually exclusive. Added 2026-10-28.
+  status: 'complete' | 'missingExit' | 'missingEntry' | 'missingBoth';
 }
 
 // Deliberately not "absent" — see getDailyDuration's comment on the
@@ -105,6 +107,10 @@ interface DrillDownState {
   // The exact params it was opened with, reused verbatim to build the
   // export URL so the download can never disagree with what's on screen.
   params: Record<string, string>;
+  // Backend hit its row cap (500) and silently dropped the rest — surfaced
+  // here instead of nowhere, matching the same warning the Excel export
+  // now shows. Found in the 2026-10-28 audit.
+  truncated?: boolean;
 }
 
 interface DrillDownIntent {
@@ -503,10 +509,10 @@ export function Insights() {
     setDrillDown({ metric, title, date: params.date, params, rows: [], loading: true, error: null });
     const qp = new URLSearchParams({ metric, ...params });
     api
-      .get<{ rows: any[] }>(`/insights/drill-down?${qp.toString()}`)
+      .get<{ rows: any[]; truncated?: boolean }>(`/insights/drill-down?${qp.toString()}`)
       .then((res) => {
         if (seq !== drillDownSeqRef.current) return;
-        setDrillDown({ metric, title, date: params.date, params, rows: res.rows, loading: false, error: null });
+        setDrillDown({ metric, title, date: params.date, params, rows: res.rows, loading: false, error: null, truncated: res.truncated });
       })
       .catch((err: any) => {
         if (seq !== drillDownSeqRef.current) return;
@@ -549,7 +555,6 @@ export function Insights() {
   useEffect(() => {
     const saved = loadSessionState<DrillDownIntent | null>(DRILLDOWN_KEY, null);
     if (saved) openDrillDown(saved.metric, saved.params, saved.title);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // movementType/dayScope are harmless to pass to every metric — the
@@ -2106,7 +2111,9 @@ export function Insights() {
                               {r.status === 'complete' ? (
                                 'Complete'
                               ) : (
-                                <span style={{ color: EXIT_RED, fontWeight: 600 }}>{r.status === 'missingExit' ? 'Missing Exit' : 'Missing Entry'}</span>
+                                <span style={{ color: EXIT_RED, fontWeight: 600 }}>
+                                  {r.status === 'missingExit' ? 'Missing Exit' : r.status === 'missingBoth' ? 'Missing Both' : 'Missing Entry'}
+                                </span>
                               )}
                             </td>
                           </tr>
@@ -2236,6 +2243,16 @@ export function Insights() {
 
             {!drillDown.loading && !drillDown.error && drillDown.rows.length > 0 && (
               <>
+                {/* The backend caps this at 500 rows with no pagination
+                    affordance here (unlike a paginated list's Load More) —
+                    without this, a large range/team's drill-down looked
+                    complete when it silently wasn't. Found in the
+                    2026-10-28 audit. */}
+                {drillDown.truncated && (
+                  <div className="status-banner pending" style={{ marginBottom: 10 }}>
+                    Showing the first 500 rows — narrow the date range or team/unit filter to see the rest.
+                  </div>
+                )}
                 {drillDown.rows.length > 8 && (
                   <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
                     <div className="field" style={{ position: 'relative', flex: 1, minWidth: 160, margin: 0 }}>
