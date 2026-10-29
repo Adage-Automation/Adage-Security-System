@@ -22,7 +22,7 @@ interface MovementRow {
   movementAt: Date;
   recordedByUserId: number;
   employee: { team: string | null; employeeName: string; employeeCode: string } | null;
-  recordedBy: { id: number; name: string; username: string } | null;
+  recordedBy: { id: number; name: string; username: string; role: { name: string } } | null;
 }
 
 interface EmpDayAgg {
@@ -164,14 +164,22 @@ export class InsightsService {
         else bucket.exits++;
         attendanceByDate.set(date, bucket);
 
-        const unitBucket = unitTally.get(m.recordedByUserId) ?? {
-          unitName: m.recordedBy?.name ?? m.recordedBy?.username ?? `User #${m.recordedByUserId}`,
-          entries: 0,
-          exits: 0,
-        };
-        if (m.movementType === 'ENTRY') unitBucket.entries++;
-        else unitBucket.exits++;
-        unitTally.set(m.recordedByUserId, unitBucket);
+        // "Unit" means a gate account (Security 1/2) — an Admin/HR user who
+        // recorded a movement (e.g. adding a missing record via
+        // Corrections) isn't a unit and shouldn't appear in this list
+        // alongside them. The movement itself still counts in every other
+        // tally above/below; only the Unit dropdown and this chart skip it.
+        // Found in the 2026-10-29 audit.
+        if (m.recordedBy?.role?.name === 'SECURITY') {
+          const unitBucket = unitTally.get(m.recordedByUserId) ?? {
+            unitName: m.recordedBy?.name ?? m.recordedBy?.username ?? `User #${m.recordedByUserId}`,
+            entries: 0,
+            exits: 0,
+          };
+          if (m.movementType === 'ENTRY') unitBucket.entries++;
+          else unitBucket.exits++;
+          unitTally.set(m.recordedByUserId, unitBucket);
+        }
 
         const team = m.employee?.team ?? 'Unassigned';
         const teamBucket = teamEntryExit.get(team) ?? { entries: 0, exits: 0 };
@@ -420,7 +428,7 @@ export class InsightsService {
         movementAt: true,
         recordedByUserId: true,
         employee: { select: { team: true, employeeName: true, employeeCode: true } },
-        recordedBy: { select: { id: true, name: true, username: true } },
+        recordedBy: { select: { id: true, name: true, username: true, role: { select: { name: true } } } },
       },
       // `id` as a secondary key — buildEmployeeDayAggs below reads this
       // result's first/last movement per employee-day to decide

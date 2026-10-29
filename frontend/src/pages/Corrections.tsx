@@ -8,6 +8,8 @@ import { OfflineBadge } from '../components/OfflineBadge';
 import { AddedBadge } from '../components/AddedBadge';
 import { todayIso, isoDaysAgo, attendanceMonthRange, formatTime, localDateFromIso } from '../utils/date';
 import { useFocusTrap } from '../hooks/useFocusTrap';
+import { Th } from '../components/SortableTh';
+import { toggleSort, sortRows, SortState } from '../utils/sort';
 
 function initials(name: string): string {
   return name
@@ -145,8 +147,14 @@ export function Corrections() {
       if (g) g.rows.push(row);
       else map.set(row.employeeId, { employeeName: row.employeeName, employeeCode: row.employeeCode, team: row.team, rows: [row] });
     }
-    return [...map.values()];
+    // missingCount as its own field, not just `rows.length` read inline at
+    // render time — sortRows compares `row[sort.key]` directly, so the sort
+    // key needs to be a real property on the object. Added with the
+    // Employee/Team/Missing headers becoming sortable, 2026-10-29.
+    return [...map.values()].map((g) => ({ ...g, missingCount: g.rows.length }));
   }, [missingRows]);
+
+  const [missingSort, setMissingSort] = useState<SortState>(null);
 
   // Searching for a specific employee while Attendance Month is active
   // used to still only show their single pinned `date` field's one day of
@@ -334,8 +342,19 @@ export function Corrections() {
         setDropdownOpen(false);
       }
     };
+    // A keyboard user could open this dropdown but had no way to close it
+    // short of clicking elsewhere or tabbing through every result — every
+    // custom dropdown in the app had the same gap. Found in the 2026-10-29
+    // dropdown audit.
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setDropdownOpen(false);
+    };
     document.addEventListener('mousedown', closeIfOutside);
-    return () => document.removeEventListener('mousedown', closeIfOutside);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeIfOutside);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
   }, [dropdownOpen]);
 
   // Shared between the table and card layouts below, so the pill markup
@@ -758,13 +777,13 @@ export function Corrections() {
               <table className="records-table">
                 <thead>
                   <tr>
-                    <th>Employee</th>
-                    <th>Team</th>
-                    <th>Missing</th>
+                    <Th label="Employee" sortKey="employeeName" sort={missingSort} onSort={(key) => setMissingSort((p) => toggleSort(p, key))} />
+                    <Th label="Team" sortKey="team" sort={missingSort} onSort={(key) => setMissingSort((p) => toggleSort(p, key))} />
+                    <Th label="Missing" sortKey="missingCount" sort={missingSort} onSort={(key) => setMissingSort((p) => toggleSort(p, key))} />
                   </tr>
                 </thead>
                 <tbody>
-                  {groupedMissingRows.map((g) => (
+                  {sortRows(groupedMissingRows, missingSort).map((g) => (
                     <tr key={g.employeeCode}>
                       <td>
                         {g.employeeName} <span style={{ color: 'var(--text-muted)' }}>({g.employeeCode})</span>
@@ -786,7 +805,7 @@ export function Corrections() {
               serves, is the role most likely to be on a phone here. */}
           {!missingLoading && groupedMissingRows.length > 0 && (
             <div className="record-cards">
-              {groupedMissingRows.map((g) => (
+              {sortRows(groupedMissingRows, missingSort).map((g) => (
                 <div className="record-card" key={g.employeeCode} style={{ flexDirection: 'column', alignItems: 'stretch' }}>
                   <div>
                     {g.employeeName} <span style={{ color: 'var(--text-muted)' }}>({g.employeeCode})</span>

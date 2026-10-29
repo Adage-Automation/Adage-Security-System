@@ -179,7 +179,7 @@ HR/Admin-only (`VIEW_REPORTS`, not held by Security) — aggregated, read-only a
   hoursLongDuration: { longDurationDays, totalEmployeeDays, threshold, trend: [{ date, longDurationCount }] },
   missingExits: { count, trend: [{ date, count, missingEntryCount }] },
   hourlyDistribution: [{ hour, entries, exits }],
-  unitActivity: [{ unitId, unitName, entries, exits }],   // sorted alphabetically by unitName, not insertion order
+  unitActivity: [{ unitId, unitName, entries, exits }],   // sorted alphabetically by unitName, not insertion order — SECURITY-role recordedBy only (fixed 2026-10-29; an Admin/HR user who recorded a movement, e.g. via Corrections, used to show up here as a fake "unit")
   teamBreakdown: [{ team, entries, exits, employeeCount, employeeDays, daysWithHoursTracked, avgHours, medianHours, shortfallDays, longDurationDays }],
 }
 ```

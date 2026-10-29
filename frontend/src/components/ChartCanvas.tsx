@@ -2,6 +2,10 @@ import { useEffect, useRef } from 'react';
 import { Chart, ChartConfiguration, registerables } from 'chart.js';
 
 Chart.register(...registerables);
+// Charts otherwise render axis/legend/tooltip text in the browser default
+// sans-serif instead of the 'Inter' every other label in the app uses —
+// visible side-by-side with any page heading. Found in the 2026-10-29 audit.
+Chart.defaults.font.family = "'Inter', 'Segoe UI', Arial, sans-serif";
 
 // Recursively rebuilds `value` with every function replaced by a wrapper
 // that looks up the same path in `configRef.current.options` at call time

@@ -8,7 +8,7 @@ function movement(overrides: Partial<Record<string, any>> = {}) {
     movementAt: new Date('2026-10-01T04:00:00.000Z'), // ~09:30 IST
     recordedByUserId: 10,
     employee: { team: 'Testing', employeeName: 'Asha Rao', employeeCode: 'EMP001' },
-    recordedBy: { id: 10, name: 'Security Unit 1', username: 'securityunit1' },
+    recordedBy: { id: 10, name: 'Security Unit 1', username: 'securityunit1', role: { name: 'SECURITY' } },
     ...overrides,
   };
 }
@@ -186,8 +186,8 @@ describe('InsightsService.getSummary', () => {
 
   it('groups activity by recordedByUserId (unit) and by employee.team', async () => {
     prisma.movementRecord.findMany.mockResolvedValue([
-      movement({ employeeId: 1, recordedByUserId: 10, recordedBy: { id: 10, name: 'Security Unit 1', username: 'securityunit1' }, employee: { team: 'Testing' } }),
-      movement({ employeeId: 2, recordedByUserId: 11, recordedBy: { id: 11, name: 'Security Unit 2', username: 'securityunit2' }, employee: { team: 'Admin' } }),
+      movement({ employeeId: 1, recordedByUserId: 10, recordedBy: { id: 10, name: 'Security Unit 1', username: 'securityunit1', role: { name: 'SECURITY' } }, employee: { team: 'Testing' } }),
+      movement({ employeeId: 2, recordedByUserId: 11, recordedBy: { id: 11, name: 'Security Unit 2', username: 'securityunit2', role: { name: 'SECURITY' } }, employee: { team: 'Admin' } }),
     ]);
 
     const result = await service.getSummary({ from: '2026-10-01', to: '2026-10-01' });
@@ -200,6 +200,25 @@ describe('InsightsService.getSummary', () => {
     );
     const teams = result.teamBreakdown.map((t) => t.team).sort();
     expect(teams).toEqual(['Admin', 'Testing']);
+  });
+
+  // An Admin/HR user recording a movement (e.g. adding a missing record via
+  // Corrections) shouldn't appear in the Unit dropdown/chart alongside the
+  // actual gate accounts (Security 1/2) — "unit" means a physical gate
+  // account, not whoever happened to touch the record. Found 2026-10-29.
+  it('excludes a non-SECURITY recordedBy from unitActivity', async () => {
+    prisma.movementRecord.findMany.mockResolvedValue([
+      movement({ employeeId: 1, recordedByUserId: 10 }),
+      movement({
+        employeeId: 2,
+        recordedByUserId: 99,
+        recordedBy: { id: 99, name: 'Priya Admin', username: 'priya.admin', role: { name: 'ADMIN' } },
+      }),
+    ]);
+
+    const result = await service.getSummary({ from: '2026-10-01', to: '2026-10-01' });
+
+    expect(result.unitActivity).toEqual([{ unitId: 10, unitName: 'Security Unit 1', entries: 1, exits: 0 }]);
   });
 
   it('falls back to an employee with no team as "Unassigned"', async () => {

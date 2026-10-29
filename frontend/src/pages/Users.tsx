@@ -6,6 +6,8 @@ import { PasswordInput } from '../components/PasswordInput';
 import { TableSkeleton } from '../components/TableSkeleton';
 import { useAuth } from '../auth/useAuth';
 import { useFocusTrap } from '../hooks/useFocusTrap';
+import { Th } from '../components/SortableTh';
+import { toggleSort, sortRows, SortState } from '../utils/sort';
 
 interface UserRow {
   id: number;
@@ -223,17 +225,28 @@ export function Users() {
     }
   }
 
+  const [sort, setSort] = useState<SortState>(null);
+
   const filteredUsers = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return users;
-    return users.filter(
-      (u) =>
-        u.name.toLowerCase().includes(q) ||
-        u.username.toLowerCase().includes(q) ||
-        u.email.toLowerCase().includes(q) ||
-        u.role.name.toLowerCase().includes(q),
+    const matching = !q
+      ? users
+      : users.filter(
+          (u) =>
+            u.name.toLowerCase().includes(q) ||
+            u.username.toLowerCase().includes(q) ||
+            u.email.toLowerCase().includes(q) ||
+            u.role.name.toLowerCase().includes(q),
+        );
+    // `role` is a nested object — sortRows compares `row[sort.key]`
+    // directly, so a flat `roleName` is needed for the Role column to sort
+    // on (sorting by the raw object would compare "[object Object]" for
+    // every row). Added with sortable headers, 2026-10-29.
+    return sortRows(
+      matching.map((u) => ({ ...u, roleName: u.role.name })),
+      sort,
     );
-  }, [users, query]);
+  }, [users, query, sort]);
 
   return (
     <div className="page-wide">
@@ -323,14 +336,15 @@ export function Users() {
       {loading && users.length === 0 && <TableSkeleton columns={6} />}
 
       {filteredUsers.length > 0 && (
+        <div className="sticky-head-scroll">
         <table className="records-table">
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Username</th>
-              <th>Email</th>
-              <th>Role</th>
-              <th>Status</th>
+              <Th label="Name" sortKey="name" sort={sort} onSort={(key) => setSort((p) => toggleSort(p, key))} />
+              <Th label="Username" sortKey="username" sort={sort} onSort={(key) => setSort((p) => toggleSort(p, key))} />
+              <Th label="Email" sortKey="email" sort={sort} onSort={(key) => setSort((p) => toggleSort(p, key))} />
+              <Th label="Role" sortKey="roleName" sort={sort} onSort={(key) => setSort((p) => toggleSort(p, key))} />
+              <Th label="Status" sortKey="isActive" sort={sort} onSort={(key) => setSort((p) => toggleSort(p, key))} />
               <th></th>
             </tr>
           </thead>
@@ -361,6 +375,7 @@ export function Users() {
             ))}
           </tbody>
         </table>
+        </div>
       )}
 
       {filteredUsers.length > 0 && (

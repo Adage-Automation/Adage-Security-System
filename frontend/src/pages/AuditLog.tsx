@@ -235,6 +235,7 @@ export function AuditLog() {
 
       {rows.length > 0 && (
         <>
+          <div className="sticky-head-scroll">
           <table className="records-table">
             <thead>
               <tr>
@@ -261,6 +262,7 @@ export function AuditLog() {
               ))}
             </tbody>
           </table>
+          </div>
 
           <div className="record-cards">
             {rows.map((row) => (

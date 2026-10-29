@@ -64,6 +64,7 @@ export function SecurityHome() {
   const [pendingCount, setPendingCount] = useState(0);
   const [conflictCount, setConflictCount] = useState(0);
   const [conflicts, setConflicts] = useState<Awaited<ReturnType<typeof listPendingMovements>>>([]);
+  const [resolvingConflictIds, setResolvingConflictIds] = useState<Set<string>>(new Set());
   const [confirmDialog, setConfirmDialog] = useState<{ movementType: MovementType; lastType: MovementType; lastMovementAt?: string } | null>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   // navigator.onLine only tells us the link is up, not that the server is
@@ -311,9 +312,11 @@ export function SecurityHome() {
   }, [refreshPendingCount, user]);
 
   async function resolveConflict(localId: string) {
+    if (resolvingConflictIds.has(localId)) return;
     const item = conflicts.find((candidate) => candidate.localId === localId);
     if (!item) return;
 
+    setResolvingConflictIds((prev) => new Set(prev).add(localId));
     try {
       const result = await api.post<CreateMovementResponse>('/movements', {
         employeeId: item.employeeId,
@@ -326,15 +329,28 @@ export function SecurityHome() {
       await refreshPendingCount();
     } catch {
       setStatus({ kind: 'error', message: 'Unable to resolve this offline conflict. It remains queued.' });
+    } finally {
+      setResolvingConflictIds((prev) => {
+        const next = new Set(prev);
+        next.delete(localId);
+        return next;
+      });
     }
   }
 
   async function dismissConflict(localId: string) {
+    if (resolvingConflictIds.has(localId)) return;
+    setResolvingConflictIds((prev) => new Set(prev).add(localId));
     try {
       await removePendingMovement(localId);
       await refreshPendingCount();
     } catch {
       setStatus({ kind: 'error', message: 'Unable to dismiss this offline conflict. Please try again.' });
+      setResolvingConflictIds((prev) => {
+        const next = new Set(prev);
+        next.delete(localId);
+        return next;
+      });
     }
   }
 
@@ -383,8 +399,19 @@ export function SecurityHome() {
         setDropdownOpen(false);
       }
     };
+    // A keyboard user could open this dropdown but had no way to close it
+    // short of clicking elsewhere or tabbing through every result — every
+    // custom dropdown in the app had the same gap. Found in the 2026-10-29
+    // dropdown audit.
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setDropdownOpen(false);
+    };
     document.addEventListener('mousedown', closeIfOutside);
-    return () => document.removeEventListener('mousedown', closeIfOutside);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeIfOutside);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
   }, [dropdownOpen]);
 
   useFocusTrap(!!confirmDialog, confirmDialogRef, confirmButtonRef, () => setConfirmDialog(null));
@@ -556,10 +583,22 @@ export function SecurityHome() {
                 {item.employeeName} · {item.movementType}
                 {item.conflictReason ? ` — ${item.conflictReason}` : ''}
               </span>
-              <button type="button" className="table-action-btn" onClick={() => void resolveConflict(item.localId)}>
+              <button
+                type="button"
+                className="table-action-btn"
+                onClick={() => void resolveConflict(item.localId)}
+                disabled={resolvingConflictIds.has(item.localId)}
+              >
+                {resolvingConflictIds.has(item.localId) && <span className="spinner" />}
                 Record anyway
               </button>
-              <button type="button" className="table-action-btn" onClick={() => void dismissConflict(item.localId)}>
+              <button
+                type="button"
+                className="table-action-btn"
+                onClick={() => void dismissConflict(item.localId)}
+                disabled={resolvingConflictIds.has(item.localId)}
+              >
+                {resolvingConflictIds.has(item.localId) && <span className="spinner" />}
                 Dismiss
               </button>
             </div>

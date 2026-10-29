@@ -53,6 +53,7 @@ export function Employees() {
   const [creating, setCreating] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [downloadingTemplate, setDownloadingTemplate] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [togglingId, setTogglingId] = useState<number | null>(null);
   // Collapsed by default — the far more common action on this page is
@@ -320,6 +321,7 @@ export function Employees() {
   }
 
   async function handleDownloadTemplate() {
+    setDownloadingTemplate(true);
     setError(null);
     try {
       const res = await fetch('/api/employees/import-template', { credentials: 'include' });
@@ -338,6 +340,8 @@ export function Employees() {
       URL.revokeObjectURL(url);
     } catch (err: any) {
       setError(err?.message ?? 'Failed to download import template.');
+    } finally {
+      setDownloadingTemplate(false);
     }
   }
 
@@ -386,9 +390,10 @@ export function Employees() {
             <IconPlus style={{ width: 16, height: 16 }} />
             {addFormOpen ? 'Hide Add Employee' : 'Add Employee'}
           </button>
-          <button type="button" className="table-action-btn" onClick={handleDownloadTemplate} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button type="button" className="table-action-btn" onClick={handleDownloadTemplate} disabled={downloadingTemplate} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {downloadingTemplate && <span className="spinner" />}
             <IconDownload style={{ width: 16, height: 16 }} />
-            Download Import Template
+            {downloadingTemplate ? 'Downloading…' : 'Download Import Template'}
           </button>
           <button
             type="button"

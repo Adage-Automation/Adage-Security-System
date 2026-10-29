@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { Employee, MovementRecord, MovementType } from '../types';
@@ -14,6 +14,8 @@ import { useAuth } from '../auth/useAuth';
 import { useScrollRestoration } from '../hooks/useScrollRestoration';
 import { saveSessionState, loadSessionState } from '../utils/sessionState';
 import { todayIso, isoDaysAgo, formatTime } from '../utils/date';
+import { Th } from '../components/SortableTh';
+import { toggleSort, sortRows, SortState } from '../utils/sort';
 
 type SummaryCardKind = 'employees' | 'entries' | 'exits' | 'inside';
 
@@ -69,6 +71,11 @@ export function Dashboard() {
   const [date, setDate] = useState(restoredFilters.date);
   const [employeeQuery, setEmployeeQuery] = useState('');
   const [employeeResults, setEmployeeResults] = useState<Employee[]>([]);
+  // Missing from this dropdown's original build — SecurityHome's and
+  // Corrections' own employee-search dropdowns both show a loading state
+  // and "No matches found.", but this one just sat silently empty either
+  // way. Found in the 2026-10-29 dropdown audit.
+  const [employeeSearchLoading, setEmployeeSearchLoading] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(restoredFilters.selectedEmployee);
   const [movementType, setMovementType] = useState<'' | MovementType>(restoredFilters.movementType);
   // "Recorded By" filter — lets HR/Security filter the table down to just
@@ -110,8 +117,21 @@ export function Dashboard() {
   // for a backend/API change just to cap how many rows render at once.
   const PAGE_SIZE = 25;
   const [page, setPage] = useState(1);
-  const pageCount = Math.max(1, Math.ceil(records.length / PAGE_SIZE));
-  const pagedRecords = records.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const [sort, setSort] = useState<SortState>(null);
+  // `employee`/`recordedBy` are nested objects — sortRows compares
+  // `row[sort.key]` directly, so flat name fields are needed for the
+  // Employee/Recorded By columns to sort on. Added with sortable headers,
+  // 2026-10-29.
+  const sortedRecords = useMemo(
+    () =>
+      sortRows(
+        records.map((r) => ({ ...r, employeeName: r.employee?.employeeName ?? '', recordedByName: r.recordedBy?.name ?? '' })),
+        sort,
+      ),
+    [records, sort],
+  );
+  const pageCount = Math.max(1, Math.ceil(sortedRecords.length / PAGE_SIZE));
+  const pagedRecords = sortedRecords.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   // Clamp if a poll shrinks the list (e.g. a correction removed a row)
   // while on a now out-of-range page, instead of showing a blank page.
@@ -292,6 +312,7 @@ export function Dashboard() {
 
   const fetchEmployeeResults = useCallback((q: string) => {
     const seq = ++employeeSearchSeqRef.current;
+    setEmployeeSearchLoading(true);
     // search-all (not search) — HR needs to find a former/deactivated
     // employee here too, e.g. a dispute over a leave application that
     // surfaces after they've left. Found missing in the 2026-10-27 audit.
@@ -302,6 +323,9 @@ export function Dashboard() {
       })
       .catch(() => {
         if (seq === employeeSearchSeqRef.current) setEmployeeResults([]);
+      })
+      .finally(() => {
+        if (seq === employeeSearchSeqRef.current) setEmployeeSearchLoading(false);
       });
   }, []);
 
@@ -317,8 +341,19 @@ export function Dashboard() {
         setDropdownOpen(false);
       }
     };
+    // A keyboard user could open this dropdown but had no way to close it
+    // short of clicking elsewhere or tabbing through every result — every
+    // custom dropdown in the app had the same gap. Found in the 2026-10-29
+    // dropdown audit.
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setDropdownOpen(false);
+    };
     document.addEventListener('mousedown', closeIfOutside);
-    return () => document.removeEventListener('mousedown', closeIfOutside);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeIfOutside);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
   }, [dropdownOpen]);
 
   return (
@@ -479,6 +514,11 @@ export function Dashboard() {
                   <IconX />
                 </button>
               )}
+              {dropdownOpen && !employeeSearchLoading && employeeQuery.trim() !== '' && employeeResults.length === 0 && (
+                <div className="search-results">
+                  <div className="search-empty">No matches found.</div>
+                </div>
+              )}
               {dropdownOpen && employeeResults.length > 0 && (
                 <div className="search-results">
                   {employeeResults.map((emp) => (
@@ -557,14 +597,15 @@ export function Dashboard() {
 
       {!recordsLoading && records.length > 0 && (
         <>
+          <div className="sticky-head-scroll">
           <table className="records-table">
             <thead>
               <tr>
-                <th>Employee</th>
-                <th>Date</th>
-                <th>Time</th>
-                <th>Movement</th>
-                <th>Recorded By</th>
+                <Th label="Employee" sortKey="employeeName" sort={sort} onSort={(key) => setSort((p) => toggleSort(p, key))} />
+                <Th label="Date" sortKey="movementAt" sort={sort} onSort={(key) => setSort((p) => toggleSort(p, key))} />
+                <Th label="Time" sortKey="movementAt" sort={sort} onSort={(key) => setSort((p) => toggleSort(p, key))} />
+                <Th label="Movement" sortKey="movementType" sort={sort} onSort={(key) => setSort((p) => toggleSort(p, key))} />
+                <Th label="Recorded By" sortKey="recordedByName" sort={sort} onSort={(key) => setSort((p) => toggleSort(p, key))} />
               </tr>
             </thead>
             <tbody>
@@ -585,6 +626,7 @@ export function Dashboard() {
               ))}
             </tbody>
           </table>
+          </div>
 
           <div className="record-cards">
             {pagedRecords.map((r) => (

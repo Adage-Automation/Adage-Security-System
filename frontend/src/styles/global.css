@@ -23,6 +23,11 @@
   --radius-sm: 10px;
   --radius-md: 14px;
   --radius-lg: 20px;
+
+  /* iOS-style overshoot spring — used for press-release and pop-in
+     feedback so interactions feel alive instead of just linear-fading.
+     Found/added in the 2026-10-29 UX pass. */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 * {
@@ -36,7 +41,16 @@ html {
 body {
   margin: 0;
   font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
-  background: var(--bg);
+  /* Was flat var(--bg) everywhere except the login screen, which already
+     had this same soft radial wash (see .login-page) — every other page
+     felt flat by comparison. No background-attachment: fixed — that's a
+     known scroll-jank risk on iOS Safari, and this app is used on phones
+     at the gate; letting it scroll with the page (anchored near the top
+     of the document) costs nothing visible and avoids the risk. 2026-10-29. */
+  background:
+    radial-gradient(circle at 15% 10%, rgba(20, 184, 166, 0.1), transparent 45%),
+    radial-gradient(circle at 85% 90%, rgba(15, 118, 110, 0.09), transparent 45%),
+    var(--bg);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
 }
@@ -56,6 +70,31 @@ a {
 
 svg {
   flex-shrink: 0;
+}
+
+.filters-panel-expand {
+  animation: fadeSlideUp 0.25s var(--ease-spring);
+}
+
+/* Whole-page transition between tabs/routes (App.tsx wraps <Routes> in a
+   div keyed by pathname). Deliberately slower and gentler than the
+   button/card micro-interactions above (0.08-0.3s) — a full-page swap
+   read as a sharp jump at those speeds; 0.4s plain ease-out, fading in
+   place with barely any vertical travel, reads as smooth without feeling
+   sluggish to wait through on every single tab click. 2026-10-29. */
+.page-transition {
+  animation: pageFadeIn 0.4s ease-out;
+}
+
+@keyframes pageFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes fadeSlideUp {
@@ -442,13 +481,17 @@ svg {
 .search-results button {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   width: 100%;
   text-align: left;
-  padding: 12px 16px;
+  /* Was 12px 16px — ~60px per row meant only ~5 options were visible in
+     the 320px panel before scrolling. Trimmed (still 36px+ tall, clears
+     this app's own touch-target minimum) so ~7 fit at once instead,
+     without feeling cramped. 2026-10-29, by request. */
+  padding: 8px 14px;
   border: none;
   background: none;
-  font-size: 15px;
+  font-size: 14px;
   cursor: pointer;
   border-bottom: 1px solid var(--border);
   transition: background 0.1s ease;
@@ -464,16 +507,16 @@ svg {
 }
 
 .search-results .result-avatar {
-  width: 34px;
-  height: 34px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
-  background: var(--brand-tint);
+  background: linear-gradient(135deg, var(--brand-tint), #ffffff);
   color: var(--brand-dark);
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 800;
-  font-size: 13px;
+  font-size: 11px;
   flex-shrink: 0;
 }
 
@@ -571,7 +614,17 @@ svg {
 }
 
 .big-button:active {
-  transform: scale(0.97);
+  transform: scale(0.95);
+  transition: transform 0.08s ease;
+}
+
+/* Release spring: the finger-down state above snaps in fast and linear
+   (a real press shouldn't lag), but letting go should overshoot back
+   past 1 and settle, not just stop — that overshoot is what reads as
+   "springy" rather than "it just resized". :not(:active) only fires on
+   release, so the press itself stays snappy. */
+.big-button:not(:active) {
+  transition: transform 0.35s var(--ease-spring), box-shadow 0.15s ease, filter 0.15s ease;
 }
 
 .big-button:disabled {
@@ -621,7 +674,12 @@ svg {
 }
 
 .dashboard-button:active {
-  transform: scale(0.98);
+  transform: scale(0.96);
+  transition: background 0.15s ease, color 0.15s ease, transform 0.08s ease;
+}
+
+.dashboard-button:not(:active) {
+  transition: background 0.15s ease, color 0.15s ease, transform 0.3s var(--ease-spring);
 }
 
 .dashboard-button:hover {
@@ -658,6 +716,26 @@ svg {
   background: var(--entry-tint);
   color: var(--entry-green);
   border-color: #b9e6c8;
+  /* The one moment in the app meant to feel genuinely satisfying — a
+     guard just successfully recorded someone. Springs in instead of
+     just fading, and the checkmark gets its own slightly-delayed pop
+     so it reads as "confirmed" rather than "appeared". 2026-10-29. */
+  animation: bannerSpringIn 0.4s var(--ease-spring);
+}
+
+.status-banner.success svg {
+  animation: popIn 0.3s var(--ease-spring) 0.05s backwards;
+}
+
+@keyframes bannerSpringIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .status-banner.error {
@@ -755,6 +833,28 @@ svg {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
+/* Every native <select> (Role, Team, Movement, Entity Type, etc. — 9 of
+   them app-wide) used to fall back to the OS's own dropdown arrow, which
+   looks different per browser/platform and didn't match the custom
+   chevron (IconChevronRight, rotated) every custom dropdown trigger
+   (employee search, Insights' Team/Unit/Movement/Days filters) already
+   uses. `appearance: none` + this same chevron as a background-image
+   makes every dropdown's CLOSED/trigger state look identical everywhere
+   in the app. The OPEN option list stays OS-native either way — that part
+   genuinely can't be restyled without replacing <select> with a custom
+   component, which would cost the free keyboard/accessibility/mobile-
+   native behavior native selects get for free. Found in the 2026-10-29
+   dropdown-consistency pass, by request. */
+.field select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364756f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px 16px;
+  padding-right: 38px;
+}
+
 .field input:focus,
 .field select:focus {
   outline: none;
@@ -846,7 +946,11 @@ svg {
 }
 
 .primary-button:active {
-  transform: scale(0.985);
+  transform: scale(0.97);
+}
+
+.primary-button:not(:active) {
+  transition: filter 0.15s ease, transform 0.3s var(--ease-spring);
 }
 
 .primary-button:disabled {
@@ -951,7 +1055,12 @@ svg {
   font-size: 12px;
   cursor: pointer;
   white-space: nowrap;
-  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease, transform 0.3s var(--ease-spring);
+}
+
+.quick-date-btn:active {
+  transform: scale(0.95);
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease, transform 0.08s ease;
 }
 
 .quick-date-btn:hover {
@@ -960,7 +1069,7 @@ svg {
 }
 
 .quick-date-btn.active {
-  background: var(--brand);
+  background: linear-gradient(135deg, var(--brand-light), var(--brand));
   border-color: var(--brand);
   color: white;
 }
@@ -977,7 +1086,7 @@ svg {
 }
 
 .filter-count-badge {
-  background: var(--brand);
+  background: linear-gradient(135deg, var(--brand-light), var(--brand));
   color: white;
   font-size: 10.5px;
   font-weight: 700;
@@ -1170,10 +1279,49 @@ table.records-table th {
   border-radius: var(--radius-md);
 }
 
-.sticky-head-scroll table.records-table thead th {
+/* Was scoped to table.records-table only — Insights' several plain
+   <table> elements (modal drill-downs, Team Breakdown) got no sticky
+   header even when wrapped in this same class, since the selector never
+   matched them. Broadened so wrapping any table in .sticky-head-scroll
+   is enough, not just .records-table ones. 2026-10-29, by request. */
+.sticky-head-scroll table thead th,
+.sticky-thead table thead th {
   position: sticky;
   top: 0;
   z-index: 1;
+  background: var(--card-bg);
+}
+
+/* table.records-table's own `overflow: hidden` (for rounded corners) sits
+   between the sticky <th> and this scroll container — an ancestor with
+   overflow other than visible clips a sticky element's ability to stick,
+   a well-known CSS trap. Without this override the th computes
+   `position: sticky` correctly but visually never leaves its row (it
+   scrolled away with the rest, confirmed in the browser). Costs the
+   table's own rounded bottom corners while scrolled — invisible in
+   practice since .sticky-head-scroll/.sticky-thead already round the
+   same corners on the outer box. 2026-10-29, by request. */
+.sticky-head-scroll table.records-table,
+.sticky-thead table.records-table {
+  overflow: visible;
+  /* border-collapse: collapse + a sticky <th> is a known Chromium
+     compositing bug — the row just above the sticky header ghosts/bleeds
+     through it while scrolling instead of staying fully hidden (seen in
+     a real scroll test). border-spacing: 0 keeps cells visually
+     touching, same look as collapsed borders, without the glitch. */
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+/* Same sticky-header effect as .sticky-head-scroll, without its own
+   max-height/overflow-y — for a table whose scroll container is already
+   height-bounded some other way (e.g. a modal-card's own flex layout +
+   max-height: 80vh). Adding .sticky-head-scroll's own 70vh cap there
+   could fight the modal's existing sizing; this only adds the sticky
+   header rule on top of whatever scroll behavior the container already
+   has. 2026-10-29, by request. */
+.sticky-thead {
+  overflow-y: auto;
 }
 
 .movement-badge {
@@ -1295,12 +1443,25 @@ table.records-table th {
   font-weight: 600;
   font-size: 12.5px;
   cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.08s ease;
 }
 
 .table-action-btn:hover {
   border-color: var(--brand-light);
   background: var(--brand-tint);
+}
+
+/* This class is reused on nearly every button in the app (toolbars,
+   exports, filters, row actions) but had zero press feedback — the only
+   signal a tap landed was the eventual result. Same press/spring-release
+   pattern as .big-button. 2026-10-29 UX pass. */
+.table-action-btn:active:not(:disabled) {
+  transform: scale(0.95);
+  transition: transform 0.08s ease;
+}
+
+.table-action-btn:not(:active) {
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.3s var(--ease-spring);
 }
 
 /* "Add Missing Entry/Exit" pills on the Missing Movements page — the core
@@ -1369,6 +1530,29 @@ table.records-table th {
 .section-card.heavy {
   border-left: 3px solid var(--brand-light);
   background: linear-gradient(180deg, var(--brand-tint) 0%, var(--card-bg) 90px);
+}
+
+/* Per-Employee Detail's counterpart to .heavy above — same "this card is a
+   different kind of thing" wash treatment, deliberately mirrored (darker
+   border, gradient direction flipped) rather than identical, so the two
+   don't read as the same card type while scrolling past both. Paired with
+   the INDIVIDUAL/DEPARTMENT badge below. 2026-10-29, by request. */
+.section-card.heavy-individual {
+  border-left: 4px solid var(--brand-dark);
+  background: linear-gradient(0deg, var(--brand-tint) 0%, var(--card-bg) 90px);
+}
+
+.section-eyebrow-badge {
+  display: inline-block;
+  background: linear-gradient(135deg, var(--brand-light), var(--brand));
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  padding: 2px 8px;
+  border-radius: 20px;
+  margin-left: 8px;
+  vertical-align: middle;
 }
 
 .section-card h3 {
@@ -1630,7 +1814,7 @@ table.records-table th {
   font-size: 13px;
   font-family: inherit;
   cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.3s var(--ease-spring);
 }
 
 .nav-links a svg,
@@ -1645,14 +1829,23 @@ table.records-table th {
   background: var(--brand-tint);
 }
 
+.nav-links a:active,
+.nav-links button.link-button:active {
+  transform: scale(0.95);
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.08s ease;
+}
+
 .nav-links a.active {
-  background: var(--brand-dark);
+  /* Matches the header's gradient (line ~207) instead of the flat
+     brand-dark fill it had before — the active tab now reads as the
+     same "brand surface" language as the rest of the chrome. 2026-10-29. */
+  background: linear-gradient(120deg, var(--brand-dark), var(--brand));
   border-color: var(--brand-dark);
   color: white;
 }
 
 .nav-links a.active:hover {
-  background: var(--brand-dark);
+  background: linear-gradient(120deg, var(--brand-dark), var(--brand));
   border-color: var(--brand-dark);
 }
 
@@ -1677,7 +1870,7 @@ table.records-table th {
   cursor: pointer;
   text-decoration: none;
   font-size: 14px;
-  transition: background 0.15s ease;
+  transition: background 0.15s ease, transform 0.3s var(--ease-spring);
 }
 
 .action-row button svg,
@@ -1689,6 +1882,12 @@ table.records-table th {
 .action-row button:hover,
 .action-row a:hover {
   background: var(--brand-tint);
+}
+
+.action-row button:active,
+.action-row a:active {
+  transform: scale(0.96);
+  transition: background 0.15s ease, transform 0.08s ease;
 }
 
 .action-row button:disabled {
@@ -1704,7 +1903,7 @@ table.records-table th {
   height: 44px;
   border-radius: 50%;
   border: none;
-  background: var(--brand);
+  background: linear-gradient(135deg, var(--brand-light), var(--brand));
   color: white;
   display: flex;
   align-items: center;
@@ -1721,5 +1920,9 @@ table.records-table th {
 }
 
 .back-to-top-btn:hover {
-  background: var(--brand-dark);
+  /* Was a flat var(--brand-dark) fill, which overwrote the gradient just
+     added above and flattened it on hover — every other gradient surface
+     in the app (.big-button, .modal-card .confirm-btn) keeps its gradient
+     and just brightens/darkens via filter instead. 2026-10-29 audit. */
+  filter: brightness(0.92);
 }

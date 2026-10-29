@@ -7,7 +7,7 @@ import { AdminNav } from '../components/AdminNav';
 import { BackToTop } from '../components/BackToTop';
 import { ChartCanvas } from '../components/ChartCanvas';
 import { EmployeeLink } from '../components/EmployeeLink';
-import { IconBarChart, IconChevronRight, IconFilter, IconInbox, IconSearch, IconUsers, IconX } from '../components/icons';
+import { IconBarChart, IconCheck, IconChevronRight, IconFilter, IconInbox, IconSearch, IconUsers, IconX } from '../components/icons';
 import { TableSkeleton } from '../components/TableSkeleton';
 import { useScrollRestoration } from '../hooks/useScrollRestoration';
 import { useFocusTrap } from '../hooks/useFocusTrap';
@@ -15,11 +15,15 @@ import { saveSessionState, loadSessionState } from '../utils/sessionState';
 import { downloadFile } from '../utils/downloadFile';
 import { todayIso, isoDaysAgo, startOfWeekIso, startOfMonthIso, attendanceMonthRange, formatTime } from '../utils/date';
 
-// Chart colors mirror the app's brand palette (global.css --brand/--brand-dark).
+// Chart colors mirror the app's brand palette (global.css --brand/--brand-dark/
+// --exit-red/--pending-amber). EXIT_RED and AMBER used to be different hex
+// values from the actual tokens (a drift, not a deliberate choice) — a chart's
+// "Exits"/"Missing" bar read as a visibly different red/amber than the EXIT
+// badge or pending banner seen elsewhere in the app. Found in the 2026-10-29 audit.
 const BRAND = '#0d828b';
 const BRAND_DARK = '#085156';
-const EXIT_RED = '#c0392b';
-const AMBER = '#d97706';
+const EXIT_RED = '#be123c';
+const AMBER = '#92700a';
 const MUTED = '#94a3a8';
 
 interface UnitActivity {
@@ -185,7 +189,7 @@ export function Insights() {
   // "Filters" toggle — closed by default, so the card's at-rest height is
   // just the date-range row. Expands a second row inside the same card
   // (not a floating popover) when opened. Added 2026-10-16, by request.
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(true);
   // Which attendance-cycle (26th–25th) the ◀ ▶ arrows are currently on,
   // relative to the current one (0). Only meaningful while that preset is
   // the active one — see isAttendanceMonthActive below.
@@ -442,8 +446,19 @@ export function Insights() {
         setEmployeeDropdownOpen(false);
       }
     };
+    // A keyboard user could open this dropdown but had no way to close it
+    // short of clicking elsewhere or tabbing through every result — every
+    // custom dropdown in the app had the same gap. Found in the 2026-10-29
+    // dropdown audit.
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setEmployeeDropdownOpen(false);
+    };
     document.addEventListener('mousedown', closeIfOutside);
-    return () => document.removeEventListener('mousedown', closeIfOutside);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeIfOutside);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
   }, [employeeDropdownOpen]);
 
   useEffect(() => {
@@ -1309,7 +1324,7 @@ export function Insights() {
           Filters
           {activeFilterCount > 0 && <span className="filter-count-badge">{activeFilterCount}</span>}
           <IconChevronRight
-            style={{ width: 12, height: 12, transform: filtersOpen ? 'rotate(-90deg)' : 'rotate(90deg)', transition: 'transform 0.15s ease' }}
+            style={{ width: 12, height: 12, transform: filtersOpen ? 'rotate(-90deg)' : 'rotate(90deg)', transition: 'transform 0.3s var(--ease-spring)' }}
           />
         </button>
         {/* Paired with Filters above rather than given its own card — both
@@ -1336,7 +1351,7 @@ export function Insights() {
         </div>
 
         {filtersOpen && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end', marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)', width: '100%' }}>
+        <div className="filters-panel-expand" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end', marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)', width: '100%' }}>
         <div className="field" style={{ position: 'relative', flex: '1.4 1 200px' }} ref={employeeSearchRef}>
           <label>
             Employee
@@ -1500,8 +1515,11 @@ export function Insights() {
           result immediately, not after scrolling past every other section.
           Previously placed last (broad-to-narrow ordering); moved back up
           per direct user feedback, 2026-10. */}
-      <div id="per-employee-detail" className="section-card" style={{ marginBottom: 16, borderLeft: '4px solid var(--brand-dark)' }}>
-        <h3>Per-Employee Detail{selectedEmployee ? ` — ${selectedEmployee.employeeName}` : ''}</h3>
+      <div id="per-employee-detail" className="section-card heavy-individual" style={{ marginBottom: 16 }}>
+        <h3>
+          Per-Employee Detail{selectedEmployee ? ` — ${selectedEmployee.employeeName}` : ''}
+          <span className="section-eyebrow-badge">INDIVIDUAL</span>
+        </h3>
         <ChartHint>
           One employee's trend for the date range above — arrival/departure time and on-premises duration per day. Everything below this card covers
           everyone, not just this employee.
@@ -1572,7 +1590,7 @@ export function Insights() {
                       <h3 id="distribution-bucket-title" style={{ marginTop: 0, textAlign: 'center' }}>
                         ~{distributionBucket.hours}h average ({distributionBucket.employees.length})
                       </h3>
-                      <div style={{ overflowY: 'auto' }}>
+                      <div className="sticky-thead">
                         <table>
                           <thead>
                             <tr>
@@ -1650,7 +1668,10 @@ export function Insights() {
           page per direct user feedback, 2026-10. */}
       {summary && (
         <div id="duration-exceptions" className="section-card" style={{ marginBottom: 16 }}>
-          <h3>Duration Exceptions</h3>
+          <h3>
+            Duration Exceptions
+            <span className="section-eyebrow-badge">ORGANIZATION</span>
+          </h3>
           <ChartHint>
             On-premises time, entry to exit — includes time spent outside the gate between taps, not verified working hours. Short-Duration = under{' '}
             {summary.shiftReference.expectedHours}h that day; Long-Duration = {summary.hoursLongDuration.threshold}h or more. Only days with both an
@@ -1763,7 +1784,10 @@ export function Insights() {
                   otherwise the only cue that a stale chart on screen wasn't
                   current yet. Found in the 2026-10-27 design audit. */}
               <div className="section-card" style={{ opacity: loading && summary ? 0.55 : 1, transition: 'opacity 0.15s ease' }}>
-                <h3>Avg Duration, Short &amp; Long-Duration Days</h3>
+                <h3>
+                  Avg Duration, Short &amp; Long-Duration Days
+                  <span className="section-eyebrow-badge">ORGANIZATION</span>
+                </h3>
                 <ChartHint>On-premises time, entry to exit (see legend). Click a bar to see who.</ChartHint>
                 {avgDurationTrendConfig && <ChartCanvas config={avgDurationTrendConfig} />}
               </div>
@@ -1778,7 +1802,10 @@ export function Insights() {
               </div>
               */}
               <div className="section-card" style={{ opacity: loading && summary ? 0.55 : 1, transition: 'opacity 0.15s ease' }}>
-                <h3>Hourly Entry &amp; Exit Distribution</h3>
+                <h3>
+                  Hourly Entry &amp; Exit Distribution
+                  <span className="section-eyebrow-badge">ORGANIZATION</span>
+                </h3>
                 <ChartHint>What time of day movements cluster, across the range. Click a bar for that hour's movements.</ChartHint>
                 {hourlyConfig && <ChartCanvas config={hourlyConfig} />}
               </div>
@@ -1798,6 +1825,7 @@ export function Insights() {
                 <div>
                   <h3>
                     Department Comparison
+                    <span className="section-eyebrow-badge">TEAM</span>
                     {deptComparisonLoading && <span className="spinner dark" style={{ marginLeft: 10 }} aria-label="Loading…" />}
                   </h3>
                   <ChartHint>
@@ -1888,7 +1916,10 @@ export function Insights() {
             <div id="team-breakdown" className="section-card" style={{ marginTop: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
                 <div>
-                  <h3>Team Breakdown — Detail</h3>
+                  <h3>
+                    Team Breakdown — Detail
+                    <span className="section-eyebrow-badge">TEAM</span>
+                  </h3>
                   <ChartHint>
                     "Team Size" is the full roster. "Days Present" is a team total: every employee's tap-in days added together over the range (any tap
                     counts, even without a matching exit) — not a day count or headcount. E.g. 10 people × 20 days each = 200. Click a row for every
@@ -1908,7 +1939,7 @@ export function Insights() {
                 </button>
               </div>
               <div className="scroll-hint">Scroll sideways for more columns →</div>
-              <div style={{ overflowX: 'auto' }}>
+              <div className="sticky-head-scroll" style={{ overflowX: 'auto' }}>
               <table className="records-table">
                 <thead>
                   <tr>
@@ -2068,7 +2099,7 @@ export function Insights() {
                 }
 
                 return (
-                  <div style={{ overflowY: 'auto', overflowX: 'auto' }}>
+                  <div className="sticky-thead" style={{ overflowX: 'auto' }}>
                     <table className="records-table">
                       <thead>
                         <tr>
@@ -2160,7 +2191,7 @@ export function Insights() {
                 }
 
                 return (
-                  <div style={{ overflowY: 'auto', overflowX: 'auto' }}>
+                  <div className="sticky-thead" style={{ overflowX: 'auto' }}>
                     <table className="records-table">
                       <thead>
                         <tr>
@@ -2280,7 +2311,7 @@ export function Insights() {
                     )}
                   </div>
                 )}
-                <div style={{ overflowY: 'auto', overflowX: 'auto' }}>
+                <div className="sticky-thead" style={{ overflowX: 'auto' }}>
                   <DrillDownTable
                     metric={drillDown.metric}
                     rows={drillDown.rows}
@@ -2384,8 +2415,19 @@ function MultiSelect({
     const closeIfOutside = (event: MouseEvent) => {
       if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
     };
+    // A keyboard user could open this dropdown but had no way to close it
+    // short of clicking elsewhere or tabbing through every option — every
+    // custom dropdown in the app had the same gap. Found in the 2026-10-29
+    // dropdown audit.
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
     document.addEventListener('mousedown', closeIfOutside);
-    return () => document.removeEventListener('mousedown', closeIfOutside);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeIfOutside);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
   }, [open]);
 
   const selectedLabels = options.filter((o) => selected.includes(o.value)).map((o) => o.label);
@@ -2400,7 +2442,7 @@ function MultiSelect({
         aria-expanded={open}
         style={{
           width: '100%',
-          padding: '12px 14px',
+          padding: selected.length > 0 ? '12px 44px 12px 14px' : '12px 14px',
           borderRadius: 'var(--radius-sm)',
           border: '1.5px solid var(--border)',
           background: 'var(--card-bg)',
@@ -2414,30 +2456,36 @@ function MultiSelect({
         }}
       >
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-          {selected.length > 0 && (
-            <span
-              role="button"
-              aria-label={clearAriaLabel}
-              onClick={(e) => {
-                e.stopPropagation();
-                onChange([]);
-              }}
-              style={{ display: 'flex', color: 'var(--text-muted)' }}
-            >
-              <IconX style={{ width: 14, height: 14 }} />
-            </span>
-          )}
-          <IconChevronRight style={{ width: 14, height: 14, transform: 'rotate(90deg)', color: 'var(--text-muted)' }} />
-        </span>
+        <IconChevronRight style={{ width: 14, height: 14, transform: 'rotate(90deg)', color: 'var(--text-muted)', flexShrink: 0 }} />
       </button>
+      {/* A sibling of the trigger <button> above, not nested inside it — it
+          used to be a <span role="button"> nested inside that button (no
+          tabIndex/onKeyDown despite the role, and only a bare 14px tap
+          target), which is both unreachable by keyboard and invalid HTML
+          (a button can't contain another interactive control). Reuses
+          .search-clear-btn, the same absolute-positioned clear control the
+          employee-search boxes already use. Found in the 2026-10-29
+          dropdown audit. */}
+      {selected.length > 0 && (
+        <button
+          type="button"
+          className="search-clear-btn"
+          aria-label={clearAriaLabel}
+          onClick={(e) => {
+            e.stopPropagation();
+            onChange([]);
+          }}
+        >
+          <IconX />
+        </button>
+      )}
       {open && (
         <div className="search-results">
           {options.map((o) => {
             const checked = selected.includes(o.value);
             return (
               <button key={o.value} type="button" onClick={() => onChange(checked ? selected.filter((x) => x !== o.value) : [...selected, o.value])}>
-                <span style={{ width: 16, flexShrink: 0, fontWeight: 700, color: 'var(--brand-dark)' }}>{checked ? '✓' : ''}</span>
+                <span style={{ width: 16, flexShrink: 0, color: 'var(--brand-dark)' }}>{checked && <IconCheck style={{ width: 14, height: 14 }} />}</span>
                 <span>{o.label}</span>
               </button>
             );
@@ -2472,8 +2520,19 @@ function SingleSelect({
     const closeIfOutside = (event: MouseEvent) => {
       if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
     };
+    // A keyboard user could open this dropdown but had no way to close it
+    // short of clicking elsewhere or tabbing through every option — every
+    // custom dropdown in the app had the same gap. Found in the 2026-10-29
+    // dropdown audit.
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
     document.addEventListener('mousedown', closeIfOutside);
-    return () => document.removeEventListener('mousedown', closeIfOutside);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeIfOutside);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
   }, [open]);
 
   const label = options.find((o) => o.value === value)?.label ?? options[0]?.label ?? '';
@@ -2523,7 +2582,7 @@ function SingleSelect({
                   setOpen(false);
                 }}
               >
-                <span style={{ width: 16, flexShrink: 0, fontWeight: 700, color: 'var(--brand-dark)' }}>{checked ? '✓' : ''}</span>
+                <span style={{ width: 16, flexShrink: 0, color: 'var(--brand-dark)' }}>{checked && <IconCheck style={{ width: 14, height: 14 }} />}</span>
                 <span>{o.label}</span>
               </button>
             );
