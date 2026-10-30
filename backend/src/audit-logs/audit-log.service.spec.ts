@@ -192,7 +192,11 @@ describe('AuditLogService', () => {
     // audit.
     it('appends a visible warning row when the export hits the row cap', async () => {
       const { service, prisma } = makeService();
-      const rows = Array.from({ length: 5000 }, (_, i) => ({
+      // 5001, not 5000 — the service now fetches EXPORT_CAP + 1 so it can
+      // tell "truncated" apart from "exactly EXPORT_CAP rows exist" (fixed
+      // 2026-10-29); mocking exactly 5000 would no longer exercise the
+      // truncated path at all.
+      const rows = Array.from({ length: 5001 }, (_, i) => ({
         createdAt: new Date('2026-10-26T04:00:00.000Z'),
         action: 'USER_LOGIN',
         entityType: null,

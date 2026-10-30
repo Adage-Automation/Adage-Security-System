@@ -245,7 +245,27 @@ export class MovementsService {
 
     const byDayAndEmployee = new Map<
       string,
-      { date: string; employeeId: number; employeeName: string; employeeCode: string; team: string | null; firstType: 'ENTRY' | 'EXIT'; lastType: 'ENTRY' | 'EXIT' }
+      {
+        date: string;
+        employeeId: number;
+        employeeName: string;
+        employeeCode: string;
+        team: string | null;
+        firstType: 'ENTRY' | 'EXIT';
+        lastType: 'ENTRY' | 'EXIT';
+        firstMovementAt: Date;
+        lastMovementAt: Date;
+        // Set by the stitching pass below when this day's orphan leading
+        // exit (firstType === 'EXIT') is explained by the PREVIOUS day's
+        // dangling open entry — the same shift Insights' own
+        // stitchOvernightSessions already credits the hours to. Added
+        // 2026-10-30.
+        entryResolvedByStitch: boolean;
+        // Set on the OTHER end of the same stitch: this day's dangling
+        // open entry (lastType === 'ENTRY') is explained by the NEXT day's
+        // orphan leading exit.
+        exitResolvedByStitch: boolean;
+      }
     >();
     for (const m of movements) {
       if (!m.employee) continue;
@@ -261,10 +281,35 @@ export class MovementsService {
           team: m.employee.team,
           firstType: m.movementType as 'ENTRY' | 'EXIT',
           lastType: m.movementType as 'ENTRY' | 'EXIT',
+          firstMovementAt: m.movementAt,
+          lastMovementAt: m.movementAt,
+          entryResolvedByStitch: false,
+          exitResolvedByStitch: false,
         });
       } else {
         bucket.lastType = m.movementType as 'ENTRY' | 'EXIT';
+        bucket.lastMovementAt = m.movementAt;
       }
+    }
+
+    // Mirrors Insights' stitchOvernightSessions (insights.service.ts) —
+    // kept as a separate implementation, not a shared call, since this
+    // service has its own simpler per-day shape (no EmpDayAgg/hours
+    // computation to piggyback on). Without this, a day resolved by the
+    // overnight-exit checkbox (Corrections modal) would keep showing here
+    // as missingEntry forever: this list has no idea the orphan exit it's
+    // looking at was already matched to yesterday's open entry. Only
+    // crosses one calendar day, and only sees whatever `from`/`to` range
+    // was already queried — same range-edge limitation Insights' version
+    // has, see its own comment. Added 2026-10-30, by request.
+    for (const bucket of byDayAndEmployee.values()) {
+      if (bucket.firstType !== 'EXIT') continue;
+      const prevKey = `${this.previousDateStr(bucket.date)}|${bucket.employeeId}`;
+      const prev = byDayAndEmployee.get(prevKey);
+      if (!prev || prev.lastType !== 'ENTRY') continue;
+      if (prev.lastMovementAt >= bucket.firstMovementAt) continue;
+      bucket.entryResolvedByStitch = true;
+      prev.exitResolvedByStitch = true;
     }
 
     // A `missingExit` on TODAY specifically is ambiguous — the employee may
@@ -287,8 +332,12 @@ export class MovementsService {
         // reappear next refresh as missingEntry, two passes for one day
         // with no indication the first fix was partial. Found in the
         // 2026-10-28 audit.
-        missingExit: b.lastType === 'ENTRY' && b.date !== today,
-        missingEntry: b.firstType === 'EXIT',
+        //
+        // Self-suppress once the stitching pass above explains the gap —
+        // same idea as Insights' isMissingExit/isMissingEntry. Added
+        // 2026-10-30.
+        missingExit: b.lastType === 'ENTRY' && b.date !== today && !b.exitResolvedByStitch,
+        missingEntry: b.firstType === 'EXIT' && !b.entryResolvedByStitch,
       }))
       .filter((b) => b.missingExit || b.missingEntry)
       .map((b) => ({
@@ -303,6 +352,17 @@ export class MovementsService {
           | 'missingBoth',
       }))
       .sort((a, b) => (a.date === b.date ? a.employeeName.localeCompare(b.employeeName) : a.date.localeCompare(b.date)));
+  }
+
+  // Identical to Insights' own private helper of the same name
+  // (insights.service.ts) — kept duplicated rather than shared, since
+  // pulling one function into a common module isn't worth a cross-module
+  // dependency between these two otherwise-independent services for three
+  // lines.
+  private previousDateStr(dateStr: string): string {
+    const d = new Date(`${dateStr}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - 1);
+    return d.toISOString().slice(0, 10);
   }
 
   async listByEmployeeAndDate(employeeId: number, date: string) {
@@ -451,7 +511,19 @@ export class MovementsService {
       // the same day. Found in the 2026-10-28 audit, same pass.
       const missingExit = dayRecords.length === 0 || dayRecords[dayRecords.length - 1].movementType === 'ENTRY';
       const missingEntry = dayRecords.length === 0 || dayRecords[0].movementType === 'EXIT';
-      const alreadyCovered = dto.movementType === 'EXIT' ? !missingExit : !missingEntry;
+      // A day that already has its own complete session can still take a
+      // SEPARATE, earlier orphan EXIT — the overnight-shift-crossing-
+      // midnight case, where the previous day's real exit lands after
+      // midnight, before this day's own first record (Corrections' "Exit
+      // was after midnight" checkbox). Insights' stitching then matches it
+      // back to the previous day's open entry. Only valid if this day
+      // doesn't already start on an orphan EXIT itself — one leading
+      // orphan per day, same as the no-stitch case. Added 2026-10-30, by
+      // request — without this, the checkbox only worked when the next
+      // day had zero records at all, not the common case of a normal
+      // shift the next day.
+      const canAddLeadingOrphanExit = dto.movementType === 'EXIT' && dayRecords.length > 0 && dayRecords[0].movementType !== 'EXIT';
+      const alreadyCovered = dto.movementType === 'EXIT' ? !missingExit && !canAddLeadingOrphanExit : !missingEntry;
       if (alreadyCovered) {
         throw new BadRequestException(`An ${dto.movementType} is already recorded for this employee on ${calendarDate} — nothing missing to add.`);
       }
@@ -468,10 +540,20 @@ export class MovementsService {
       if (dayRecords.length > 0) {
         const last = dayRecords[dayRecords.length - 1];
         const first = dayRecords[0];
-        if (dto.movementType === 'EXIT' && movementAt <= last.movementAt) {
-          throw new BadRequestException(
-            `This EXIT (${formatTimeInAppTimezone(movementAt)}) must be after the day's last recorded movement (${formatTimeInAppTimezone(last.movementAt)}) to actually close the gap.`,
-          );
+        if (dto.movementType === 'EXIT') {
+          // Two disjoint valid shapes for an EXIT now: closing the day's
+          // trailing gap (after its last record), or — only when the day
+          // already has its own complete session — a new leading orphan
+          // from a separate, earlier shift (before its first record).
+          const closesTrailingGap = missingExit && movementAt > last.movementAt;
+          const addsLeadingOrphan = canAddLeadingOrphanExit && movementAt < first.movementAt;
+          if (!closesTrailingGap && !addsLeadingOrphan) {
+            throw new BadRequestException(
+              missingExit
+                ? `This EXIT (${formatTimeInAppTimezone(movementAt)}) must be after the day's last recorded movement (${formatTimeInAppTimezone(last.movementAt)}) to actually close the gap.`
+                : `This EXIT (${formatTimeInAppTimezone(movementAt)}) must be before the day's first recorded movement (${formatTimeInAppTimezone(first.movementAt)}) to count as a separate, earlier shift.`,
+            );
+          }
         }
         if (dto.movementType === 'ENTRY' && movementAt >= first.movementAt) {
           throw new BadRequestException(

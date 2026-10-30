@@ -819,7 +819,7 @@ svg {
   color: var(--text-muted);
 }
 
-.field input,
+.field input:not([type='checkbox']),
 .field select {
   width: 100%;
   padding: 12px 14px;
@@ -853,6 +853,34 @@ svg {
   background-position: right 12px center;
   background-size: 16px 16px;
   padding-right: 38px;
+}
+
+/* Checkbox option under a field (e.g. Corrections' "Exit was after
+   midnight" toggle) — a fixed-size box plus normally-wrapping text,
+   not the full-width bordered input look `.field input` gives text
+   fields. The checkbox floats instead of sitting in a flex row so a
+   wrapped second line returns flush with the field's left edge
+   (matching every label above it) instead of hanging indented under
+   the first line, past the checkbox. Added 2026-10-30. */
+.checkbox-row {
+  /* flow-root (not block) so the row's own height contains the floated
+     checkbox — otherwise the row collapses to zero height and whatever
+     follows (the boundary hint) renders overlapping it. */
+  display: flow-root;
+  margin-top: 10px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.checkbox-row input[type='checkbox'] {
+  float: left;
+  width: 16px;
+  height: 16px;
+  margin: 2px 8px 0 0;
+  accent-color: var(--brand);
+  cursor: pointer;
 }
 
 .field input:focus,

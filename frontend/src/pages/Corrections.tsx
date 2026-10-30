@@ -6,10 +6,18 @@ import { AdminNav } from '../components/AdminNav';
 import { TableSkeleton } from '../components/TableSkeleton';
 import { OfflineBadge } from '../components/OfflineBadge';
 import { AddedBadge } from '../components/AddedBadge';
-import { todayIso, isoDaysAgo, attendanceMonthRange, formatTime, localDateFromIso } from '../utils/date';
+import { todayIso, isoDaysAgo, attendanceMonthRange, formatTime, localDateFromIso, localIso } from '../utils/date';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import { Th } from '../components/SortableTh';
 import { toggleSort, sortRows, SortState } from '../utils/sort';
+
+// The calendar day after `dateIso` — used by the overnight-exit checkbox's
+// label so it shows a real date, not just "the next day".
+function nextDayLabel(dateIso: string): string {
+  const d = localDateFromIso(dateIso);
+  d.setDate(d.getDate() + 1);
+  return localIso(d);
+}
 
 function initials(name: string): string {
   return name
@@ -23,7 +31,15 @@ function initials(name: string): string {
 interface EditState {
   movementType: MovementType;
   time: string; // HH:mm
-  reason: string;
+  // EXIT only — an overnight shift's real exit lands after midnight, on the
+  // calendar day AFTER the one being reviewed (e.g. reviewing a Missing
+  // Exit flagged on the 29th, but the guard actually tapped out at 00:45 on
+  // the 30th). Before this, the Time field had no way to express that: it
+  // always combined the typed time with the page's selected `date`, so a
+  // genuine overnight exit could only be entered as "00:45 on the 29th" —
+  // BEFORE that day's entry, which the backend correctly rejects as not
+  // closing the gap. Added 2026-10-30, by request.
+  nextDay: boolean;
 }
 
 interface MissingRow {
@@ -225,7 +241,7 @@ export function Corrections() {
       .get<Employee>(`/employees/${row.employeeId}`)
       .then((emp) => {
         setSelected(emp);
-        setEdit({ movementType, time: '09:00', reason: '' });
+        setEdit({ movementType, time: '09:00', nextDay: false });
       })
       .catch((err: any) => setError(err?.message ?? 'Failed to load this employee. Please try again.'))
       .finally(() => setSelectingId(null));
@@ -404,7 +420,7 @@ export function Corrections() {
   function openMissing() {
     if (missingTypes.length === 0) return;
     editOriginRef.current = 'review';
-    setEdit({ movementType: missingTypes[0], time: '09:00', reason: '' });
+    setEdit({ movementType: missingTypes[0], time: '09:00', nextDay: false });
     setError(null);
   }
 
@@ -433,13 +449,15 @@ export function Corrections() {
     setSaving(true);
     setError(null);
     movementAt.setHours(hours, minutes, 0, 0);
+    // See EditState.nextDay — shifts the written record onto the calendar
+    // day after the one being reviewed, for a genuine overnight exit.
+    if (edit.nextDay) movementAt.setDate(movementAt.getDate() + 1);
 
     try {
       await api.post('/movements/missing', {
         employeeId: selected.id,
         movementType: edit.movementType,
         movementAt: movementAt.toISOString(),
-        correctionReason: edit.reason.trim() || undefined,
       });
       setSuccessMsg('Missing record added successfully.');
       setEdit(null);
@@ -848,7 +866,14 @@ export function Corrections() {
                     // options for a moment.
                     <input value={edit.movementType} disabled />
                   ) : (
-                    <select value={edit.movementType} onChange={(e) => setEdit({ ...edit, movementType: e.target.value as MovementType })}>
+                    <select
+                      value={edit.movementType}
+                      onChange={(e) =>
+                        // nextDay only applies to EXIT — reset it when switching away
+                        // so a leftover checked box can't silently shift an ENTRY's date.
+                        setEdit({ ...edit, movementType: e.target.value as MovementType, nextDay: e.target.value === 'EXIT' ? edit.nextDay : false })
+                      }
+                    >
                       {missingTypes.map((t) => (
                         <option key={t} value={t}>
                           {t}
@@ -860,29 +885,52 @@ export function Corrections() {
               </div>
               <div className="field">
                 <label>
-                  Time (on {date})<span className="required-mark"> *</span>
+                  Time (on {edit.movementType === 'EXIT' && edit.nextDay ? nextDayLabel(date) : date})<span className="required-mark"> *</span>
                   <input ref={timeInputRef} type="time" value={edit.time} onChange={(e) => setEdit({ ...edit, time: e.target.value })} required />
                 </label>
+                {/* EXIT only — the common real-world case this solves is an
+                    overnight shift, where the guard taps out after midnight on
+                    the day AFTER the one being reviewed. There's no equivalent
+                    need for ENTRY: a "missing entry" gap is always an orphan
+                    EXIT on the day being reviewed, and the entry that explains
+                    it (if ever tapped) would have happened BEFORE that exit,
+                    i.e. the same day or earlier, not the day after. Added
+                    2026-10-30, by request. */}
+                {edit.movementType === 'EXIT' && (
+                  <label className="checkbox-row">
+                    <input type="checkbox" checked={edit.nextDay} onChange={(e) => setEdit({ ...edit, nextDay: e.target.checked })} />
+                    <span>
+                      Exit was after midnight, on the next day (<span style={{ whiteSpace: 'nowrap' }}>{nextDayLabel(date)}</span>)
+                    </span>
+                  </label>
+                )}
                 {/* The backend now rejects a time that wouldn't actually close the
                     gap (e.g. an EXIT before the day's last record) — surfacing the
                     boundary here up front instead of making the admin guess after
                     an error. Found in the 2026-10-28 audit. */}
-                {records.length > 0 &&
+                {/* recordsLoading guard (matching missingTypes' own gate below)
+                    — without it, going back to the list and opening a different
+                    employee's Add-Missing modal could briefly show the PREVIOUS
+                    employee's still-stale `records` as this employee's boundary,
+                    since backToList() clears `selected` but not `records`, and
+                    the modal can open before the new employee's fetch resolves.
+                    Found in the 2026-10-29 review. */}
+                {/* nextDay guard — this hint is built from `records`, the
+                    REVIEWED day's records. Once nextDay is checked, the real
+                    boundary is against the NEXT day's records instead, which
+                    this page never fetches, so showing it here would just be
+                    wrong. The backend's own error message (if the time is
+                    off) covers that case. Added 2026-10-30, by request. */}
+                {!edit.nextDay && !recordsLoading && records.length > 0 &&
                   (edit.movementType === 'EXIT' ? (
-                    <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
+                    <div style={{ fontSize: 12, color: '#666', marginTop: 8, clear: 'both' }}>
                       Must be after {formatTime(records[records.length - 1].movementAt)} (the day's last record)
                     </div>
                   ) : (
-                    <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
+                    <div style={{ fontSize: 12, color: '#666', marginTop: 8, clear: 'both' }}>
                       Must be before {formatTime(records[0].movementAt)} (the day's first record)
                     </div>
                   ))}
-              </div>
-              <div className="field">
-                <label>
-                  Reason (optional — kept in the audit log if you add one)
-                  <input value={edit.reason} onChange={(e) => setEdit({ ...edit, reason: e.target.value })} placeholder="e.g. Guard forgot to tap out" />
-                </label>
               </div>
               {error && <div className="error-text">{error}</div>}
               <div className="modal-actions">

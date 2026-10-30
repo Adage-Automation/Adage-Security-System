@@ -49,6 +49,29 @@ interface EmpDayAgg {
   // movements.service.ts missingInRange fix the same day, just with no
   // signal at all here instead of one flag silently winning over another.
   firstMovementType?: 'ENTRY' | 'EXIT';
+  // The day's chronologically LAST entry (always overwritten, mirroring
+  // lastExit) — when the day ends on an open ENTRY (isMissingExit), this is
+  // the specific tap that's still open, needed to stitch it to an overnight
+  // EXIT landing on the next calendar day. Added 2026-10-30.
+  lastEntry?: Date;
+  // Timestamp of the day's chronologically FIRST movement (pairs with
+  // firstMovementType) — when the day starts on an orphan EXIT
+  // (isMissingEntry), this is that exit's own time, needed to stitch it
+  // back to the previous day's still-open entry. Added 2026-10-30.
+  firstMovementAt?: Date;
+  // Set by stitchOvernightSessions when this day's dangling open entry
+  // (isMissingExit) was matched to an orphan EXIT on the very next calendar
+  // day for the same employee — i.e. a shift that crosses midnight, not a
+  // genuine missing tap. Carries the stitched session's hours, credited to
+  // THIS day (the day the shift started); isMissingExit stops flagging a
+  // day once this is set, since the gap is now explained. Added 2026-10-30.
+  overnightHours?: number;
+  // Set on the NEXT day's agg (the one with the orphan leading EXIT) once
+  // that exit has been matched to the previous day's open entry — the hours
+  // themselves are credited to the previous day (overnightHours above), not
+  // here; this only suppresses isMissingEntry on this day since the orphan
+  // exit is now explained. Added 2026-10-30.
+  entryResolvedByStitch?: boolean;
 }
 
 // Everything here is a read-only aggregation over movement_records/
@@ -230,8 +253,8 @@ export class InsightsService {
       const teamBucket = teamHours.get(team) ?? { employeeDays: 0, completeDays: 0, hoursSum: 0, hoursList: [], shortfallDays: 0, longDurationDays: 0 };
       teamBucket.employeeDays++;
 
-      if (this.isDayComplete(agg)) {
-        const hours = this.durationHours(agg.firstEntry, agg.lastExit);
+      if (this.hasTrackedHours(agg)) {
+        const hours = this.dayHours(agg)!;
         completeDays++;
         teamBucket.completeDays++;
         teamBucket.hoursSum += hours;
@@ -252,24 +275,25 @@ export class InsightsService {
           teamBucket.longDurationDays++;
           longDurationByDate.set(agg.date, (longDurationByDate.get(agg.date) ?? 0) + 1);
         }
-      } else {
-        // Independent checks, not an else-if chain — a day can be
-        // missing both (orphan leading exit AND a still-open trailing
-        // entry), and an else-if would only ever surface one. Found in
-        // the 2026-10-28 audit, same bug class as the movements.service.ts
-        // missingInRange fix the same day.
-        if (this.isMissingExit(agg)) {
-          missingExitCount++;
-          missingExitByDate.set(agg.date, (missingExitByDate.get(agg.date) ?? 0) + 1);
-        }
-        if (this.isMissingEntry(agg)) {
-          // An exit recorded with no entry actually preceding it — often a
-          // legitimate overnight shift crossing midnight, not necessarily a
-          // mistake, so this is a count to review, not an accusation (same
-          // framing as missing exits).
-          missingEntryCount++;
-          missingEntryByDate.set(agg.date, (missingEntryByDate.get(agg.date) ?? 0) + 1);
-        }
+      }
+      // Independent of isDayComplete and of each other, not an else/else-if
+      // chain — a day can have valid hours AND an orphan leading exit (still
+      // flagged missingEntry), or be missing both an exit and a (different
+      // day's) entry at once. An else-if would only ever surface one. Found
+      // in the 2026-10-28 audit, same bug class as the movements.service.ts
+      // missingInRange fix the same day; widened 2026-10-29 so flagging a
+      // day no longer silently excludes its hours.
+      if (this.isMissingExit(agg)) {
+        missingExitCount++;
+        missingExitByDate.set(agg.date, (missingExitByDate.get(agg.date) ?? 0) + 1);
+      }
+      if (this.isMissingEntry(agg)) {
+        // An exit recorded with no entry actually preceding it — often a
+        // legitimate overnight shift crossing midnight, not necessarily a
+        // mistake, so this is a count to review, not an accusation (same
+        // framing as missing exits).
+        missingEntryCount++;
+        missingEntryByDate.set(agg.date, (missingEntryByDate.get(agg.date) ?? 0) + 1);
       }
       teamHours.set(team, teamBucket);
     }
@@ -470,33 +494,111 @@ export class InsightsService {
         date,
       };
       if (m.movementType === 'ENTRY' && !agg.firstEntry) agg.firstEntry = m.movementAt;
+      if (m.movementType === 'ENTRY') agg.lastEntry = m.movementAt;
       if (m.movementType === 'EXIT') agg.lastExit = m.movementAt;
-      if (!agg.firstMovementType) agg.firstMovementType = m.movementType;
+      if (!agg.firstMovementType) {
+        agg.firstMovementType = m.movementType;
+        agg.firstMovementAt = m.movementAt;
+      }
       agg.lastMovementType = m.movementType;
       empDays.set(key, agg);
     }
+    this.stitchOvernightSessions(empDays);
     return empDays;
   }
 
-  // A day only counts as a genuinely closed-out, complete session when
-  // its last recorded movement was the exit — not merely "has an entry
-  // and an exit somewhere", which would wrongly call ENTRY/EXIT/ENTRY
-  // "complete" using the stale middle exit and silently ignore the
-  // trailing unresolved entry. `firstMovementType !== 'EXIT'` added
-  // 2026-10-28: without it, EXIT/ENTRY/EXIT (an orphan leading exit
-  // before an otherwise-normal session) also read as complete, using
-  // the later entry as `firstEntry` and hiding the orphan exit entirely.
+  // A shift crossing midnight (tap out at, say, 00:10) splits across two
+  // calendar-day aggregates: the start day ends on a dangling open ENTRY
+  // (isMissingExit), the next day opens on an orphan EXIT with nothing
+  // before it (isMissingEntry) — two separate exception flags, and the real
+  // hours worked overnight credited to neither day. Confirmed with the user
+  // 2026-10-30: when a day's dangling entry is immediately followed (next
+  // calendar day, same employee) by an orphan leading exit, that's not two
+  // mistakes, it's one continuous overnight shift — join them, credit the
+  // hours to the day the shift STARTED (the usual payroll convention), and
+  // clear both flags since the gap is now explained.
+  //
+  // Only stitches exactly one calendar day forward — a chain of several
+  // consecutive dangling days (very unusual) only joins the first pair.
+  // Only sees whatever `movements` the caller already fetched: if the
+  // fetched range starts ON the orphan-exit day, the previous day's agg
+  // was never built and nothing is stitched — same boundary behavior as
+  // every other range-edge calculation in this file.
+  private stitchOvernightSessions(empDays: Map<string, EmpDayAgg>): void {
+    for (const agg of empDays.values()) {
+      if (agg.firstMovementType !== 'EXIT' || !agg.firstMovementAt) continue;
+      const prevKey = `${agg.employeeId}|${this.previousDateStr(agg.date)}`;
+      const prev = empDays.get(prevKey);
+      if (!prev || prev.lastMovementType !== 'ENTRY' || !prev.lastEntry) continue;
+      const hours = this.durationHours(prev.lastEntry, agg.firstMovementAt);
+      if (hours <= 0) continue;
+      prev.overnightHours = hours;
+      agg.entryResolvedByStitch = true;
+    }
+  }
+
+  private previousDateStr(dateStr: string): string {
+    const d = new Date(`${dateStr}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - 1);
+    return d.toISOString().slice(0, 10);
+  }
+
+  // Total on-premises hours for a day, including any overnight session
+  // stitched onto it from the next day's orphan exit (overnightHours) —
+  // NOT the same thing as isDayComplete's own same-calendar-day span. A day
+  // can have a normal same-day session, a stitched overnight credit, or
+  // (rarely) both, e.g. an employee who closes out an overnight shift in
+  // the morning and then also works a normal day. Added 2026-10-30.
+  // Returns the raw, minute-precision total (not rounded to 1 decimal) —
+  // callers round for display themselves (some Math.round, shortfall's own
+  // Math.floor), same as durationHours' own contract.
+  private dayHours(agg: EmpDayAgg): number | null {
+    const sameDay = this.isDayComplete(agg) ? this.durationHours(agg.firstEntry, agg.lastExit) : 0;
+    const total = sameDay + (agg.overnightHours ?? 0);
+    return total > 0 ? total : null;
+  }
+
+  // Whether this day has ANY tracked hours (same-day session and/or a
+  // stitched overnight credit) — the gate used for "is this a judgeable
+  // day" (completeDays, shortfall/long-duration eligibility, averages),
+  // broader than isDayComplete alone now that overnight credit can apply to
+  // a day with no same-day session of its own. Added 2026-10-30.
+  private hasTrackedHours(agg: EmpDayAgg): boolean {
+    return this.isDayComplete(agg) || Boolean(agg.overnightHours);
+  }
+
+  // Whether there's a valid firstEntry->lastExit span to compute hours
+  // from — last recorded movement was the exit, not merely "has an entry
+  // and an exit somewhere" (which would wrongly treat ENTRY/EXIT/ENTRY as
+  // having a usable span, using the stale middle exit and ignoring the
+  // trailing unresolved entry).
+  //
+  // Deliberately does NOT also require firstMovementType !== 'EXIT'. An
+  // orphan leading exit (EXIT/ENTRY/EXIT — e.g. a shift crossing midnight,
+  // tapped out at 00:10, then a normal day) still has a perfectly real
+  // 9-hour session between firstEntry and lastExit; from 2026-10-28 to
+  // 2026-10-29 this method also excluded that case from "complete", which
+  // correctly stopped the orphan exit from being invisible (isMissingEntry
+  // below still flags it) but as a side effect zeroed the day's hours out
+  // of every downstream total — team/company averages, the duration trend,
+  // shortfall/long-duration counts, the Daily Duration table and the
+  // Per-Employee chart — during what's also used for payroll. The two are
+  // independent: callers that care about "is this day flagged" check
+  // isMissingEntry/isMissingExit directly (not gated on this), so a day
+  // can now correctly contribute both its hours AND a missingEntry flag.
+  // Found/confirmed in the 2026-10-29 review.
   private isDayComplete(agg: EmpDayAgg): agg is EmpDayAgg & { firstEntry: Date; lastExit: Date } {
-    return Boolean(
-      agg.firstEntry && agg.lastExit && agg.lastExit > agg.firstEntry && agg.lastMovementType === 'EXIT' && agg.firstMovementType !== 'EXIT',
-    );
+    return Boolean(agg.firstEntry && agg.lastExit && agg.lastExit > agg.firstEntry && agg.lastMovementType === 'EXIT');
   }
 
   // Mirror of isDayComplete: an entry exists but the day didn't end on an
   // exit — covers both "entry, never an exit" and "entry, exit, entry
-  // again with nothing after".
+  // again with nothing after". Suppressed once overnightHours is set
+  // (stitchOvernightSessions matched this dangling entry to the next day's
+  // orphan exit) — it's a real overnight shift, not a missing tap. Added
+  // 2026-10-30.
   private isMissingExit(agg: EmpDayAgg): boolean {
-    return Boolean(agg.firstEntry && agg.lastMovementType === 'ENTRY');
+    return Boolean(agg.firstEntry && agg.lastMovementType === 'ENTRY' && !agg.overnightHours);
   }
 
   // An EXIT exists with no ENTRY actually preceding it — either no entry
@@ -508,9 +610,10 @@ export class InsightsService {
   // than treating them as mutually exclusive. Replaces the old inline
   // `agg.lastExit && !agg.firstEntry`, which missed the EXIT/ENTRY/EXIT
   // case (firstEntry gets set by the later entry). Found in the
-  // 2026-10-28 audit.
+  // 2026-10-28 audit. Suppressed once entryResolvedByStitch is set (added
+  // 2026-10-30) — same overnight-shift reasoning as isMissingExit above.
   private isMissingEntry(agg: EmpDayAgg): boolean {
-    return agg.firstMovementType === 'EXIT';
+    return agg.firstMovementType === 'EXIT' && !agg.entryResolvedByStitch;
   }
 
   private async getExpectedHours(): Promise<number> {
@@ -607,8 +710,8 @@ export class InsightsService {
       const expectedHours = await this.getExpectedHours();
       const empDays = [...this.buildEmployeeDayAggs(movements).values()];
       const rows = empDays
-        .filter((a) => this.isDayComplete(a))
-        .map((a) => ({ ...a, hours: this.durationHours(a.firstEntry!, a.lastExit!) }))
+        .filter((a) => this.hasTrackedHours(a))
+        .map((a) => ({ ...a, hours: this.dayHours(a)! }))
         .filter((a) => a.hours < expectedHours)
         // Math.floor, not Math.round — rounding a value like 8.96 up to
         // "9h" would display exactly the threshold this list is titled
@@ -633,8 +736,8 @@ export class InsightsService {
       const expectedHours = await this.getExpectedHours();
       const empDays = [...this.buildEmployeeDayAggs(movements).values()];
       const rows = empDays
-        .filter((a) => this.isDayComplete(a))
-        .map((a) => ({ ...a, hours: this.durationHours(a.firstEntry!, a.lastExit!) }))
+        .filter((a) => this.hasTrackedHours(a))
+        .map((a) => ({ ...a, hours: this.dayHours(a)! }))
         .filter((a) => a.hours >= expectedHours + 1)
         .map((a) => ({
           employeeId: a.employeeId,
@@ -753,8 +856,8 @@ export class InsightsService {
       perEmployee.set(m.employeeId, bucket);
     }
     for (const agg of empDays) {
-      if (this.isDayComplete(agg)) {
-        const hours = this.durationHours(agg.firstEntry, agg.lastExit);
+      if (this.hasTrackedHours(agg)) {
+        const hours = this.dayHours(agg)!;
         const bucket = perEmployee.get(agg.employeeId)!;
         bucket.hoursSum += hours;
         bucket.completeDays++;
@@ -822,8 +925,8 @@ export class InsightsService {
     const dailyHours = empDays.map((agg) => {
       if (agg.firstEntry) arrivalMinutes.push(this.getMinuteOfDayInAppTimezone(agg.firstEntry));
       if (agg.lastExit) departureMinutes.push(this.getMinuteOfDayInAppTimezone(agg.lastExit));
-      const hours = this.isDayComplete(agg) ? Math.round(this.durationHours(agg.firstEntry, agg.lastExit) * 10) / 10 : null;
-      return { date: agg.date, hours, missingExit: this.isMissingExit(agg) };
+      const rawHours = this.dayHours(agg);
+      return { date: agg.date, hours: rawHours !== null ? Math.round(rawHours * 10) / 10 : null, missingExit: this.isMissingExit(agg) };
     });
 
     // Company-wide comparison: every active employee's own average
@@ -848,9 +951,9 @@ export class InsightsService {
     const namesById = new Map(activeRoster.map((e) => [e.id, e.employeeName]));
     const hoursByEmployee = new Map<number, { sum: number; count: number }>();
     for (const agg of this.buildEmployeeDayAggs(allMovements).values()) {
-      if (!namesById.has(agg.employeeId) || !this.isDayComplete(agg)) continue;
+      if (!namesById.has(agg.employeeId) || !this.hasTrackedHours(agg)) continue;
       const bucket = hoursByEmployee.get(agg.employeeId) ?? { sum: 0, count: 0 };
-      bucket.sum += this.durationHours(agg.firstEntry!, agg.lastExit!);
+      bucket.sum += this.dayHours(agg)!;
       bucket.count++;
       hoursByEmployee.set(agg.employeeId, bucket);
     }
@@ -879,8 +982,8 @@ export class InsightsService {
     let employeeHoursSum = 0;
     let employeeHoursCount = 0;
     for (const agg of empDays) {
-      if (agg.employeeId !== employeeId || !this.isDayComplete(agg)) continue;
-      employeeHoursSum += this.durationHours(agg.firstEntry!, agg.lastExit!);
+      if (agg.employeeId !== employeeId || !this.hasTrackedHours(agg)) continue;
+      employeeHoursSum += this.dayHours(agg)!;
       employeeHoursCount++;
     }
     const employeeAvgHours = employeeHoursCount > 0 ? Math.round((employeeHoursSum / employeeHoursCount) * 10) / 10 : null;
@@ -962,21 +1065,31 @@ export class InsightsService {
 
     const rows = empDays
       .map((agg) => {
-        const complete = this.isDayComplete(agg);
-        const missingExit = !complete && this.isMissingExit(agg);
-        const missingEntry = !complete && this.isMissingEntry(agg);
+        const rawHours = this.dayHours(agg);
+        const hours = rawHours !== null ? Math.round(rawHours * 10) / 10 : null;
+        // Flags are no longer gated behind `!hasHours` (removed 2026-10-29)
+        // — an orphan leading exit can co-occur with a perfectly valid
+        // firstEntry->lastExit session (e.g. a shift crossing midnight),
+        // and the Status column should still say so even though the Hours
+        // column now also shows the real worked hours for that day instead
+        // of a blank dash. isMissingExit/isMissingEntry self-suppress once
+        // stitchOvernightSessions has resolved a dangling entry/orphan exit
+        // pair across midnight (added 2026-10-30), so a stitched day reads
+        // as 'complete' here with its real (possibly cross-midnight) hours.
+        const missingExit = this.isMissingExit(agg);
+        const missingEntry = this.isMissingEntry(agg);
         // 'missingBoth' added 2026-10-28 — an orphan leading exit AND a
         // still-open trailing entry are independent, not mutually
         // exclusive (same bug class as Corrections.tsx's missing-movement
         // pills); this single status column needs a value for both at
         // once rather than silently picking one.
-        const status = complete ? 'complete' : missingExit && missingEntry ? 'missingBoth' : missingExit ? 'missingExit' : 'missingEntry';
+        const status = missingExit && missingEntry ? 'missingBoth' : missingExit ? 'missingExit' : missingEntry ? 'missingEntry' : 'complete';
         return {
           employeeId: agg.employeeId,
           employeeName: agg.employeeName,
           employeeCode: agg.employeeCode,
           team: agg.team,
-          hours: complete ? Math.round(this.durationHours(agg.firstEntry!, agg.lastExit!) * 10) / 10 : null,
+          hours,
           status: status as 'complete' | 'missingExit' | 'missingEntry' | 'missingBoth',
         };
       })

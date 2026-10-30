@@ -603,7 +603,13 @@ export function Dashboard() {
               <tr>
                 <Th label="Employee" sortKey="employeeName" sort={sort} onSort={(key) => setSort((p) => toggleSort(p, key))} />
                 <Th label="Date" sortKey="movementAt" sort={sort} onSort={(key) => setSort((p) => toggleSort(p, key))} />
-                <Th label="Time" sortKey="movementAt" sort={sort} onSort={(key) => setSort((p) => toggleSort(p, key))} />
+                {/* Time isn't its own sortable column — it's the same
+                    movementAt field as Date, just split into two cells for
+                    readability. Giving it the same sortKey as Date made the
+                    Th component light up both arrows at once and made
+                    clicking Time silently reverse Date's direction instead
+                    of switching columns. Found in the 2026-10-29 review. */}
+                <th>Time</th>
                 <Th label="Movement" sortKey="movementType" sort={sort} onSort={(key) => setSort((p) => toggleSort(p, key))} />
                 <Th label="Recorded By" sortKey="recordedByName" sort={sort} onSort={(key) => setSort((p) => toggleSort(p, key))} />
               </tr>

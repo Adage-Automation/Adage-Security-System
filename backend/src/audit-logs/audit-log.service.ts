@@ -161,12 +161,20 @@ export class AuditLogService {
   // risk on a long-lived production log.
   async exportToExcel(params: { entityType?: string; entityId?: number; userId?: number; from?: string; to?: string; q?: string }): Promise<Buffer> {
     const EXPORT_CAP = 5000;
-    const rows = await this.prisma.auditLog.findMany({
+    // Fetches one extra row so `rows.length === EXPORT_CAP + 1` can tell
+    // "truncated" apart from "exactly EXPORT_CAP rows exist" — `take:
+    // EXPORT_CAP` alone can't distinguish them, which previously showed the
+    // capped-export warning on a result that wasn't actually cut off. The
+    // extra row itself is sliced off before writing. Found in the
+    // 2026-10-29 review.
+    const fetched = await this.prisma.auditLog.findMany({
       where: this.buildWhere(params),
       orderBy: { createdAt: 'desc' },
-      take: EXPORT_CAP,
+      take: EXPORT_CAP + 1,
       include: { user: { select: { id: true, name: true } } },
     });
+    const truncated = fetched.length > EXPORT_CAP;
+    const rows = fetched.slice(0, EXPORT_CAP);
 
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet('Audit Log');
@@ -198,7 +206,7 @@ export class AuditLogService {
     // an unfiltered export past this many rows silently handed back only
     // the newest ones in a file that looks complete. Found in the
     // 2026-10-28 audit.
-    if (rows.length === EXPORT_CAP) {
+    if (truncated) {
       sheet.addRow({ time: '', action: '', entity: '', performedBy: '', ipAddress: '' });
       const warningRow = sheet.addRow({
         time: `Export capped at ${EXPORT_CAP} rows — narrow the filters (date range, entity, user) to see older entries.`,

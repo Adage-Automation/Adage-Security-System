@@ -147,7 +147,13 @@ describe('InsightsService.getSummary', () => {
   // normal complete day using the stale middle exit — the orphan leading
   // exit was invisible everywhere (not counted missingEntry, not excluded
   // from completeDays/avgHours).
-  it('does not count EXIT/ENTRY/EXIT as a complete day — the leading EXIT is an orphan with nothing before it', async () => {
+  //
+  // Revised 2026-10-29: the orphan exit must still be flagged, but the real
+  // ENTRY->EXIT session that follows it (09:30 IST -> 15:30 IST, 6h here)
+  // is genuine and must still count toward hours/completeDays — zeroing it
+  // out understated every payroll-relevant total by a full day for no
+  // reason. The two are independent, not mutually exclusive.
+  it('flags EXIT/ENTRY/EXIT as missingEntry while still counting the real session`s hours — the leading EXIT is an orphan, not a reason to drop the day', async () => {
     prisma.movementRecord.findMany.mockImplementation((args: any) => {
       if (args?.where?.correctedByUserId) return Promise.resolve([]);
       return Promise.resolve([
@@ -159,9 +165,9 @@ describe('InsightsService.getSummary', () => {
 
     const result = await service.getSummary({ from: '2026-10-01', to: '2026-10-01' });
 
-    expect(result.hoursShortfall.totalEmployeeDays).toBe(0); // not counted as a complete, judgeable day
-    expect(result.avgDurationTrend).toEqual([{ date: '2026-10-01', avgHours: null }]);
-    expect(result.exceptions.missingEntries).toBe(1); // the orphan leading exit is now flagged
+    expect(result.hoursShortfall.totalEmployeeDays).toBe(1); // the real session still counts
+    expect(result.avgDurationTrend).toEqual([{ date: '2026-10-01', avgHours: 6 }]);
+    expect(result.exceptions.missingEntries).toBe(1); // ...and the orphan leading exit is still flagged
   });
 
   // A day can be missing BOTH (orphan leading exit AND a still-open
@@ -182,6 +188,37 @@ describe('InsightsService.getSummary', () => {
 
     expect(result.exceptions.missingEntries).toBe(1);
     expect(result.exceptions.missingExits).toBe(1);
+  });
+
+  // The exact scenario a user walked through 2026-10-30: ENTRY 9:45am on
+  // day 1, EXIT 12:45am day 2 (crosses midnight), then a normal ENTRY
+  // 9:30am/EXIT 6:30pm on day 2. Before stitching: day 1 showed 0 hours
+  // (just flagged missingExit), day 2 showed only the second session's 9h
+  // (flagged missingEntry for the orphan leading exit, with the real
+  // overnight segment credited nowhere). After stitching: day 1 gets the
+  // real 15h overnight session credited to it (and clears missingExit),
+  // day 2 keeps its own 9h second session (and clears missingEntry).
+  it('stitches an overnight shift crossing midnight to the day it started, instead of splitting it into two unexplained flags', async () => {
+    prisma.movementRecord.findMany.mockImplementation((args: any) => {
+      if (args?.where?.correctedByUserId) return Promise.resolve([]);
+      return Promise.resolve([
+        movement({ employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-29T04:15:00.000Z') }), // 09:45 IST, 10-29
+        movement({ employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-29T19:15:00.000Z') }), // 00:45 IST, 10-30 — overnight exit
+        movement({ employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-30T04:00:00.000Z') }), // 09:30 IST, 10-30
+        movement({ employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-30T13:00:00.000Z') }), // 18:30 IST, 10-30
+      ]);
+    });
+
+    const result = await service.getSummary({ from: '2026-10-29', to: '2026-10-30' });
+
+    expect(result.exceptions.missingEntries).toBe(0);
+    expect(result.exceptions.missingExits).toBe(0);
+    expect(result.avgDurationTrend).toEqual(
+      expect.arrayContaining([
+        { date: '2026-10-29', avgHours: 15 }, // the real overnight session, credited to the day it started
+        { date: '2026-10-30', avgHours: 9 }, // the separate, normal same-day session
+      ]),
+    );
   });
 
   it('groups activity by recordedByUserId (unit) and by employee.team', async () => {
@@ -1042,7 +1079,12 @@ describe('InsightsService.getDailyDuration', () => {
   // Found in the 2026-10-28 audit: an orphan leading exit used to make
   // `firstEntry` read as the later entry, so EXIT/ENTRY/EXIT showed as a
   // plain "complete" day with no signal of the orphan exit at all.
-  it('flags EXIT/ENTRY/EXIT as missingEntry, not complete — the leading EXIT is an orphan', async () => {
+  //
+  // Revised 2026-10-29: status must still say missingEntry (the orphan is
+  // real and worth reviewing), but the real ENTRY->EXIT session that
+  // follows it is also real and must still show its hours — not a blank
+  // dash implying nothing is known about this day.
+  it('flags EXIT/ENTRY/EXIT as missingEntry while still showing the real session`s hours — the leading EXIT is an orphan, not a reason to blank the day', async () => {
     prisma.movementRecord.findMany.mockResolvedValue([
       movement({ employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-01T02:00:00.000Z'), employee: { team: 'Testing', employeeName: 'Orphan Exit', employeeCode: 'E1' } }),
       movement({ employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-01T04:00:00.000Z'), employee: { team: 'Testing', employeeName: 'Orphan Exit', employeeCode: 'E1' } }),
@@ -1052,7 +1094,7 @@ describe('InsightsService.getDailyDuration', () => {
     const result = await service.getDailyDuration({ date: '2026-10-01' } as any);
 
     expect(result.rows).toHaveLength(1);
-    expect(result.rows[0]).toMatchObject({ status: 'missingEntry', hours: null });
+    expect(result.rows[0]).toMatchObject({ status: 'missingEntry', hours: 6 });
   });
 
   it('flags missingBoth when a day has an orphan leading exit AND a trailing open entry', async () => {

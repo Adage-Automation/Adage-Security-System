@@ -2515,6 +2515,19 @@ function SingleSelect({
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
+  // A value restored from sessionStorage (e.g. unitId) can stop appearing in
+  // `options` later — e.g. the Unit list narrowed to SECURITY-role recorders
+  // only, dropping a previously-selected admin. Without this, the label
+  // fallback below silently displayed "All units" while the stale value was
+  // still being applied to every chart — the control visually disagreed with
+  // what was actually filtered. Reset rather than keep showing a value that
+  // doesn't resolve to any option. Found in the 2026-10-29 review.
+  useEffect(() => {
+    if (value && options.length > 0 && !options.some((o) => o.value === value)) {
+      onChange('');
+    }
+  }, [value, options, onChange]);
+
   useEffect(() => {
     if (!open) return;
     const closeIfOutside = (event: MouseEvent) => {
@@ -2614,8 +2627,22 @@ type DrillDownSort = { key: string; dir: 'asc' | 'desc' } | null;
 function Th({ label, sortKey, sort, onSort }: { label: string; sortKey: string; sort: DrillDownSort; onSort?: (key: string) => void }) {
   const active = sort?.key === sortKey;
   if (!onSort) return <th>{label}</th>;
+  // tabIndex/role/onKeyDown added 2026-10-29 — same fix as
+  // components/SortableTh.tsx's Th: an onClick-only <th> was mouse-only.
   return (
-    <th onClick={() => onSort(sortKey)} style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}>
+    <th
+      onClick={() => onSort(sortKey)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSort(sortKey);
+        }
+      }}
+      tabIndex={0}
+      role="button"
+      aria-sort={active ? (sort!.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+      style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
+    >
       {label}
       {active ? (sort!.dir === 'asc' ? ' ▲' : ' ▼') : ''}
     </th>

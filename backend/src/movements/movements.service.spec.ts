@@ -286,7 +286,11 @@ describe('MovementsService.addMissingRecord', () => {
     const { service, prisma, auditLog } = makeService();
     const record = { id: 14, employeeId: 7, movementType: 'EXIT' };
     prisma.employee.findUnique.mockResolvedValue({ id: 7 });
-    prisma.movementRecord.findMany.mockResolvedValue([{ movementType: 'ENTRY' }, { movementType: 'EXIT' }, { movementType: 'ENTRY' }]);
+    prisma.movementRecord.findMany.mockResolvedValue([
+      { movementType: 'ENTRY', movementAt: new Date('2026-09-10T02:00:00.000Z') },
+      { movementType: 'EXIT', movementAt: new Date('2026-09-10T04:00:00.000Z') },
+      { movementType: 'ENTRY', movementAt: new Date('2026-09-10T06:00:00.000Z') },
+    ]);
     prisma.movementRecord.create.mockResolvedValue(record);
 
     await expect(
@@ -349,15 +353,41 @@ describe('MovementsService.addMissingRecord', () => {
   // frontend's modal defaults every add to 09:00 regardless of type, which
   // fails exactly these two cases for a post-09:00 entry or a pre-09:00
   // orphan exit — the common overnight-shift pattern.
-  it('rejects a missing EXIT whose timestamp is before the day\'s last recorded movement — it would not close the gap', async () => {
+  //
+  // 2026-10-30: this exact shape — EXIT before the day's only (open) ENTRY
+  // — stopped being a rejection and became the overnight-exit checkbox's
+  // main case: a SEPARATE, earlier orphan exit (e.g. from the previous
+  // day's shift, landing just after midnight) doesn't close this entry's
+  // gap, but it's still a legitimate record. See canAddLeadingOrphanExit.
+  it('accepts a missing EXIT inserted before the day\'s only (open) entry — a separate, earlier orphan exit, not a close', async () => {
     const { service, prisma } = makeService();
+    const record = { id: 20, employeeId: 7, movementType: 'EXIT' };
     prisma.employee.findUnique.mockResolvedValue({ id: 7 });
-    // Day: ENTRY at 09:30. Adding EXIT at the modal's 09:00 default lands
-    // BEFORE it, not after — the session stays open either way.
+    // Day: ENTRY at 09:30, still open. Adding EXIT at 09:00 lands BEFORE
+    // it — not closing this entry's gap, but a valid new leading orphan.
     prisma.movementRecord.findMany.mockResolvedValue([{ movementType: 'ENTRY', movementAt: new Date('2026-09-10T09:30:00.000Z') }]);
+    prisma.movementRecord.create.mockResolvedValue(record);
 
     await expect(
       service.addMissingRecord({ employeeId: 7, movementType: 'EXIT', movementAt: '2026-09-10T09:00:00.000Z' } as any, 9),
+    ).resolves.toBe(record);
+  });
+
+  // The genuinely-still-invalid EXIT case: a day with its OWN complete
+  // session (first and last both explained) can take a new leading orphan
+  // exit, but only strictly before its first record — landing anywhere
+  // inside the existing session doesn't close anything and isn't a
+  // separate earlier shift either.
+  it('rejects a missing EXIT whose timestamp lands inside the day\'s own already-complete session', async () => {
+    const { service, prisma } = makeService();
+    prisma.employee.findUnique.mockResolvedValue({ id: 7 });
+    prisma.movementRecord.findMany.mockResolvedValue([
+      { movementType: 'ENTRY', movementAt: new Date('2026-09-10T09:30:00.000Z') },
+      { movementType: 'EXIT', movementAt: new Date('2026-09-10T18:30:00.000Z') },
+    ]);
+
+    await expect(
+      service.addMissingRecord({ employeeId: 7, movementType: 'EXIT', movementAt: '2026-09-10T14:00:00.000Z' } as any, 9),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.movementRecord.create).not.toHaveBeenCalled();
   });
@@ -411,6 +441,29 @@ describe('MovementsService.addMissingRecord', () => {
 
     await expect(
       service.addMissingRecord({ employeeId: 7, movementType: 'ENTRY', movementAt: '2026-09-10T01:00:00.000Z' } as any, 9),
+    ).resolves.toBe(record);
+  });
+
+  // The real-world case the overnight-exit checkbox exists for: reviewing
+  // the 29th's missing EXIT, the guard's actual exit was at 00:45 on the
+  // 30th — but the 30th already has its OWN complete, unrelated shift
+  // (entry 09:30, exit 18:30). Before the 2026-10-30 fix, this was rejected
+  // as "already recorded" purely because the 30th looked complete, with no
+  // regard for where 00:45 actually falls. Now it's recognized as a
+  // separate, earlier orphan exit landing before the 30th's own first
+  // record, and accepted.
+  it('accepts an overnight EXIT landing before a day that already has its own complete, unrelated shift', async () => {
+    const { service, prisma } = makeService();
+    const record = { id: 21, employeeId: 7, movementType: 'EXIT' };
+    prisma.employee.findUnique.mockResolvedValue({ id: 7 });
+    prisma.movementRecord.findMany.mockResolvedValue([
+      { movementType: 'ENTRY', movementAt: new Date('2026-10-30T04:00:00.000Z') }, // 09:30 IST
+      { movementType: 'EXIT', movementAt: new Date('2026-10-30T13:00:00.000Z') }, // 18:30 IST
+    ]);
+    prisma.movementRecord.create.mockResolvedValue(record);
+
+    await expect(
+      service.addMissingRecord({ employeeId: 7, movementType: 'EXIT', movementAt: '2026-10-29T19:15:00.000Z' } as any, 9), // 00:45 IST on the 30th
     ).resolves.toBe(record);
   });
 });
@@ -530,6 +583,28 @@ describe('MovementsService.missingInRange', () => {
     expect(result).toEqual([{ date: '2026-10-06', employeeId: 1, employeeName: 'Bob', employeeCode: 'E2', team: null, status: 'missingEntry' }]);
   });
 
+  // 2026-10-30, by request: the overnight-exit checkbox (Corrections'
+  // Add Missing Record modal) writes a leading orphan EXIT on the day
+  // AFTER a dangling open ENTRY — mirrors Insights' own
+  // stitchOvernightSessions. Without this list knowing about it too, both
+  // days would stay listed forever even once the gap is fully explained.
+  it('does not flag either day once an overnight-crossing shift is stitched across them — both ends already explained', async () => {
+    const { service, prisma } = makeService();
+    prisma.movementRecord.findMany.mockResolvedValue([
+      // Day 1: ENTRY 9:45am, still open (would be missingExit alone).
+      { employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-29T04:15:00.000Z'), employee: { employeeName: 'Asha', employeeCode: 'E1', team: 'Testing' } },
+      // Day 2: orphan EXIT 00:45am (would be missingEntry alone), then a
+      // normal, unrelated second shift that day.
+      { employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-29T19:15:00.000Z'), employee: { employeeName: 'Asha', employeeCode: 'E1', team: 'Testing' } },
+      { employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-30T04:00:00.000Z'), employee: { employeeName: 'Asha', employeeCode: 'E1', team: 'Testing' } },
+      { employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-30T13:00:00.000Z'), employee: { employeeName: 'Asha', employeeCode: 'E1', team: 'Testing' } },
+    ]);
+
+    const result = await service.missingInRange('2026-10-29', '2026-10-30');
+
+    expect(result).toEqual([]);
+  });
+
   // Found in the 2026-10-28 audit: missingExit/missingEntry were coded as
   // mutually exclusive (missingEntry required lastType !== 'ENTRY'), but a
   // day can have both — an orphan EXIT at the start AND a still-open
@@ -562,7 +637,7 @@ describe('MovementsService.missingInRange', () => {
     // records fresh (same mock, called again) — only the one ENTRY exists,
     // so adding EXIT is allowed.
     prisma.employee.findUnique.mockResolvedValue({ id: 1 });
-    prisma.movementRecord.findMany.mockResolvedValueOnce([{ movementType: 'ENTRY' }]);
+    prisma.movementRecord.findMany.mockResolvedValueOnce([{ movementType: 'ENTRY', movementAt: new Date('2026-10-01T04:00:00.000Z') }]);
     prisma.movementRecord.create.mockResolvedValue({ id: 99, employeeId: 1, movementType: 'EXIT' });
     await service.addMissingRecord({ employeeId: 1, movementType: 'EXIT', movementAt: '2026-10-01T08:00:00.000Z' } as any, 9);
 
