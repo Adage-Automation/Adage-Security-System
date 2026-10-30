@@ -57,7 +57,13 @@ export function ChartCanvas({ config, height = 260 }: { config: ChartConfigurati
   // Always the latest config, updated every render — not gated by dataKey
   // below, unlike the Chart.js instance itself.
   const configRef = useRef(config);
-  configRef.current = config;
+  // Assigned in an effect (not directly in the render body) so the ref
+  // write happens after commit, per React's rules-of-refs lint rule —
+  // functionally identical timing, since nothing reads configRef.current
+  // until a later event/effect anyway.
+  useEffect(() => {
+    configRef.current = config;
+  });
   const dataKey = JSON.stringify(config.data);
 
   useEffect(() => {

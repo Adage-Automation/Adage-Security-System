@@ -658,6 +658,10 @@ export function Corrections() {
               </div>
             </div>
           ) : (
+            // quickAdd (called from a real button onClick inside
+            // renderMissingPills) only writes its refs from that click
+            // handler, never during render.
+            // eslint-disable-next-line react-hooks/refs
             renderMissingPills(employeeCycleMissingRows, true, true)
           )}
         </>
@@ -801,6 +805,9 @@ export function Corrections() {
                   </tr>
                 </thead>
                 <tbody>
+                  {/* quickAdd (inside renderMissingPills' button onClick) only
+                      writes its refs from that click handler, never during render. */}
+                  {/* eslint-disable-next-line react-hooks/refs */}
                   {sortRows(groupedMissingRows, missingSort).map((g) => (
                     <tr key={g.employeeCode}>
                       <td>
@@ -823,6 +830,7 @@ export function Corrections() {
               serves, is the role most likely to be on a phone here. */}
           {!missingLoading && groupedMissingRows.length > 0 && (
             <div className="record-cards">
+              {/* eslint-disable-next-line react-hooks/refs -- see justification above. */}
               {sortRows(groupedMissingRows, missingSort).map((g) => (
                 <div className="record-card" key={g.employeeCode} style={{ flexDirection: 'column', alignItems: 'stretch' }}>
                   <div>

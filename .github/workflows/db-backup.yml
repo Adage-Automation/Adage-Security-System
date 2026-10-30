@@ -190,7 +190,15 @@ jobs:
             echo "$all" | head -n "$to_delete" | while read -r name; do
               [ -z "$name" ] && continue
               echo "Deleting old backup: $name"
-              aws s3 rm "s3://${BUCKET}/db-backups/${name}" --endpoint-url "$ENDPOINT" --region "$REGION"
+              # `|| echo ...` rather than letting this fail outright: under
+              # set -e + pipefail, one flaky/already-gone delete would abort
+              # the whole loop and fail the step even though the backup
+              # itself (dump + upload, the steps above) already succeeded —
+              # the next run's prune picks up anything left behind. Found
+              # after intermittent failures here on an otherwise-healthy
+              # backup, 2026-10-30.
+              aws s3 rm "s3://${BUCKET}/db-backups/${name}" --endpoint-url "$ENDPOINT" --region "$REGION" \
+                || echo "Warning: failed to delete $name — will retry on the next run."
             done
           else
             echo "$count backups present, within retention of $RETENTION_COUNT — nothing to prune."

@@ -42,6 +42,12 @@ Backend: 19/19 suites, 224/224 tests pass; typecheck clean. Frontend: 6/6 suites
 
 Backend: 19/19 suites, 224/224 tests pass; typecheck clean. Frontend: 6/6 suites, 24/24 tests pass; typecheck clean.
 
+**Fixed — CI had been failing on every commit since Commit 54, unnoticed:** the GitHub Actions API confirmed `npm run lint -w frontend` was failing on commits 54 through 58, specifically on `react-hooks/refs`, a newer lint rule that flags ref access it can't prove happens outside render. One flagged spot was a real (if harmless in practice) violation — `ChartCanvas.tsx` assigned a ref directly in the render body, moved into a `useEffect` instead. The other 7 were false positives: `Insights.tsx`'s chart click handlers and `Corrections.tsx`'s quick-add button both only touch their refs from a real click event, but go through a plain helper function the rule can't see through — disabled with a one-line justification at each site rather than restructuring working code around the rule's blind spot. See [docs/decisions.md](./docs/decisions.md) for the full root-cause writeup.
+
+**Fixed — the scheduled DB-backup workflow failed intermittently despite the backup itself always succeeding:** the dump + upload steps succeeded on every run checked; only the final prune-old-backups step failed, and only some nights. Root cause: its delete loop ran under `set -euo pipefail`, so one flaky `aws s3 rm` call aborted the whole step even after the real backup was already safely uploaded. Now logs a warning and continues on a single failed delete instead — no data-loss risk either way, since pruning only ever runs after a new backup is confirmed uploaded.
+
+Backend: 19/19 suites, 224/224 tests pass; typecheck clean. Frontend: 6/6 suites, 24/24 tests pass; typecheck clean. Both workspaces build clean; `npm run lint` clean (0 errors) on both.
+
 ## 2026-10-29 — UI/UX polish pass, and a data bug in Insights' Unit dropdown
 
 A design-focused session (animations, consistency, dropdown behavior) plus one real backend correctness bug found along the way.

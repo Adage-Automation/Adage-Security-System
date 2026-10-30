@@ -610,6 +610,10 @@ export function Insights() {
       // to?) without avoiding any real distortion. Dual axes are kept only
       // where the two measures are genuinely different units (e.g. hours
       // vs. day-counts in Avg Duration). Direct user feedback, 2026-10-13.
+      // Chart.js only invokes this onClick from a real canvas click event,
+      // never during render; the rule below can't see through the non-JSX
+      // callback to know that.
+      // eslint-disable-next-line react-hooks/refs
       ...clickableOptions((i) => {
         const date = summary.attendanceTrend[i].date;
         openDrillDown('attendance', { date, ...activeFilters() }, `Movements on ${date}`);
@@ -695,6 +699,7 @@ export function Insights() {
       // glance; the real count is still in the tooltip/axis ticks. Direct
       // user feedback, 2026-10-13.
       scales: { y: { type: 'logarithmic' as const, title: axisTitle('Movements (log scale)') } },
+      // eslint-disable-next-line react-hooks/refs -- see justification above.
       ...clickableOptions((i) => {
         const hour = visibleHours[i].hour;
         const hourLabel = `${String(hour).padStart(2, '0')}:00`;
@@ -827,6 +832,7 @@ export function Insights() {
   // clutter-by-combination left to decline into. Direct user feedback,
   // 2026-10-14.
   const departmentComparisonMedianLabels = departmentComparisonMedianTeams.map((t) => `${t.team} (${t.employeeCount})`);
+  // eslint-disable-next-line react-hooks/refs -- see justification above.
   const departmentComparisonClick = clickableOptions((i: number) => {
     const team = departmentComparisonMedianTeams[i].team;
     openDrillDown('team', { from, to, ...activeFilters(), team }, `${team} team`);
@@ -996,6 +1002,7 @@ export function Insights() {
     options: {
       ...baseLineOptions,
       scales: { y: { ...baseLineOptions.scales.y, title: axisTitle('Movements') } },
+      // eslint-disable-next-line react-hooks/refs -- see justification above.
       ...clickableOptions((i) => {
         const u = summary.unitActivity[i];
         openDrillDown('unit', { unitId: String(u.unitId), from, to, ...(team ? { team } : {}), ...(movementType ? { movementType } : {}) }, `${u.unitName} movements`);
