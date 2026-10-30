@@ -477,6 +477,36 @@ export class InsightsService {
     return movements.filter((m) => matchesDayScope(m.movementAt, scope));
   }
 
+  // Shared by the drill-down's shortfall/longDuration/missingExit/
+  // missingEntry branches. When scoped to a single `query.date` (clicking
+  // one bar on a day chart), the fetch widens one day each side so
+  // stitchOvernightSessions (inside buildEmployeeDayAggs) can actually see
+  // the adjacent day it needs to resolve a cross-midnight gap — a fetch
+  // scoped to exactly that one day can never do that, same bug as
+  // missingInRange/getDailyDuration's single-date views (fixed 2026-10-30).
+  // Not caught here initially because this file's own documented invariant
+  // ("a drill-down can never disagree with the chart that opened it")
+  // wasn't actually checked against a real overnight-crossing day's
+  // drill-down click specifically. Results are filtered back down to just
+  // `query.date` afterward; the range (no-date) case is unaffected.
+  private async getDrillDownEmpDays(
+    query: { date?: string; unitId?: string; team?: string },
+    rangeStart: Date,
+    rangeEnd: Date,
+    unitId: number | undefined,
+    dayScope: DayScope,
+  ): Promise<EmpDayAgg[]> {
+    if (query.date) {
+      if (!matchesDayScope(dayRange(query.date).start, dayScope)) return [];
+      const wideStart = dayRange(this.previousDateStr(query.date)).start;
+      const wideEnd = dayRange(this.nextDateStr(query.date)).end;
+      const movements = await this.fetchMovements({ start: wideStart, end: wideEnd, unitId, team: query.team });
+      return [...this.buildEmployeeDayAggs(movements).values()].filter((a) => a.date === query.date);
+    }
+    const movements = this.filterByDayScope(await this.fetchMovements({ start: rangeStart, end: rangeEnd, unitId, team: query.team }), dayScope);
+    return [...this.buildEmployeeDayAggs(movements).values()];
+  }
+
   // `movements` must already be sorted ascending by movementAt (fetchMovements
   // guarantees this) — the first ENTRY seen for a key is genuinely the
   // earliest, and the last EXIT seen (repeatedly overwritten) is genuinely
@@ -540,6 +570,12 @@ export class InsightsService {
   private previousDateStr(dateStr: string): string {
     const d = new Date(`${dateStr}T00:00:00Z`);
     d.setUTCDate(d.getUTCDate() - 1);
+    return d.toISOString().slice(0, 10);
+  }
+
+  private nextDateStr(dateStr: string): string {
+    const d = new Date(`${dateStr}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + 1);
     return d.toISOString().slice(0, 10);
   }
 
@@ -705,10 +741,8 @@ export class InsightsService {
     // to scope to) lists every flagged employee-day across the whole
     // from/to range instead.
     if (query.metric === 'shortfall') {
-      const { start: dayStart, end: dayEnd } = query.date ? dayRange(query.date) : { start, end };
-      const movements = this.filterByDayScope(await this.fetchMovements({ start: dayStart, end: dayEnd, unitId, team: query.team }), dayScope);
+      const empDays = await this.getDrillDownEmpDays(query, start, end, unitId, dayScope);
       const expectedHours = await this.getExpectedHours();
-      const empDays = [...this.buildEmployeeDayAggs(movements).values()];
       const rows = empDays
         .filter((a) => this.hasTrackedHours(a))
         .map((a) => ({ ...a, hours: this.dayHours(a)! }))
@@ -731,10 +765,8 @@ export class InsightsService {
     }
 
     if (query.metric === 'longDuration') {
-      const { start: dayStart, end: dayEnd } = query.date ? dayRange(query.date) : { start, end };
-      const movements = this.filterByDayScope(await this.fetchMovements({ start: dayStart, end: dayEnd, unitId, team: query.team }), dayScope);
+      const empDays = await this.getDrillDownEmpDays(query, start, end, unitId, dayScope);
       const expectedHours = await this.getExpectedHours();
-      const empDays = [...this.buildEmployeeDayAggs(movements).values()];
       const rows = empDays
         .filter((a) => this.hasTrackedHours(a))
         .map((a) => ({ ...a, hours: this.dayHours(a)! }))
@@ -751,9 +783,7 @@ export class InsightsService {
     }
 
     if (query.metric === 'missingExit' || query.metric === 'missingEntry') {
-      const { start: dayStart, end: dayEnd } = query.date ? dayRange(query.date) : { start, end };
-      const movements = this.filterByDayScope(await this.fetchMovements({ start: dayStart, end: dayEnd, unitId, team: query.team }), dayScope);
-      const empDays = [...this.buildEmployeeDayAggs(movements).values()];
+      const empDays = await this.getDrillDownEmpDays(query, start, end, unitId, dayScope);
       const isMissingExit = query.metric === 'missingExit';
       const rows = empDays
         .filter((a) => (isMissingExit ? this.isMissingExit(a) : this.isMissingEntry(a)))
@@ -1042,6 +1072,19 @@ export class InsightsService {
   // 2026-10, by request.
   async getDailyDuration(query: DailyDurationQueryDto) {
     const { start, end } = dayRange(query.date);
+    // Fetches one extra day on each side of query.date purely so
+    // stitchOvernightSessions (inside buildEmployeeDayAggs below) has the
+    // adjacent day it needs — a query scoped to exactly this one day can
+    // never resolve a cross-midnight gap, since the only thing that
+    // explains it lives on the day before or after. Found 2026-10-30,
+    // same bug as missingInRange's single-date view (see its own comment)
+    // — not caught earlier because this method had never been exercised
+    // with a real overnight-crossing day until one was actually reviewed.
+    // `movements`/`allUnitMovements` below are filtered back down to just
+    // `start`/`end` for presence (noMovement) — widening must never make
+    // someone who only tapped on an ADJACENT day look present today.
+    const wideStart = dayRange(this.previousDateStr(query.date)).start;
+    const wideEnd = dayRange(this.nextDateStr(query.date)).end;
     const unitId = query.unitId ? Number(query.unitId) : undefined;
     // Presence (for noMovement below) is intentionally computed from
     // every unit, not just the unitId filter — a unit filter narrows
@@ -1049,8 +1092,8 @@ export class InsightsService {
     // tapped at the OTHER unit still has movement that day and must not
     // be listed as having none.
     const [movements, allUnitMovements, roster] = await Promise.all([
-      this.fetchMovements({ start, end, unitId, team: query.team }),
-      unitId ? this.fetchMovements({ start, end, team: query.team }) : Promise.resolve(null),
+      this.fetchMovements({ start: wideStart, end: wideEnd, unitId, team: query.team }),
+      unitId ? this.fetchMovements({ start: wideStart, end: wideEnd, team: query.team }) : Promise.resolve(null),
       // isActive filter only applies to the noMovement roster below — an
       // inactive (left/terminated) employee trivially has no movement
       // every day, which isn't useful information to surface, just noise.
@@ -1061,7 +1104,10 @@ export class InsightsService {
         select: { id: true, employeeName: true, employeeCode: true, team: true, isActive: true },
       }),
     ]);
-    const empDays = [...this.buildEmployeeDayAggs(movements).values()];
+    // The widened fetch only exists so stitching can see across the
+    // edges — `rows` itself must still mean exactly query.date, not the
+    // padding days either side of it.
+    const empDays = [...this.buildEmployeeDayAggs(movements).values()].filter((agg) => agg.date === query.date);
 
     const rows = empDays
       .map((agg) => {
@@ -1101,7 +1147,11 @@ export class InsightsService {
     // under 'weekends' (the off-schedule-audit view). 'all' always flags it.
     // Added 2026-10-14, by request.
     const dayScope: DayScope = query.dayScope ?? 'weekdays';
-    const presentIds = new Set((allUnitMovements ?? movements).map((m) => m.employeeId));
+    // Scoped back down to `start`/`end` (query.date only) — `movements`/
+    // `allUnitMovements` above were widened for stitching, and someone who
+    // only tapped on an adjacent padding day must still count as having no
+    // movement today.
+    const presentIds = new Set((allUnitMovements ?? movements).filter((m) => m.movementAt >= start && m.movementAt < end).map((m) => m.employeeId));
     const noMovement = matchesDayScope(start, dayScope)
       ? roster
           .filter((emp) => !presentIds.has(emp.id))

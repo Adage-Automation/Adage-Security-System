@@ -217,8 +217,21 @@ export class MovementsService {
   // the page's plain single-date view — same query shape either way, one
   // path to maintain. Widened from a single `date` param 2026-10-26, by
   // request.
+  //
+  // Fetches one extra day on EACH side of [from, to] — not just [from, to]
+  // itself — so the stitching pass below always has what it needs. Found
+  // 2026-10-30, by actually using the single-date view (from === to, the
+  // page's default and most common case): stitching a day's gap requires
+  // the ADJACENT day's bucket to exist in `byDayAndEmployee`, which a
+  // query scoped to exactly [from, to] never fetches for the day right
+  // outside that range. Concretely: viewing "Missing a movement on the
+  // 6th" alone (from=to=6th) could never resolve the 6th's missingExit,
+  // because the 7th's orphan leading exit — the ONLY thing that explains
+  // it — was never in the query at all. The final result is still
+  // filtered back down to [from, to] below; the extra days are fetched
+  // only to let stitching see across the edges, never returned themselves.
   async missingInRange(from: string, to: string) {
-    const { start, end } = dateRangeInclusive(from, to);
+    const { start, end } = dateRangeInclusive(this.previousDateStr(from), this.nextDateStr(to));
     const movements = await this.prisma.movementRecord.findMany({
       where: { isSuperseded: false, movementAt: { gte: start, lt: end } },
       select: {
@@ -339,6 +352,11 @@ export class MovementsService {
         missingExit: b.lastType === 'ENTRY' && b.date !== today && !b.exitResolvedByStitch,
         missingEntry: b.firstType === 'EXIT' && !b.entryResolvedByStitch,
       }))
+      // The query above fetches one extra day on each side purely so
+      // stitching can see across the edges of [from, to] — those boundary
+      // days were never actually asked for, so they're excluded here even
+      // if they themselves happen to still be missing something.
+      .filter((b) => b.date >= from && b.date <= to)
       .filter((b) => b.missingExit || b.missingEntry)
       .map((b) => ({
         date: b.date,
@@ -362,6 +380,12 @@ export class MovementsService {
   private previousDateStr(dateStr: string): string {
     const d = new Date(`${dateStr}T00:00:00Z`);
     d.setUTCDate(d.getUTCDate() - 1);
+    return d.toISOString().slice(0, 10);
+  }
+
+  private nextDateStr(dateStr: string): string {
+    const d = new Date(`${dateStr}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + 1);
     return d.toISOString().slice(0, 10);
   }
 

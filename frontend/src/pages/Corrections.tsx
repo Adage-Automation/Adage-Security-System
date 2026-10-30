@@ -711,7 +711,7 @@ export function Corrections() {
               <div className="record-card" key={r.id}>
                 <div>
                   <span className={`movement-badge ${r.movementType}`}>{r.movementType}</span>
-                  <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
                     {formatTime(r.movementAt)}
                     {r.recordedOffline && <OfflineBadge />}
                     <AddedBadge record={r} />
@@ -828,7 +828,7 @@ export function Corrections() {
                   <div>
                     {g.employeeName} <span style={{ color: 'var(--text-muted)' }}>({g.employeeCode})</span>
                   </div>
-                  <div style={{ fontSize: 12, color: '#666', marginTop: 4, marginBottom: 8 }}>{g.team ?? 'Unassigned'}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, marginBottom: 8 }}>{g.team ?? 'Unassigned'}</div>
                   {renderMissingPills(g.rows, attendanceMonthOffset !== null)}
                 </div>
               ))}
@@ -923,11 +923,11 @@ export function Corrections() {
                     off) covers that case. Added 2026-10-30, by request. */}
                 {!edit.nextDay && !recordsLoading && records.length > 0 &&
                   (edit.movementType === 'EXIT' ? (
-                    <div style={{ fontSize: 12, color: '#666', marginTop: 8, clear: 'both' }}>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8, clear: 'both' }}>
                       Must be after {formatTime(records[records.length - 1].movementAt)} (the day's last record)
                     </div>
                   ) : (
-                    <div style={{ fontSize: 12, color: '#666', marginTop: 8, clear: 'both' }}>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8, clear: 'both' }}>
                       Must be before {formatTime(records[0].movementAt)} (the day's first record)
                     </div>
                   ))}

@@ -761,6 +761,46 @@ describe('InsightsService.getDrillDown', () => {
     expect(result.rows[0]).toMatchObject({ employeeName: 'Orphan Exit' });
   });
 
+  // Same bug as getDailyDuration/missingInRange's single-date views (fixed
+  // 2026-10-30): a drill-down scoped to one `date` only ever fetched that
+  // exact day, so stitchOvernightSessions could never see the adjacent
+  // day's dangling entry/orphan exit it needs — meaning a day Insights'
+  // own range-level summary already resolved as a real overnight shift
+  // would still show up flagged the moment you clicked into its drill-down.
+  it('missingExit: fetches one extra day on each side of a single-date query, so an overnight-crossing day is not flagged', async () => {
+    prisma.movementRecord.findMany.mockResolvedValue([
+      // Day 1's only entry, dangling (no same-day exit) — 21:30 IST Oct 5.
+      movement({ employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-05T16:00:00.000Z'), employee: { team: 'Testing', employeeName: 'Overnight', employeeCode: 'E1' } }),
+      // Orphan leading exit, 04:30 IST Oct 6 (still Oct 5 in UTC) — the
+      // other end of the same overnight shift.
+      movement({ employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-05T23:00:00.000Z'), employee: { team: 'Testing', employeeName: 'Overnight', employeeCode: 'E1' } }),
+    ]);
+
+    const result: any = await service.getDrillDown({ metric: 'missingExit', date: '2026-10-05' } as any);
+    const whereArg = (prisma.movementRecord.findMany as jest.Mock).mock.calls[0][0].where;
+
+    expect(whereArg.movementAt.gte.getDate()).toBe(4);
+    expect(whereArg.movementAt.lt.getDate()).toBe(7);
+    expect(result.rows).toHaveLength(0);
+  });
+
+  it('shortfall: a single-date drill-down credits the real overnight hours for a shift stitched across midnight, same as the range-level summary', async () => {
+    settings.get.mockImplementation((key: string) => (key === 'EXPECTED_DAILY_HOURS' ? Promise.resolve('9') : Promise.resolve(null)));
+    prisma.movementRecord.findMany.mockResolvedValue([
+      movement({ employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-05T16:00:00.000Z'), employee: { team: 'Testing', employeeName: 'Overnight', employeeCode: 'E1' } }),
+      movement({ employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-05T23:00:00.000Z'), employee: { team: 'Testing', employeeName: 'Overnight', employeeCode: 'E1' } }),
+    ]);
+
+    const result: any = await service.getDrillDown({ metric: 'shortfall', date: '2026-10-05' } as any);
+
+    // 21:30 IST -> 04:30 IST next day = 7h overnight — under the 9h
+    // threshold, so it should show up here with real hours, not be
+    // silently excluded for having none.
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({ employeeName: 'Overnight', date: '2026-10-05' });
+    expect(result.rows[0].hours).toBeCloseTo(7, 1);
+  });
+
   it('missingExit/missingEntry: with no date, lists every flagged employee-day across the whole from/to range (the Exceptions KPI card has no single day to scope to)', async () => {
     prisma.movementRecord.findMany.mockResolvedValue([
       movement({ employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-01T04:00:00.000Z'), employee: { team: 'Testing', employeeName: 'No Exit Day 1', employeeCode: 'E1' } }),
@@ -1178,6 +1218,54 @@ describe('InsightsService.getDailyDuration', () => {
 
     expect(result.rows).toHaveLength(0); // nothing recorded at the filtered unit
     expect(result.noMovement).toHaveLength(0); // but they did tap, just elsewhere
+  });
+
+  // Found 2026-10-30, against a real employee's data: this endpoint is
+  // single-date by design (unlike getSummary's from/to range), so it used
+  // to query EXACTLY query.date — never fetching the adjacent day a
+  // cross-midnight stitch needs to resolve. A mock that ignores its `where`
+  // clause can't catch this; has to assert on what was actually queried.
+  it('fetches one extra day on each side of the requested date, so an overnight-crossing gap still resolves', async () => {
+    prisma.movementRecord.findMany.mockResolvedValue([
+      // Day ends on a dangling open ENTRY (would be missingExit alone).
+      movement({ employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-06T06:43:00.000Z'), employee: { team: 'Admin', employeeName: 'Neeraj', employeeCode: 'E1' } }),
+      // Next day opens on the orphan exit that actually closes it.
+      movement({ employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-06T20:15:00.000Z'), employee: { team: 'Admin', employeeName: 'Neeraj', employeeCode: 'E1' } }),
+      movement({ employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-07T02:40:00.000Z'), employee: { team: 'Admin', employeeName: 'Neeraj', employeeCode: 'E1' } }),
+      movement({ employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-07T14:03:00.000Z'), employee: { team: 'Admin', employeeName: 'Neeraj', employeeCode: 'E1' } }),
+    ]);
+
+    const result = await service.getDailyDuration({ date: '2026-10-06' } as any);
+
+    const whereArg = prisma.movementRecord.findMany.mock.calls[0][0].where;
+    // Spans the 5th through the 8th (one day padding each side of the
+    // 6th) — compared in local date parts, not toISOString, since
+    // dayRange builds these in the server's local timezone.
+    expect(whereArg.movementAt.gte.getDate()).toBe(5);
+    expect(whereArg.movementAt.lt.getDate()).toBe(8);
+    // Resolved, not flagged — and showing the real stitched hours, not a
+    // blank dash, because the only record on the 6th is this is still
+    // scoped to query.date even though the fetch itself was widened.
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({ employeeName: 'Neeraj', status: 'complete' });
+    expect(result.rows[0].hours).toBeGreaterThan(0);
+  });
+
+  // The widened fetch above must never leak into presence (noMovement) —
+  // someone who only tapped on one of the padding days, not on
+  // query.date itself, genuinely has no movement today and must still be
+  // flagged as such.
+  it('does not count a tap on an adjacent padding day as presence for noMovement', async () => {
+    prisma.movementRecord.findMany.mockResolvedValue([
+      movement({ employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-05T04:00:00.000Z'), employee: { team: 'Testing', employeeName: 'Yesterday Only', employeeCode: 'E1' } }),
+      movement({ employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-05T13:00:00.000Z'), employee: { team: 'Testing', employeeName: 'Yesterday Only', employeeCode: 'E1' } }),
+    ]);
+    prisma.employee.findMany.mockResolvedValue([{ id: 1, employeeName: 'Yesterday Only', employeeCode: 'E1', team: 'Testing', isActive: true }]);
+
+    const result = await service.getDailyDuration({ date: '2026-10-06' } as any);
+
+    expect(result.rows).toHaveLength(0); // nothing recorded on the 6th itself
+    expect(result.noMovement).toHaveLength(1); // still flagged — the 5th doesn't count
   });
 });
 

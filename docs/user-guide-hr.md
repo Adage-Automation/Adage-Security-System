@@ -20,7 +20,7 @@ At the top you'll see four numbers for the selected date: total employees who mo
 
 **Tap any of these four cards** to see exactly who's counted in it — a list of names for that date. (This is HR/Admin only; Security doesn't get this drill-down, though the same information is always visible in the records table below regardless of role.)
 
-If you want the day's total working hours, open **View Employee Day** for that employee; the details page shows a **Total working hours** banner calculated from the first ENTRY to the last EXIT of the day (e.g. "7h 45m").
+If you want the day's total working hours, open **View Employee Day** for that employee; the details page shows a **Total working hours** banner calculated from the first ENTRY to the last EXIT of the day (e.g. "7h 45m"). If the shift crossed midnight into the next day, the banner now includes that overnight time and a note links you to the day the exit actually landed on (added 2026-10-30) — previously this case showed no hours and no exit at all, even though the shift was real.
 
 ### Filters
 
@@ -36,7 +36,7 @@ Tap any employee's name in the table (or card) to jump straight to their **View 
 
 1. On the Dashboard, select a **Date** and search for the **Employee**.
 2. Tap **View Employee Day**.
-3. You'll see that employee's full movement history for that specific date — every ENTRY and EXIT in order, with times. A **Total working hours** banner is shown below the list, calculated from the first ENTRY to the last EXIT of the day (e.g. "7h 45m"). This only appears when there is at least one ENTRY and one EXIT on record; if the employee hasn't exited yet, the banner is not shown.
+3. You'll see that employee's full movement history for that specific date — every ENTRY and EXIT in order, with times. A **Total working hours** banner is shown below the list, calculated from the first ENTRY to the last EXIT of the day (e.g. "7h 45m"). This only appears when there is at least one ENTRY and one EXIT on record; if the employee hasn't exited yet, the banner is not shown — unless their exit actually happened after midnight on the next calendar day, in which case the page now finds it there, credits the overnight hours in the banner, and shows a clickable note to that next day (added 2026-10-30).
 
 ## Emailing a record
 

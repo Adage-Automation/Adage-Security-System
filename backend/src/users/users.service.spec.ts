@@ -1,6 +1,6 @@
 import { UsersService } from './users.service';
 
-function makeUserRow(overrides: Partial<{ id: number; email: string; roleId: number; roleName: string; manageUsers: boolean }> = {}) {
+function makeUserRow(overrides: Partial<{ id: number; email: string; roleId: number; roleName: string; manageUsers: boolean; isActive: boolean }> = {}) {
   const manageUsers = overrides.manageUsers ?? true;
   return {
     id: overrides.id ?? 1,
@@ -8,7 +8,7 @@ function makeUserRow(overrides: Partial<{ id: number; email: string; roleId: num
     email: overrides.email ?? 'user@example.com',
     phone: null,
     username: 'someuser',
-    isActive: true,
+    isActive: overrides.isActive ?? true,
     role: {
       id: overrides.roleId ?? 1,
       name: overrides.roleName ?? 'ADMIN',
@@ -125,6 +125,32 @@ describe('UsersService', () => {
       prisma.user.update.mockResolvedValue(makeUserRow({ id: 3, roleId: 2 }));
 
       await expect(service.update(3, { roleId: 2 }, 1)).resolves.toBeTruthy();
+    });
+  });
+
+  describe('update — last-admin disable protection', () => {
+    it('blocks disabling the last active admin through the general update endpoint, not just setActive', async () => {
+      prisma.user.findUnique.mockResolvedValueOnce(makeUserRow({ id: 3 })).mockResolvedValueOnce(makeUserRow({ id: 3 }));
+      prisma.user.count.mockResolvedValue(0);
+
+      await expect(service.update(3, { isActive: false }, 1)).rejects.toThrow('last active user who can manage users');
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('allows disabling an admin through update when another active admin remains', async () => {
+      prisma.user.findUnique.mockResolvedValue(makeUserRow({ id: 3 }));
+      prisma.user.count.mockResolvedValue(1);
+      prisma.user.update.mockResolvedValue(makeUserRow({ id: 3, isActive: false }));
+
+      await expect(service.update(3, { isActive: false }, 1)).resolves.toBeTruthy();
+    });
+
+    it('does not re-check when isActive is already false and stays false (no-op toggle)', async () => {
+      prisma.user.findUnique.mockResolvedValue(makeUserRow({ id: 3, isActive: false }));
+      prisma.user.update.mockResolvedValue(makeUserRow({ id: 3, isActive: false }));
+
+      await expect(service.update(3, { isActive: false }, 1)).resolves.toBeTruthy();
+      expect(prisma.user.count).not.toHaveBeenCalled();
     });
   });
 });

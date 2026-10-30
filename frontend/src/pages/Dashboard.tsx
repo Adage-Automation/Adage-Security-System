@@ -639,7 +639,7 @@ export function Dashboard() {
               <div className="record-card" key={r.id}>
                 <div>
                   <EmployeeLink employeeId={r.employeeId} employeeName={r.employee?.employeeName ?? ''} date={date} />
-                  <div style={{ fontSize: 12, color: '#666' }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                     {new Date(r.movementAt).toLocaleString('en-IN')}
                     {r.recordedOffline && <OfflineBadge />}
                     <AddedBadge record={r} />
@@ -669,10 +669,10 @@ export function Dashboard() {
       {!recordsLoading && records.length === 0 && (
         <div className="empty-state">
           <IconInbox />
-          <div className="empty-title">{selectedEmployee || movementType ? 'No matches for this filter' : 'No movements recorded for this date'}</div>
+          <div className="empty-title">{selectedEmployee || movementType || recordedByUserId ? 'No matches for this filter' : 'No movements recorded for this date'}</div>
           <div className="empty-hint">
-            {selectedEmployee || movementType
-              ? 'Try a different employee, movement type, or clear the filters above.'
+            {selectedEmployee || movementType || recordedByUserId
+              ? 'Try a different employee, movement type, recorded-by, or clear the filters above.'
               : isToday
                 ? 'Nothing has been recorded yet today — check back once a guard records an entry or exit.'
                 : 'Try a different date.'}

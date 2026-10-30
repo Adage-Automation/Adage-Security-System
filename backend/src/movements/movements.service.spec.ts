@@ -605,6 +605,38 @@ describe('MovementsService.missingInRange', () => {
     expect(result).toEqual([]);
   });
 
+  // Found 2026-10-30, against a real employee: the single-date view
+  // (from === to, the page's default and most common case) could NEVER
+  // actually resolve a stitched gap, because a query scoped to exactly
+  // [from, to] never fetches the ADJACENT day stitching needs to see. A
+  // mock that ignores its `where` clause (like the test above) can't catch
+  // this — it has to assert on what was actually QUERIED, not just what
+  // the mock was told to hand back regardless.
+  it('fetches one extra day on each side of a single-date query, so stitching can still resolve it', async () => {
+    const { service, prisma } = makeService();
+    prisma.movementRecord.findMany.mockResolvedValue([
+      { employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-05T04:15:00.000Z'), employee: { employeeName: 'Asha', employeeCode: 'E1', team: 'Testing' } },
+      { employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-05T19:15:00.000Z'), employee: { employeeName: 'Asha', employeeCode: 'E1', team: 'Testing' } },
+      { employeeId: 1, movementType: 'ENTRY', movementAt: new Date('2026-10-06T04:00:00.000Z'), employee: { employeeName: 'Asha', employeeCode: 'E1', team: 'Testing' } },
+      { employeeId: 1, movementType: 'EXIT', movementAt: new Date('2026-10-06T13:00:00.000Z'), employee: { employeeName: 'Asha', employeeCode: 'E1', team: 'Testing' } },
+    ]);
+
+    // Viewing "Missing a movement on the 6th" alone — from === to.
+    const result = await service.missingInRange('2026-10-05', '2026-10-05');
+
+    const whereArg = prisma.movementRecord.findMany.mock.calls[0][0].where;
+    // Queried range must span the 4th through the 7th (one day padding on
+    // each side of the 5th), not just the 5th itself. Compared in local
+    // date parts, not toISOString — dayRange builds these in the server's
+    // local timezone (Asia/Kolkata in this repo's dev/CI), so a UTC slice
+    // would read a day early.
+    expect(whereArg.movementAt.gte.getDate()).toBe(4);
+    expect(whereArg.movementAt.lt.getDate()).toBe(7);
+    // And the stitch itself actually resolved — nothing returned for the
+    // 5th, even though asked for on its own.
+    expect(result).toEqual([]);
+  });
+
   // Found in the 2026-10-28 audit: missingExit/missingEntry were coded as
   // mutually exclusive (missingEntry required lastType !== 'ENTRY'), but a
   // day can have both — an orphan EXIT at the start AND a still-open

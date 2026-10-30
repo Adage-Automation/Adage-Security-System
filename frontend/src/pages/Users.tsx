@@ -21,6 +21,11 @@ interface UserRow {
 interface Role {
   id: number;
   name: string;
+  rolePermissions: { permission: { name: string } }[];
+}
+
+function hasManageUsers(role: Role | undefined): boolean {
+  return role?.rolePermissions.some((rp) => rp.permission.name === 'MANAGE_USERS') ?? false;
 }
 
 export function Users() {
@@ -166,9 +171,15 @@ export function Users() {
     // above — changing your OWN role away from Admin silently loses you
     // Users/Settings/Audit Log access with zero warning otherwise, unlike
     // disabling your own account (which already confirms). Found in the
-    // 2026-10-27 admin role-flow audit.
+    // 2026-10-27 admin role-flow audit. Checked by MANAGE_USERS (via the
+    // `roles` list, which carries permissions; `editing.role` itself
+    // doesn't) rather than the literal name 'ADMIN' — matches the
+    // backend's own `assertRoleChangeKeepsAnAdmin` boundary, so this stays
+    // correct if a future role is ever also granted that permission.
+    // Found in the 2026-10-30 audit.
     const newRole = roles.find((r) => String(r.id) === editForm.roleId);
-    if (editing.id === currentUser?.id && newRole && newRole.name !== 'ADMIN' && editing.role.name === 'ADMIN') {
+    const currentRole = roles.find((r) => r.id === editing.role.id);
+    if (editing.id === currentUser?.id && newRole && !hasManageUsers(newRole) && hasManageUsers(currentRole)) {
       if (!window.confirm('This is your own account. Changing your role away from Admin will immediately remove your access to Users, Settings, and the Audit Log. Continue?')) {
         return;
       }

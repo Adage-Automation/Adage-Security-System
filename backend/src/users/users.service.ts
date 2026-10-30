@@ -92,6 +92,15 @@ export class UsersService {
       await this.assertRoleChangeKeepsAnAdmin(id, dto.roleId);
     }
 
+    // dto.isActive can also disable a user through this general-purpose
+    // endpoint, not just the dedicated PATCH /users/:id/disable route —
+    // without this, the last-active-admin lockout guard above only ever
+    // covered one of the two paths that can produce it. Found in the
+    // 2026-10-30 audit.
+    if (dto.isActive === false && before.isActive) {
+      await this.assertNotLastActiveAdmin(id);
+    }
+
     const user = await this.prisma.user.update({ where: { id }, data: dto, select: SELECT_SAFE_FIELDS });
     await this.auditLog.record({
       userId: actingUserId,
