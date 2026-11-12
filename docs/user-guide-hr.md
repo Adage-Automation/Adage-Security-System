@@ -32,6 +32,10 @@ The records table updates automatically as you change filters. On a phone, the t
 
 Tap any employee's name in the table (or card) to jump straight to their **View Employee Day** page for the selected date — a shortcut for the "select employee then tap the button" flow described below.
 
+### Downloading a PDF
+
+Tap **Download PDF** next to the filters to get a PDF of whatever the table is currently showing — same Date/Employee/Movement/Recorded By filters applied. It lists one row per employee (their first entry and last exit for that date, not every individual tap) with a serial number and a Total Present count. Added 2026-11-12.
+
 ## Viewing one employee's day
 
 1. On the Dashboard, select a **Date** and search for the **Employee**.

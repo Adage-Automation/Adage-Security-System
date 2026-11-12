@@ -6,6 +6,7 @@ describe('ReportsController', () => {
   let reportsService: {
     downloadPng: jest.Mock;
     downloadPdf: jest.Mock;
+    downloadDashboardPdf: jest.Mock;
     emailDailyRecord: jest.Mock;
     listEmailLogs: jest.Mock;
     getSignedUrlForEmailLog: jest.Mock;
@@ -16,6 +17,7 @@ describe('ReportsController', () => {
     reportsService = {
       downloadPng: jest.fn(),
       downloadPdf: jest.fn(),
+      downloadDashboardPdf: jest.fn(),
       emailDailyRecord: jest.fn(),
       listEmailLogs: jest.fn(),
       getSignedUrlForEmailLog: jest.fn(),
@@ -76,6 +78,34 @@ describe('ReportsController', () => {
     expect(response.set).toHaveBeenCalledWith(
       expect.objectContaining({ 'Content-Type': 'application/pdf' }),
     );
+  });
+
+  it('downloads the Dashboard attendance PDF with parsed filters and records the audit event', async () => {
+    const response = {
+      set: jest.fn(),
+      send: jest.fn(),
+    } as any;
+    reportsService.downloadDashboardPdf.mockResolvedValue({
+      buffer: Buffer.from('pdf'),
+      filename: 'attendance_2026-09-10.pdf',
+    });
+    auditLog.record.mockResolvedValue(undefined);
+
+    await controller.dashboardPdf('2026-09-10', '7', 'ENTRY', '3', { id: 9 } as any, response);
+
+    expect(reportsService.downloadDashboardPdf).toHaveBeenCalledWith({
+      date: '2026-09-10',
+      employeeId: 7,
+      movementType: 'ENTRY',
+      recordedByUserId: 3,
+    });
+    expect(auditLog.record).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 9, action: 'REPORT_DOWNLOADED', entityType: 'Dashboard' }),
+    );
+    expect(response.set).toHaveBeenCalledWith(
+      expect.objectContaining({ 'Content-Type': 'application/pdf' }),
+    );
+    expect(response.send).toHaveBeenCalledWith(Buffer.from('pdf'));
   });
 
   it('delegates email sending to the reports service', async () => {

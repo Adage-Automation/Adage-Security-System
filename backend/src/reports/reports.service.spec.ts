@@ -13,9 +13,10 @@ describe('ReportsService', () => {
   };
 
   const auditLog = { record: jest.fn() };
-  const generator = { generatePng: jest.fn(), generatePdf: jest.fn() };
+  const generator = { generatePng: jest.fn(), generatePdf: jest.fn(), generateDashboardPdf: jest.fn() };
   const storage = { uploadReport: jest.fn(), getSignedDownloadUrl: jest.fn() };
   const email = { sendMovementRecordEmail: jest.fn() };
+  const movements = { listWithFilters: jest.fn() };
 
   let service: ReportsService;
 
@@ -45,6 +46,8 @@ describe('ReportsService', () => {
       reportFileFormat: 'PNG',
     }));
     generator.generatePng.mockResolvedValue(Buffer.from('png'));
+    generator.generateDashboardPdf.mockResolvedValue(Buffer.from('pdf'));
+    movements.listWithFilters.mockResolvedValue([]);
     storage.uploadReport.mockResolvedValue(undefined);
     // Resolves with the address actually used as sender (2026-09-28) —
     // may differ from the intended `from` if EmailService fell back.
@@ -58,7 +61,62 @@ describe('ReportsService', () => {
       generator as any,
       storage as any,
       email as any,
+      movements as any,
     );
+  });
+
+  it('collapses a filtered employee day down to first entry and last exit', async () => {
+    movements.listWithFilters.mockResolvedValue([
+      {
+        employeeId: 1,
+        movementAt: new Date('2026-09-10T12:00:00Z'),
+        movementType: 'EXIT',
+        employee: { employeeName: 'Test Employee', employeeCode: 'ADG1024' },
+        recordedBy: { id: 3, name: 'Unit 1' },
+      },
+      {
+        employeeId: 1,
+        movementAt: new Date('2026-09-10T04:00:00Z'),
+        movementType: 'ENTRY',
+        employee: { employeeName: 'Test Employee', employeeCode: 'ADG1024' },
+        recordedBy: { id: 3, name: 'Unit 1' },
+      },
+      {
+        employeeId: 1,
+        movementAt: new Date('2026-09-10T08:00:00Z'),
+        movementType: 'ENTRY',
+        employee: { employeeName: 'Test Employee', employeeCode: 'ADG1024' },
+        recordedBy: { id: 3, name: 'Unit 1' },
+      },
+    ]);
+
+    const result = await service.downloadDashboardPdf({ date: '2026-09-10', employeeId: 1, recordedByUserId: 3 });
+
+    expect(movements.listWithFilters).toHaveBeenCalledWith({ date: '2026-09-10', employeeId: 1, movementType: undefined, recordedByUserId: 3 });
+    expect(generator.generateDashboardPdf).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filterLabel: 'Employee: Test Employee · Recorded By: Unit 1',
+        rows: [
+          {
+            employeeName: 'Test Employee',
+            employeeCode: 'ADG1024',
+            firstEntry: new Date('2026-09-10T04:00:00Z'),
+            lastExit: new Date('2026-09-10T12:00:00Z'),
+          },
+        ],
+      }),
+    );
+    expect(result).toEqual({ buffer: Buffer.from('pdf'), filename: 'attendance_2026-09-10.pdf' });
+  });
+
+  it('falls back to a direct lookup for the filter label when no rows match', async () => {
+    movements.listWithFilters.mockResolvedValue([]);
+    prisma.employee.findUnique.mockResolvedValue({ employeeName: 'Test Employee' });
+
+    await service.downloadDashboardPdf({ date: '2026-09-10', employeeId: 1 });
+
+    expect(prisma.employee.findUnique).toHaveBeenCalledWith({ where: { id: 1 }, select: { employeeName: true } });
+    expect(generator.generateDashboardPdf).toHaveBeenCalledWith(expect.objectContaining({ filterLabel: 'Employee: Test Employee' }));
   });
 
   it('sends the daily record email and marks the log as SENT', async () => {

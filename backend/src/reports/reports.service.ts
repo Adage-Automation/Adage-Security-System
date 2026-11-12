@@ -6,6 +6,7 @@ import { dayRange } from '../common/utils/day-range';
 import { ReportGeneratorService } from './report-generator.service';
 import { StorageService } from './storage.service';
 import { EmailService } from '../email/email.service';
+import { MovementsService } from '../movements/movements.service';
 
 @Injectable()
 export class ReportsService {
@@ -16,6 +17,7 @@ export class ReportsService {
     private generator: ReportGeneratorService,
     private storage: StorageService,
     private email: EmailService,
+    private movements: MovementsService,
   ) {}
 
   private async loadReportData(employeeId: number, date: string) {
@@ -176,6 +178,57 @@ export class ReportsService {
       // 2026-10 audit.
       throw new InternalServerErrorException('Failed to send email. Check Email Logs for details.');
     }
+  }
+
+  // The Dashboard page's filtered attendance table, as a PDF — same
+  // date/employee/movementType/recordedBy filters as its /movements
+  // request (requested 2026-11-12). Reuses MovementsService.listWithFilters
+  // rather than duplicating its query, so this stays in sync with whatever
+  // the table itself shows.
+  async downloadDashboardPdf(filters: {
+    date: string;
+    employeeId?: number;
+    movementType?: 'ENTRY' | 'EXIT';
+    recordedByUserId?: number;
+  }): Promise<{ buffer: Buffer; filename: string }> {
+    const rows = await this.movements.listWithFilters(filters);
+    const companyName = (await this.settings.get('COMPANY_NAME')) ?? 'Adage';
+    const dateLabel = new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }).format(new Date(filters.date));
+
+    const filterParts: string[] = [];
+    if (filters.employeeId) {
+      const name = rows[0]?.employee?.employeeName ?? (await this.prisma.employee.findUnique({ where: { id: filters.employeeId }, select: { employeeName: true } }))?.employeeName;
+      filterParts.push(`Employee: ${name ?? '—'}`);
+    }
+    if (filters.movementType) filterParts.push(`Movement: ${filters.movementType}`);
+    if (filters.recordedByUserId) {
+      const name = rows.find((r) => r.recordedBy?.id === filters.recordedByUserId)?.recordedBy?.name ?? (await this.prisma.user.findUnique({ where: { id: filters.recordedByUserId }, select: { name: true } }))?.name;
+      filterParts.push(`Recorded By: ${name ?? '—'}`);
+    }
+
+    // One row per employee — their first entry and last exit for the date —
+    // rather than one row per movement, so the PDF reads as an attendance
+    // record (requested 2026-11-12) instead of a raw tap log.
+    const byEmployee = new Map<number, { employeeName: string; employeeCode: string; firstEntry?: Date; lastExit?: Date }>();
+    for (const r of rows) {
+      let agg = byEmployee.get(r.employeeId);
+      if (!agg) {
+        agg = { employeeName: r.employee?.employeeName ?? '', employeeCode: r.employee?.employeeCode ?? '' };
+        byEmployee.set(r.employeeId, agg);
+      }
+      if (r.movementType === 'ENTRY' && (!agg.firstEntry || r.movementAt < agg.firstEntry)) agg.firstEntry = r.movementAt;
+      if (r.movementType === 'EXIT' && (!agg.lastExit || r.movementAt > agg.lastExit)) agg.lastExit = r.movementAt;
+    }
+    const dashboardRows = [...byEmployee.values()].sort((a, b) => a.employeeName.localeCompare(b.employeeName));
+
+    const buffer = await this.generator.generateDashboardPdf({
+      companyName,
+      dateLabel,
+      filterLabel: filterParts.length ? filterParts.join(' · ') : 'All records',
+      rows: dashboardRows,
+    });
+
+    return { buffer, filename: `attendance_${filters.date}.pdf` };
   }
 
   async listEmailLogs(employeeId?: number) {

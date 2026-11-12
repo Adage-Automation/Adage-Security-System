@@ -1,6 +1,6 @@
 import { Injectable, InternalServerErrorException, OnModuleDestroy } from '@nestjs/common';
 import puppeteer, { Browser } from 'puppeteer';
-import { renderMovementReportHtml } from './report.template';
+import { renderMovementReportHtml, renderDashboardReportHtml, DashboardReportData } from './report.template';
 
 interface MovementRow {
   movementAt: Date;
@@ -84,7 +84,17 @@ export class ReportGeneratorService implements OnModuleDestroy {
   }
 
   async generatePdf(input: GenerateReportInput): Promise<Buffer> {
-    const html = renderMovementReportHtml(input);
+    return this.pdfFromHtml(renderMovementReportHtml(input));
+  }
+
+  // Same filtered table the Dashboard page shows, as a downloadable PDF
+  // (requested 2026-11-12) — reuses the same browser pool and PDF options
+  // as the single-employee report above, just a different HTML template.
+  async generateDashboardPdf(input: DashboardReportData): Promise<Buffer> {
+    return this.pdfFromHtml(renderDashboardReportHtml(input));
+  }
+
+  private async pdfFromHtml(html: string): Promise<Buffer> {
     const raw = await this.renderWithPuppeteer<Uint8Array>(html, (page) =>
       page.pdf({ printBackground: true, width: '720px', preferCSSPageSize: false }),
     );

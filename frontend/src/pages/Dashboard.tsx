@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { Employee, MovementRecord, MovementType } from '../types';
-import { IconGrid, IconUsers, IconEntry, IconExit, IconInbox, IconChevronRight, IconDoorOpen, IconX } from '../components/icons';
+import { IconGrid, IconUsers, IconEntry, IconExit, IconInbox, IconChevronRight, IconDoorOpen, IconX, IconDownload } from '../components/icons';
 import { AdminNav } from '../components/AdminNav';
 import { EmployeeLink } from '../components/EmployeeLink';
 import { TableSkeleton } from '../components/TableSkeleton';
@@ -16,6 +16,7 @@ import { saveSessionState, loadSessionState } from '../utils/sessionState';
 import { todayIso, isoDaysAgo, formatTime } from '../utils/date';
 import { Th } from '../components/SortableTh';
 import { toggleSort, sortRows, SortState } from '../utils/sort';
+import { downloadFile } from '../utils/downloadFile';
 
 type SummaryCardKind = 'employees' | 'entries' | 'exits' | 'inside';
 
@@ -153,6 +154,26 @@ export function Dashboard() {
   const summarySeqRef = useRef(0);
 
   const isToday = date === todayIso();
+
+  // Same binary-download pattern as Insights'/Employees' Excel exports
+  // (frontend/src/utils/downloadFile.ts), just a PDF here and reusing
+  // whatever date/employee/movement/recordedBy filters are currently set.
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  async function downloadDashboardPdf() {
+    setDownloadingPdf(true);
+    try {
+      const params = new URLSearchParams({ date });
+      if (selectedEmployee) params.set('employeeId', String(selectedEmployee.id));
+      if (movementType) params.set('movementType', movementType);
+      if (recordedByUserId) params.set('recordedByUserId', recordedByUserId);
+      await downloadFile(`/api/reports/dashboard-pdf?${params.toString()}`, `attendance_${date}.pdf`);
+    } catch {
+      // Silent, same as the Excel exports elsewhere — the table itself is
+      // already visible, a failed download isn't worth an error banner.
+    } finally {
+      setDownloadingPdf(false);
+    }
+  }
 
   function openSummaryModal(kind: SummaryCardKind) {
     setSummaryModal(kind);
@@ -580,6 +601,20 @@ export function Dashboard() {
             </Link>
           </div>
         )}
+        {/* `.table-action-btn`'s own min-height (36px) is shorter than a
+            `.field` input's (~46px) — alignSelf alone still leaves a
+            top-edge mismatch against the dropdowns beside it. Same fix as
+            AuditLog's export button (AuditLog.tsx). */}
+        <button
+          type="button"
+          className="table-action-btn"
+          style={{ alignSelf: 'flex-end', minHeight: 46, display: 'flex', alignItems: 'center', gap: 6 }}
+          disabled={downloadingPdf}
+          onClick={downloadDashboardPdf}
+        >
+          {downloadingPdf ? <span className="spinner dark" /> : <IconDownload style={{ width: 16, height: 16 }} />}
+          {downloadingPdf ? 'Downloading…' : 'Download PDF'}
+        </button>
       </div>
 
       {/* Was `recordsLoading && records.length === 0` — correct for avoiding

@@ -55,6 +55,38 @@ export class ReportsController {
     res.send(buffer);
   }
 
+  // Dashboard's "Download PDF" button — same filters as its own
+  // /movements request (requested 2026-11-12).
+  @Get('dashboard-pdf')
+  @RequirePermissions('DOWNLOAD_REPORT')
+  async dashboardPdf(
+    @Query('date') date: string,
+    @Query('employeeId') employeeId: string | undefined,
+    @Query('movementType') movementType: 'ENTRY' | 'EXIT' | undefined,
+    @Query('recordedByUserId') recordedByUserId: string | undefined,
+    @CurrentUser() user: any,
+    @Res() res: Response,
+  ) {
+    const filters = {
+      date,
+      employeeId: parseOptionalInt(employeeId, 'employeeId'),
+      movementType,
+      recordedByUserId: parseOptionalInt(recordedByUserId, 'recordedByUserId'),
+    };
+    const { buffer, filename } = await this.reportsService.downloadDashboardPdf(filters);
+    await this.auditLog.record({
+      userId: user.id,
+      action: 'REPORT_DOWNLOADED',
+      entityType: 'Dashboard',
+      newValue: { format: 'PDF', ...filters },
+    });
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    });
+    res.send(buffer);
+  }
+
   // Only endpoint that ever triggers an email — never called automatically
   // from the movement-recording flow (spec §29, §66).
   @Post('email')

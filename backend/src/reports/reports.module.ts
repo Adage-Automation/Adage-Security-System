@@ -5,9 +5,10 @@ import { ReportGeneratorService } from './report-generator.service';
 import { StorageService } from './storage.service';
 import { SettingsModule } from '../settings/settings.module';
 import { EmailModule } from '../email/email.module';
+import { MovementsModule } from '../movements/movements.module';
 
 @Module({
-  imports: [SettingsModule, EmailModule],
+  imports: [SettingsModule, EmailModule, MovementsModule],
   controllers: [ReportsController],
   providers: [ReportsService, ReportGeneratorService, StorageService],
 })
