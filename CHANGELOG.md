@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-12 — Dashboard "Download PDF" export for filtered attendance records (Commit 60)
+
+**Added**: a **Download PDF** button on the Dashboard page, next to the existing filters, for a PDF of whatever the records table is currently showing. Reuses `MovementsService.listWithFilters` — the same query the table itself uses for `GET /movements` — so the PDF can never drift from what's on screen, and respects the same Date (required), Employee, Movement type, and Recorded By filters. New endpoint: `GET /reports/dashboard-pdf`, gated behind the existing `DOWNLOAD_REPORT` permission (already held by all three roles that can see the Dashboard), audited the same way as the existing PNG/PDF download endpoints.
+
+Iterated twice on the PDF's content, directly from user feedback: first built as one row per movement (Time/Movement/Recorded By columns), then collapsed to one row per employee — their first entry and last exit for the date, deliberately not reusing Insights' overnight-shift-stitching engine (built for multi-day duration math; this PDF is scoped to a single already-filtered date, where the simple aggregation is the correct fit) — and finally given a Sr. No. column plus a Total Present count. Button placement/alignment also iterated from a user-supplied screenshot: moved into the filters bar itself and given the same `alignSelf: 'flex-end'` + fixed `minHeight` fix already used by AuditLog's export button, since `.table-action-btn`'s own height is shorter than a `.field` input's.
+
+Backend: 19/19 suites, 227/227 tests pass; typecheck/lint clean. Frontend: 6/6 suites, 24/24 tests pass; typecheck/lint clean. Docs updated: `docs/api-reference.md` (new endpoint row) and `docs/user-guide-hr.md` (new "Downloading a PDF" section).
+
 ## 2026-10-30 — Insights hours-vs-flags bug, overnight shifts stitched across midnight, and a code-review batch
 
 A correctness-focused session: an external code review of commit 56 surfaced several real bugs, the most significant of which (orphan exits silently zeroing out real worked hours) led to a same-day follow-up fixing overnight shifts specifically.
